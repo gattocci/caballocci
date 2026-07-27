@@ -34,8 +34,40 @@ export type PostInput = Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'media'> &
 
 export interface DashboardStats { total: number; scheduled: number; drafts: number; published: number }
 
+export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  message: string
+  installedVersion: string
+  availableVersion: string | null
+  percent: number | null
+  transferred: number | null
+  total: number | null
+}
+
+export interface SystemInfo {
+  version: string
+  workspacePath: string
+  backupsPath: string
+  packaged: boolean
+}
+
 export interface ElectronAPI {
   posts: { list(): Promise<Post[]>; save(post: PostInput): Promise<Post>; remove(id: string): Promise<void> }
   media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(path: string): Promise<void> }
   clipboard: { write(text: string): Promise<void> }
+  system: {
+    info(): Promise<SystemInfo>
+    openWorkspace(): Promise<string>
+    openBackups(): Promise<string>
+    createBackup(): Promise<string>
+  }
+  updates: {
+    getState(): Promise<UpdateState>
+    check(): Promise<UpdateState>
+    download(): Promise<UpdateState>
+    install(): Promise<boolean>
+    onStateChange(listener: (state: UpdateState) => void): () => void
+  }
 }

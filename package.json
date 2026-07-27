@@ -1,7 +1,8 @@
 {
   "name": "caballocci",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
+  "author": "gattocci",
   "description": "caballocci — offline-first content planning workspace",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -10,12 +11,13 @@
     "preview": "vite preview",
     "start": "electron .",
     "typecheck": "tsc -b --pretty false",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "dist:win": "npm run build && cross-env ELECTRON_BUILDER_CACHE=.electron-builder-cache electron-builder --win nsis && node scripts/verify-release.mjs --artifacts"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.2.8",
     "@fontsource/dm-mono": "^5.2.6",
     "date-fns": "^4.1.0",
+    "electron-updater": "^6.6.2",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -39,10 +41,51 @@
   "build": {
     "appId": "com.caballocci.desktop",
     "productName": "caballocci",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "dist-electron/**/*", "node_modules/**/*", "package.json"],
-    "extraResources": [{ "from": "node_modules/sql.js/dist/sql-wasm.wasm", "to": "sql-wasm.wasm" }],
-    "win": { "target": "nsis" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gattocci",
+        "repo": "caballocci",
+        "releaseType": "release"
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/sql.js/dist/sql-wasm.wasm",
+        "to": "sql-wasm.wasm"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "caballocci-Setup-${version}-${arch}.${ext}",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "caballocci",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

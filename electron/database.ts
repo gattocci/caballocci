@@ -4,14 +4,17 @@ import initSqlJs, { Database } from 'sql.js'
 
 type Row = Record<string, unknown>
 
-export class PlannerDatabase {
-  private db!: Database
-  constructor(private readonly filePath: string, private readonly wasmPath: string) {}
+interface Migration {
+  version: number
+  name: string
+  up: string
+}
 
-  async init() {
-    const SQL = await initSqlJs({ locateFile: () => this.wasmPath })
-    this.db = fs.existsSync(this.filePath) ? new SQL.Database(fs.readFileSync(this.filePath)) : new SQL.Database()
-    this.db.run(`
+const migrations: Migration[] = [
+  {
+    version: 1,
+    name: 'initial_planner_schema',
+    up: `
       CREATE TABLE IF NOT EXISTS posts (
         id TEXT PRIMARY KEY, title TEXT NOT NULL, caption TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
         hashtags TEXT NOT NULL DEFAULT '[]', mentions TEXT NOT NULL DEFAULT '[]', platforms TEXT NOT NULL DEFAULT '[]',
@@ -26,9 +29,37 @@ export class PlannerDatabase {
         id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, kind TEXT NOT NULL,
         size INTEGER NOT NULL, mode TEXT NOT NULL, created_at TEXT NOT NULL
       );
-    `)
-    if (this.count() === 0) this.seed()
+    `,
+  },
+]
+
+export class PlannerDatabase {
+  private db!: Database
+  private readonly existedAtStartup: boolean
+
+  constructor(
+    private readonly filePath: string,
+    private readonly wasmPath: string,
+    private readonly backupsDirectory: string,
+  ) {
+    this.existedAtStartup = fs.existsSync(filePath)
+  }
+
+  async init() {
+    const SQL = await initSqlJs({ locateFile: () => this.wasmPath })
+    this.db = this.existedAtStartup ? new SQL.Database(fs.readFileSync(this.filePath)) : new SQL.Database()
+    this.runMigrations()
+    if (!this.existedAtStartup && this.count() === 0) this.seed()
     this.persist()
+  }
+
+  createBackup(reason: 'before-migration' | 'before-update' | 'manual' = 'manual') {
+    this.persist()
+    fs.mkdirSync(this.backupsDirectory, { recursive: true })
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const destination = path.join(this.backupsDirectory, `caballocci-${timestamp}-${reason}.sqlite`)
+    fs.copyFileSync(this.filePath, destination, fs.constants.COPYFILE_EXCL)
+    return destination
   }
 
   list(): Row[] {
@@ -52,7 +83,7 @@ export class PlannerDatabase {
     this.db.run(`INSERT OR REPLACE INTO posts
       (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,created_at,updated_at)
       VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$createdAt,$updatedAt)`,
-      Object.fromEntries(Object.entries(values).map(([k, v]) => [`$${k}`, v])) as Record<string, string | number | null>)
+      Object.fromEntries(Object.entries(values).map(([key, value]) => [`$${key}`, value])) as Record<string, string | number | null>)
     const previousStatus = current ? String(current.status) : null
     const nextStatus = String(values.status)
     if (!current || previousStatus !== nextStatus) {
@@ -63,11 +94,13 @@ export class PlannerDatabase {
   }
 
   remove(id: string) { this.db.run('DELETE FROM posts WHERE id = ?', [id]); this.persist() }
+
   listMedia(): Row[] {
     const result = this.db.exec('SELECT id,name,path,kind,size,mode FROM media_assets ORDER BY created_at DESC')
     if (!result[0]) return []
     return result[0].values.map(values => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
   }
+
   saveMedia(assets: Row[]) {
     const now = new Date().toISOString()
     assets.forEach(asset => this.db.run(
@@ -76,18 +109,52 @@ export class PlannerDatabase {
     ))
     this.persist()
   }
+
+  private runMigrations() {
+    const currentVersion = Number(this.db.exec('PRAGMA user_version')[0]?.values[0]?.[0] || 0)
+    const pending = migrations.filter(migration => migration.version > currentVersion)
+    if (pending.length === 0) return
+    if (this.existedAtStartup) this.backupCurrentFile('before-migration')
+
+    for (const migration of pending) {
+      this.db.run('BEGIN TRANSACTION')
+      try {
+        this.db.run(migration.up)
+        this.db.run(`PRAGMA user_version = ${migration.version}`)
+        this.db.run('COMMIT')
+      } catch (error) {
+        this.db.run('ROLLBACK')
+        throw new Error(`Falló la migración ${migration.version} (${migration.name})`, { cause: error })
+      }
+    }
+  }
+
+  private backupCurrentFile(reason: 'before-migration') {
+    fs.mkdirSync(this.backupsDirectory, { recursive: true })
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const destination = path.join(this.backupsDirectory, `caballocci-${timestamp}-${reason}.sqlite`)
+    fs.copyFileSync(this.filePath, destination, fs.constants.COPYFILE_EXCL)
+  }
+
   private one(id: string): Row | undefined { return this.list().find((row) => row.id === id) }
   private count() { return Number(this.db.exec('SELECT COUNT(*) AS n FROM posts')[0]?.values[0]?.[0] || 0) }
-  private persist() { fs.mkdirSync(path.dirname(this.filePath), { recursive: true }); fs.writeFileSync(this.filePath, Buffer.from(this.db.export())) }
+
+  private persist() {
+    fs.mkdirSync(path.dirname(this.filePath), { recursive: true })
+    const temporaryPath = `${this.filePath}.tmp`
+    fs.writeFileSync(temporaryPath, Buffer.from(this.db.export()))
+    fs.renameSync(temporaryPath, this.filePath)
+  }
+
   private seed() {
     const base = new Date(); base.setHours(10, 0, 0, 0)
-    const at = (offset: number, hour: number) => { const d = new Date(base); d.setDate(d.getDate() + offset); d.setHours(hour); return d.toISOString() }
+    const at = (offset: number, hour: number) => { const date = new Date(base); date.setDate(date.getDate() + offset); date.setHours(hour); return date.toISOString() }
     const samples = [
       { title:'Cómo planeamos un mes en 30 min', caption:'Un sistema simple vence a una semana caótica. Guarda este proceso para tu próxima sesión de contenido.', hashtags:['#ContentPlanning','#CreatorTips'], platforms:['instagram'], contentType:'reel', status:'scheduled', scheduledAt:at(0,11), durationMinutes:45, project:'Marca personal', color:'#ef6548' },
       { title:'Detrás de campaña Aurora', caption:'Del primer boceto al resultado final. Este es el trabajo que normalmente no se ve.', hashtags:['#BehindTheScenes'], platforms:['instagram','facebook'], contentType:'carousel', status:'approved', scheduledAt:at(1,15), durationMinutes:60, project:'Campaña Aurora', color:'#35a780' },
       { title:'Hilo: 5 aprendizajes del trimestre', caption:'Cinco decisiones pequeñas que cambiaron nuestros resultados este trimestre.', hashtags:['#Marketing'], platforms:['x'], contentType:'thread', status:'draft', scheduledAt:at(2,9), durationMinutes:30, project:'Editorial', color:'#4b8ed8' },
       { title:'Pregunta a la comunidad', caption:'¿Qué parte de crear contenido te consume más tiempo?', hashtags:['#Community'], platforms:['facebook','x'], contentType:'post', status:'review', scheduledAt:at(3,18), durationMinutes:30, project:'Comunidad', color:'#e5ac39' },
-      { title:'Lanzamiento: plantilla semanal', caption:'La plantilla que usamos cada lunes ya está disponible.', hashtags:['#ProductLaunch','#Templates'], platforms:['instagram','facebook','x'], contentType:'carousel', status:'idea', scheduledAt:at(5,12), durationMinutes:60, project:'Producto', color:'#9a72d8' }
+      { title:'Lanzamiento: plantilla semanal', caption:'La plantilla que usamos cada lunes ya está disponible.', hashtags:['#ProductLaunch','#Templates'], platforms:['instagram','facebook','x'], contentType:'carousel', status:'idea', scheduledAt:at(5,12), durationMinutes:60, project:'Producto', color:'#9a72d8' },
     ]
     samples.forEach((sample) => this.save(sample as unknown as Row))
   }

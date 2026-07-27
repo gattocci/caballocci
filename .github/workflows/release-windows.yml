@@ -1,0 +1,50 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate tag and package version
+        shell: pwsh
+        run: node scripts/verify-release.mjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Build and publish NSIS release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win nsis --x64 --publish always
+
+      - name: Verify update artifacts
+        run: node scripts/verify-release.mjs --artifacts
+
+      - name: Preserve artifacts in workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: caballocci-windows-${{ github.ref_name }}
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error

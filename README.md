@@ -1,42 +1,52 @@
 # caballocci
 
-Aplicacion de escritorio offline-first para planificar contenido de Instagram, Facebook y X. El MVP usa Electron, React, TypeScript y una base SQLite local basada en sql.js.
+Aplicación de escritorio offline-first para planificar contenido de Instagram, Facebook y X. Usa Electron, React, TypeScript, Vite y SQLite local mediante sql.js.
 
-## Incluido en este MVP
+## Funciones
 
-- Linea de tiempo horizontal de 14 dias con arrastrar y soltar.
-- Calendario mensual con reprogramacion mediante arrastre.
-- Tablero Kanban para mover publicaciones entre estados.
-- Editor con formato, plataformas, texto, hashtags, fecha, proyecto, notas y archivos.
-- Vista previa local por plataforma y copia del texto al portapapeles.
-- Biblioteca multimedia local en modo copia o referencia al archivo original.
-- Historial persistente de cambios de estado.
-- Datos de ejemplo en el primer arranque.
+- Línea de tiempo horizontal, calendario y tablero Kanban.
+- Editor, vista previa y publicación manual.
+- Biblioteca multimedia local en modo copia o referencia.
+- Migraciones SQLite numeradas y transaccionales.
+- Backups fechados antes de migraciones e instalaciones de actualizaciones.
+- Actualizaciones desde GitHub Releases, siempre confirmadas por el usuario.
 
-Los datos se guardan en el directorio userData de Electron. No se requiere cuenta, conexion social ni acceso a Internet una vez instalada la aplicacion.
+Los datos se guardan fuera de la instalación, en el directorio `userData` de Electron. Reinstalar o actualizar la aplicación no elimina la base, la biblioteca multimedia ni los backups.
 
 ## Desarrollo en Windows
 
 Requisitos: Node.js 22 o posterior.
 
-    npm.cmd install
-    npm.cmd run dev
+```powershell
+npm.cmd ci
+npm.cmd run dev
+```
 
-## Compilar
+En desarrollo, la pantalla Acerca de / Actualizaciones informa que el updater no está disponible. `electron-updater` solo se activa cuando `app.isPackaged` es verdadero.
 
-    npm.cmd run build
+## Compilar y empaquetar
 
-Para generar el instalador NSIS de Windows:
+```powershell
+npm.cmd run build
+npm.cmd run dist:win
+```
 
-    npm.cmd run dist:win
+El instalador NSIS x64 y sus metadatos se generan en `release/`. Consulta [docs/RELEASING.md](docs/RELEASING.md) para publicar una versión y [docs/DATA-MIGRATIONS.md](docs/DATA-MIGRATIONS.md) para añadir migraciones.
 
 ## Arquitectura
 
-- electron/main.ts: ventana nativa, dialogos de archivos, portapapeles e IPC.
-- electron/database.ts: persistencia local y esquema de datos.
-- electron/preload.ts: API minima expuesta de forma segura a React.
-- src/store.ts: estado y operaciones del dominio.
-- src/views.tsx: timeline, calendario, Kanban y biblioteca.
-- src/Editor.tsx: editor, adjuntos, preview y publicacion manual.
+- `electron/main.ts`: ventana, IPC, rutas locales y ciclo de vida.
+- `electron/database.ts`: SQLite, migraciones, backups y persistencia atómica.
+- `electron/updater.ts`: comprobación, descarga e instalación ofrecidas al usuario.
+- `electron/preload.ts`: API mínima con `contextIsolation`; `nodeIntegration` permanece deshabilitado.
+- `src/app`: aplicación y estado global.
+- `src/features`: timeline, calendario, Kanban, editor, biblioteca y actualizaciones.
+- `src/shared`: contratos y tipos compartidos del renderer.
 
-La separacion entre interfaz, dominio, almacenamiento e IPC permite incorporar despues perfiles reales, autenticacion opcional, proveedores de IA e integraciones sociales sin acoplarlos al flujo offline.
+## Datos locales
+
+- Base: `<userData>/caballocci.sqlite`.
+- Biblioteca copiada: `<userData>/Media`.
+- Backups: `<userData>/Backups`.
+
+En Windows, `userData` suele estar bajo `%APPDATA%\caballocci`. La ruta efectiva se muestra en Acerca de / Actualizaciones. La migración compatible desde `content-planner.sqlite` copia la base antigua y no elimina el original.

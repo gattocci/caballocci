@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Post, PostInput, PostStatus } from '../shared/types'
 
-export type PlannerView = 'timeline' | 'calendar' | 'board' | 'library'
+export type PlannerView = 'timeline' | 'calendar' | 'board' | 'library' | 'about'
 
 interface PlannerState {
   posts: Post[]

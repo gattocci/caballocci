@@ -1,0 +1,29 @@
+.about-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;max-width:980px}
+.settings-section{border-top:2px solid #343c37;background:#131715;padding:22px}
+.settings-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:20px}
+.settings-heading span{font-size:9px;font-weight:800;letter-spacing:1.1px;color:#727d76}
+.settings-heading h2{font-size:18px;margin:5px 0 0}
+.settings-heading>strong{font:500 14px 'DM Mono',monospace;color:#d7ddd9;background:#202622;padding:7px 9px}
+.update-state{min-height:58px;display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#171c19;padding:12px}
+.update-state>span{width:9px;height:9px;border-radius:50%;background:#7d8781}
+.update-state.available>span,.update-state.downloaded>span{background:var(--accent)}
+.update-state.not-available>span{background:var(--green)}
+.update-state.error>span{background:#e05252}
+.update-state>div{display:grid;gap:4px}
+.update-state strong{font-size:11px}
+.update-state small{font-size:9px;color:var(--muted)}
+.settings-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}
+.settings-button{height:36px;border:1px solid #38413b;background:#1b211d;border-radius:4px;padding:0 12px;display:inline-flex;align-items:center;gap:7px;font-size:10px;font-weight:650;cursor:pointer}
+.settings-button:hover{background:#252c27}
+.settings-button.primary{background:var(--accent);border-color:var(--accent);color:white}
+.settings-button:disabled{opacity:.45;cursor:not-allowed}
+.download-progress{margin-top:14px}
+.download-progress>div{display:flex;justify-content:space-between;font-size:9px;margin-bottom:7px}
+.download-progress progress{width:100%;height:7px;accent-color:var(--accent)}
+.download-progress small{font-size:8px;color:var(--muted)}
+.settings-note{font-size:9px;line-height:15px;color:var(--muted);margin:14px 0 0}
+.settings-note.success{color:#73c99b;overflow-wrap:anywhere}
+.path-list{display:grid;margin:0;border-top:1px solid var(--line)}
+.path-list>div{padding:12px 0;border-bottom:1px solid var(--line);display:grid;gap:5px}
+.path-list dt{font-size:9px;color:var(--muted)}
+.path-list dd{font:10px 'DM Mono',monospace;margin:0;overflow-wrap:anywhere;color:#d8deda}

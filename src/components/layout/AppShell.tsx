@@ -19,7 +19,7 @@ export function Sidebar() {
     <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><div><strong>caballo</strong><b>cci</b></div></div>
     <nav>{nav.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}><Icon size={18} /><span>{label}</span>{id === 'timeline' && <em>{posts.filter(p => p.status === 'scheduled').length}</em>}</button>)}</nav>
     <div className="side-section"><p>ESPACIOS</p><button className="space active"><span className="space-dot coral">C</span><span>Mi contenido</span><MoreHorizontal size={16} /></button><button className="space"><span className="space-dot mint">A</span><span>Campaña Aurora</span></button><button className="add-space"><Plus size={15} /> Nuevo espacio</button></div>
-    <div className="sidebar-bottom"><div className="offline"><span /><div><strong>Todo guardado</strong><small>Modo local</small></div></div><button title="Ajustes"><Settings size={18} /></button></div>
+    <div className="sidebar-bottom"><div className="offline"><span /><div><strong>Todo guardado</strong><small>Modo local</small></div></div><button className={view === 'about' ? 'active' : ''} title="Acerca de y actualizaciones" onClick={() => setView('about')}><Settings size={18} /></button></div>
   </aside>
 }
 

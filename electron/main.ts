@@ -2,9 +2,11 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { PlannerDatabase } from './database'
+import { UpdateManager } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let database: PlannerDatabase
+let updater: UpdateManager
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL)
 
 function mapPost(row: Record<string, unknown>) {
@@ -32,6 +34,7 @@ app.whenReady().then(async () => {
   const wasmPath = app.isPackaged ? path.join(process.resourcesPath, 'sql-wasm.wasm') : path.join(__dirname, '../node_modules/sql.js/dist/sql-wasm.wasm')
   const dataDirectory = app.getPath('userData')
   const databasePath = path.join(dataDirectory, 'caballocci.sqlite')
+  const backupsDirectory = path.join(dataDirectory, 'Backups')
   const appDataDirectory = app.getPath('appData')
   const legacyDatabasePaths = [
     path.join(dataDirectory, 'content-planner.sqlite'),
@@ -44,12 +47,26 @@ app.whenReady().then(async () => {
     fs.mkdirSync(dataDirectory, { recursive: true })
     fs.copyFileSync(legacyDatabasePath, databasePath)
   }
-  database = new PlannerDatabase(databasePath, wasmPath)
+  database = new PlannerDatabase(databasePath, wasmPath, backupsDirectory)
   await database.init()
+  updater = new UpdateManager(() => mainWindow, () => { database.createBackup('before-update') })
   ipcMain.handle('posts:list', () => database.list().map(mapPost))
   ipcMain.handle('posts:save', (_event, post) => mapPost(database.save(post)))
   ipcMain.handle('posts:remove', (_event, id) => database.remove(id))
   ipcMain.handle('clipboard:write', (_event, text) => clipboard.writeText(text))
+  ipcMain.handle('system:info', () => ({
+    version: app.getVersion(),
+    workspacePath: dataDirectory,
+    backupsPath: backupsDirectory,
+    packaged: app.isPackaged,
+  }))
+  ipcMain.handle('system:open-workspace', () => shell.openPath(dataDirectory))
+  ipcMain.handle('system:open-backups', () => { fs.mkdirSync(backupsDirectory, { recursive: true }); return shell.openPath(backupsDirectory) })
+  ipcMain.handle('system:create-backup', () => database.createBackup('manual'))
+  ipcMain.handle('updates:get-state', () => updater.getState())
+  ipcMain.handle('updates:check', () => updater.check())
+  ipcMain.handle('updates:download', () => updater.download())
+  ipcMain.handle('updates:install', () => updater.install())
   ipcMain.handle('media:reveal', (_event, target) => shell.showItemInFolder(target))
   ipcMain.handle('media:list', () => database.listMedia())
   ipcMain.handle('media:choose', async (_event, mode: 'copy' | 'reference') => {
@@ -69,6 +86,7 @@ app.whenReady().then(async () => {
     return assets
   })
   await createWindow()
+  updater.startAutomaticChecks()
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
