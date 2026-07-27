@@ -66,7 +66,8 @@ export class UpdateManager {
   install() {
     if (!app.isPackaged || this.state.status !== 'downloaded') return false
     this.beforeInstall()
-    setImmediate(() => autoUpdater.quitAndInstall(false, true))
+    // The user already confirmed this action inside caballocci.
+    setImmediate(() => autoUpdater.quitAndInstall(true, true))
     return true
   }
 

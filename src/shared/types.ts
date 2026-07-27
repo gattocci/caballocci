@@ -54,7 +54,12 @@ export interface SystemInfo {
 }
 
 export interface ElectronAPI {
-  posts: { list(): Promise<Post[]>; save(post: PostInput): Promise<Post>; remove(id: string): Promise<void> }
+  posts: {
+    list(): Promise<Post[]>
+    save(post: PostInput): Promise<Post>
+    remove(id: string): Promise<void>
+    reassignProject(fromProject: string, toProject: string): Promise<void>
+  }
   media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(path: string): Promise<void> }
   clipboard: { write(text: string): Promise<void> }
   system: {

@@ -99,6 +99,10 @@
 .space-dialog label { display: grid; gap: 8px; color: #9da69f; font-size: 10px; font-weight: 700; }
 .space-dialog input { height: 40px; padding: 0 11px; border: 1px solid #353d38; border-radius: 4px; background: #1d231f; color: #fff; }
 .space-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.remove-space-dialog p { margin: 0 0 20px; color: #9da69f; font-size: 11px; line-height: 18px; }
+.remove-space-options { display: flex; justify-content: flex-end; gap: 8px; }
+.danger-action { height: 36px; padding: 0 13px; border: 1px solid #7c3d32; border-radius: 4px; background: #41221d; color: #ffab98; font-size: 10px; cursor: pointer; }
+.danger-action:hover { background: #562a23; }
 
 @media (max-width: 1200px) {
   .topbar { padding-right: 168px; }

@@ -49,9 +49,16 @@ La caché local de las herramientas de empaquetado se guarda en `.electron-build
 
 - La aplicación empaquetada comprueba automáticamente después del arranque y permite una comprobación manual.
 - Encontrar una versión no inicia la descarga: el usuario pulsa Descargar actualización.
-- Terminar la descarga no instala: el usuario pulsa Reiniciar e instalar.
+- Terminar la descarga no instala: el usuario pulsa Reiniciar y actualizar.
 - Justo antes de `quitAndInstall`, caballocci persiste SQLite y crea un backup `before-update`.
+- Después de la confirmación, NSIS se ejecuta silenciosamente y caballocci vuelve a abrirse; no se repite el asistente de instalación inicial.
 - En desarrollo no se consulta GitHub y se muestra el estado no disponible.
+
+## Historial de Releases y limpieza del repositorio
+
+Los instaladores, blockmaps y latest.yml pertenecen a GitHub Releases, no al historial Git. No uses `git add -f release/*.exe`: el README enlaza la Release más reciente para usuarios y mantiene las instrucciones del código fuente separadas para desarrolladores.
+
+Las Releases anteriores pueden permanecer publicadas. El updater selecciona la Release estable más reciente; conservar versiones históricas no aumenta el tamaño de un clon del repositorio ni interfiere con las actualizaciones. No reutilices etiquetas ni reemplaces binarios ya publicados.
 
 ## Firma de código y SmartScreen
 

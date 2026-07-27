@@ -39,8 +39,9 @@ export function AboutUpdates() {
         <div className="settings-actions">
           <button className="settings-button" disabled={busy || update?.status === 'unavailable'} onClick={() => void window.planner.updates.check()}><RefreshCw size={16} /> Buscar actualizaciones</button>
           {update?.status === 'available' && <button className="settings-button primary" onClick={() => void window.planner.updates.download()}><Download size={16} /> Descargar actualización</button>}
-          {update?.status === 'downloaded' && <button className="settings-button primary" onClick={() => void window.planner.updates.install()}><RotateCw size={16} /> Reiniciar e instalar</button>}
+          {update?.status === 'downloaded' && <button className="settings-button primary" onClick={() => void window.planner.updates.install()}><RotateCw size={16} /> Reiniciar y actualizar</button>}
         </div>
+        {update?.status === 'downloaded' && <p className="settings-note success">La actualización se aplicará en segundo plano y caballocci volverá a abrirse.</p>}
         {!info?.packaged && <p className="settings-note">La comprobación de actualizaciones está deshabilitada durante el desarrollo. Se activa en el instalador empaquetado.</p>}
       </section>
       <section className="settings-section">

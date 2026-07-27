@@ -20,8 +20,10 @@ function mapPost(row: Record<string, unknown>) {
 }
 
 async function createWindow() {
+  const windowIcon = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(__dirname, '../build/icon.png')
   mainWindow = new BrowserWindow({
     width: 1500, height: 940, minWidth: 1120, minHeight: 720, show: false,
+    icon: windowIcon,
     backgroundColor: '#101311', titleBarStyle: 'hidden', titleBarOverlay: { color: '#101311', symbolColor: '#c9d0ca', height: 64 },
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   })
@@ -29,6 +31,8 @@ async function createWindow() {
   else await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   mainWindow.once('ready-to-show', () => mainWindow?.show())
 }
+
+app.setAppUserModelId('com.caballocci.desktop')
 
 app.whenReady().then(async () => {
   const wasmPath = app.isPackaged ? path.join(process.resourcesPath, 'sql-wasm.wasm') : path.join(__dirname, '../node_modules/sql.js/dist/sql-wasm.wasm')
@@ -53,6 +57,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('posts:list', () => database.list().map(mapPost))
   ipcMain.handle('posts:save', (_event, post) => mapPost(database.save(post)))
   ipcMain.handle('posts:remove', (_event, id) => database.remove(id))
+  ipcMain.handle('posts:reassign-project', (_event, fromProject, toProject) => database.reassignProject(fromProject, toProject))
   ipcMain.handle('clipboard:write', (_event, text) => clipboard.writeText(text))
   ipcMain.handle('system:info', () => ({
     version: app.getVersion(),

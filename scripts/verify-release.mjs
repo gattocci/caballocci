@@ -14,13 +14,19 @@ if (tag.slice(1) !== packageJson.version) {
 const releaseDirectory = path.resolve('release')
 if (process.argv.includes('--artifacts')) {
   const names = fs.readdirSync(releaseDirectory)
+  const installerName = `caballocci-Setup-${packageJson.version}-x64.exe`
   const required = [
-    name => /^caballocci-Setup-.*-x64\.exe$/.test(name),
-    name => /^caballocci-Setup-.*-x64\.exe\.blockmap$/.test(name),
-    name => name === 'latest.yml',
+    installerName,
+    `${installerName}.blockmap`,
+    'latest.yml',
   ]
-  if (!required.every(match => names.some(match))) {
-    throw new Error(`Faltan artefactos de actualización en release/: ${names.join(', ')}`)
+  const missing = required.filter(name => !names.includes(name))
+  if (missing.length > 0) {
+    throw new Error(`Faltan artefactos de ${packageJson.version} en release/: ${missing.join(', ')}`)
   }
-  console.log(names.filter(name => /(?:\.exe|\.blockmap|latest\.yml)$/.test(name)).join('\n'))
+  const updateMetadata = fs.readFileSync(path.join(releaseDirectory, 'latest.yml'), 'utf8')
+  if (!new RegExp(`^version:\\s*['"]?${packageJson.version.replaceAll('.', '\\.')}['"]?\\s*$`, 'm').test(updateMetadata)) {
+    throw new Error(`latest.yml no corresponde a ${packageJson.version}.`)
+  }
+  console.log(required.join('\n'))
 }

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('planner', {
     list: () => ipcRenderer.invoke('posts:list'),
     save: (post: unknown) => ipcRenderer.invoke('posts:save', post),
     remove: (id: string) => ipcRenderer.invoke('posts:remove', id),
+    reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
   },
   media: {
     list: () => ipcRenderer.invoke('media:list'),

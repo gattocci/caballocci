@@ -21,7 +21,8 @@ interface PlannerState {
   setQuery(query: string): void
   setActiveSpace(space: string | null): void
   addSpace(space: string): void
-  removeSpace(space: string): void
+  renameSpace(space: string, nextName: string): Promise<void>
+  removeSpace(space: string, movePosts: boolean): Promise<void>
 }
 
 function readStoredSpaces() {
@@ -68,7 +69,21 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     localStorage.setItem('caballocci.hidden-spaces', JSON.stringify(hiddenSpaces))
     set({ customSpaces, hiddenSpaces, activeSpace: name })
   },
-  removeSpace: (space) => {
+  renameSpace: async (space, nextName) => {
+    const name = nextName.trim()
+    if (!name || name === space) return
+    await window.planner.posts.reassignProject(space, name)
+    const customSpaces = Array.from(new Set([...get().customSpaces.filter(item => item !== space), name]))
+    const hiddenSpaces = Array.from(new Set([...get().hiddenSpaces.filter(item => item !== name), space]))
+    localStorage.setItem('caballocci.spaces', JSON.stringify(customSpaces))
+    localStorage.setItem('caballocci.hidden-spaces', JSON.stringify(hiddenSpaces))
+    set({ posts: get().posts.map(post => post.project === space ? { ...post, project: name } : post), customSpaces, hiddenSpaces, activeSpace: get().activeSpace === space ? name : get().activeSpace })
+  },
+  removeSpace: async (space, movePosts) => {
+    if (movePosts) {
+      await window.planner.posts.reassignProject(space, 'Mi contenido')
+      set({ posts: get().posts.map(post => post.project === space ? { ...post, project: 'Mi contenido' } : post) })
+    }
     const customSpaces = get().customSpaces.filter(item => item !== space)
     const hiddenSpaces = Array.from(new Set([...get().hiddenSpaces, space]))
     localStorage.setItem('caballocci.spaces', JSON.stringify(customSpaces))

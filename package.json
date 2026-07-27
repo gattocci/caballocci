@@ -1,11 +1,12 @@
 {
   "name": "caballocci",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "author": "gattocci",
   "description": "caballocci — offline-first content planning workspace",
   "main": "dist-electron/main.js",
   "scripts": {
+    "brand:assets": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/generate-brand-assets.ps1",
     "dev": "tsc -p electron/tsconfig.json && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build": "tsc -b && vite build && tsc -p electron/tsconfig.json",
     "preview": "vite preview",
@@ -63,9 +64,14 @@
       {
         "from": "node_modules/sql.js/dist/sql-wasm.wasm",
         "to": "sql-wasm.wasm"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
     "win": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "nsis",
@@ -85,6 +91,14 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "caballocci",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "installerHeader": "build/installerHeader.bmp",
+      "removeDefaultUninstallWelcomePage": true,
+      "uninstallDisplayName": "caballocci",
+      "installerLanguages": [
+        "es_ES"
+      ],
       "deleteAppDataOnUninstall": false
     }
   }

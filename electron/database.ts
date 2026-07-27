@@ -95,6 +95,19 @@ export class PlannerDatabase {
 
   remove(id: string) { this.db.run('DELETE FROM posts WHERE id = ?', [id]); this.persist() }
 
+  reassignProject(fromProject: string, toProject: string) {
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('UPDATE posts SET project = ?, updated_at = ? WHERE project = ?', [toProject, now, fromProject])
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
+  }
+
   listMedia(): Row[] {
     const result = this.db.exec('SELECT id,name,path,kind,size,mode FROM media_assets ORDER BY created_at DESC')
     if (!result[0]) return []
