@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('planner', {
   media: {
     list: () => ipcRenderer.invoke('media:list'),
     choose: (mode: 'copy' | 'reference') => ipcRenderer.invoke('media:choose', mode),
-    reveal: (path: string) => ipcRenderer.invoke('media:reveal', path),
+    reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
   },
   clipboard: { write: (text: string) => ipcRenderer.invoke('clipboard:write', text) },
   system: {

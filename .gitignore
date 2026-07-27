@@ -4,5 +4,7 @@ dist-electron/
 release/
 .electron-builder-cache/
 *.log
+*.exe
 .DS_Store
 ignore.md
+security.md

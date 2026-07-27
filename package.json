@@ -1,6 +1,6 @@
 {
   "name": "caballocci",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "author": "gattocci",
   "description": "caballocci — offline-first content planning workspace",
@@ -12,13 +12,13 @@
     "preview": "vite preview",
     "start": "electron .",
     "typecheck": "tsc -b --pretty false",
-    "dist:win": "npm run build && cross-env ELECTRON_BUILDER_CACHE=.electron-builder-cache electron-builder --win nsis && node scripts/verify-release.mjs --artifacts"
+    "dist:win": "npm run build && cross-env ELECTRON_CACHE=.electron-builder-cache/electron ELECTRON_BUILDER_CACHE=.electron-builder-cache electron-builder --win nsis && node scripts/verify-release.mjs --artifacts"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.2.8",
     "@fontsource/dm-mono": "^5.2.6",
     "date-fns": "^4.1.0",
-    "electron-updater": "^6.6.2",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -33,8 +33,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "typescript": "~5.7.2",
     "vite": "^6.0.5",
     "wait-on": "^8.0.1"
@@ -42,7 +42,6 @@
   "build": {
     "appId": "com.caballocci.desktop",
     "productName": "caballocci",
-    "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "release"
     },

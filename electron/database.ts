@@ -109,9 +109,21 @@ export class PlannerDatabase {
   }
 
   listMedia(): Row[] {
-    const result = this.db.exec('SELECT id,name,path,kind,size,mode FROM media_assets ORDER BY created_at DESC')
+    const result = this.db.exec('SELECT id,name,kind,size,mode FROM media_assets ORDER BY created_at DESC')
     if (!result[0]) return []
     return result[0].values.map(values => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
+  }
+
+  getMediaPath(id: string): string | undefined {
+    const statement = this.db.prepare('SELECT path FROM media_assets WHERE id = ?')
+    try {
+      statement.bind([id])
+      if (!statement.step()) return undefined
+      const value = statement.getAsObject().path
+      return typeof value === 'string' ? value : undefined
+    } finally {
+      statement.free()
+    }
   }
 
   saveMedia(assets: Row[]) {

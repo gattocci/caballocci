@@ -52,6 +52,7 @@ El instalador NSIS x64 y sus metadatos se generan en **release/**. Esa carpeta e
 - [Versionado y publicación](docs/RELEASING.md)
 - [Migraciones y protección de datos](docs/DATA-MIGRATIONS.md)
 - [Iconos e instalador](docs/BRANDING.md)
+- [Política y modelo de seguridad](SECURITY.md)
 
 ## Arquitectura
 

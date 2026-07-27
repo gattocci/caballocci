@@ -24,7 +24,6 @@ export interface Post {
 export interface MediaAsset {
   id: string
   name: string
-  path: string
   kind: 'image' | 'video' | 'document'
   size: number
   mode: 'copy' | 'reference'
@@ -60,7 +59,7 @@ export interface ElectronAPI {
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(path: string): Promise<void> }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(id: string): Promise<void> }
   clipboard: { write(text: string): Promise<void> }
   system: {
     info(): Promise<SystemInfo>
