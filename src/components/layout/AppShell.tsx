@@ -1,14 +1,20 @@
-import { CalendarDays, Clock3, Columns3, Library, Menu, MoreHorizontal, Plus, Search, Settings } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { CalendarDays, Check, Clock3, Columns3, Library, Menu, MoreHorizontal, Plus, Search, Settings, X } from 'lucide-react'
 import { usePlanner } from '../../app/store'
 import { platformMeta } from '../../shared/constants'
 import type { Platform } from '../../shared/types'
+import './app-shell.css'
 
 export function PlatformMark({ platform, small = false }: { platform: Platform; small?: boolean }) {
   return <span className={'platform-mark ' + platform + (small ? ' small' : '')}>{platformMeta[platform].mark}</span>
 }
 
 export function Sidebar() {
-  const { view, setView, posts } = usePlanner()
+  const { view, setView, posts, activeSpace, customSpaces, setActiveSpace, addSpace } = usePlanner()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [creatingSpace, setCreatingSpace] = useState(false)
+  const [spaceName, setSpaceName] = useState('')
+  const spaces = useMemo(() => Array.from(new Set(['Campaña Aurora', ...customSpaces, ...posts.map(post => post.project).filter(project => project && project !== 'Mi contenido')])), [customSpaces, posts])
   const nav = [
     { id: 'timeline', label: 'Línea de tiempo', icon: Clock3 },
     { id: 'calendar', label: 'Calendario', icon: CalendarDays },
@@ -18,8 +24,9 @@ export function Sidebar() {
   return <aside className="sidebar">
     <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><div><strong>caballo</strong><b>cci</b></div></div>
     <nav>{nav.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}><Icon size={18} /><span>{label}</span>{id === 'timeline' && <em>{posts.filter(p => p.status === 'scheduled').length}</em>}</button>)}</nav>
-    <div className="side-section"><p>ESPACIOS</p><button className="space active"><span className="space-dot coral">C</span><span>Mi contenido</span><MoreHorizontal size={16} /></button><button className="space"><span className="space-dot mint">A</span><span>Campaña Aurora</span></button><button className="add-space"><Plus size={15} /> Nuevo espacio</button></div>
+    <div className="side-section"><p>ESPACIOS</p><div className="space-row"><button className={'space ' + (activeSpace === null ? 'active' : '')} onClick={() => setActiveSpace(null)}><span className="space-dot coral">C</span><span>Mi contenido</span></button><button className="space-menu-button" aria-label="Opciones de Mi contenido" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}><MoreHorizontal size={16} /></button>{menuOpen && <div className="space-menu"><button onClick={() => { setActiveSpace(null); setMenuOpen(false) }}><Check size={14} /> Mostrar todo</button><button onClick={() => { setCreatingSpace(true); setMenuOpen(false) }}><Plus size={14} /> Nuevo espacio</button></div>}</div>{spaces.map((space, index) => <button key={space} className={'space ' + (activeSpace === space ? 'active' : '')} onClick={() => setActiveSpace(space)}><span className={'space-dot ' + (index % 2 ? 'coral' : 'mint')}>{space.slice(0, 1).toUpperCase()}</span><span>{space}</span></button>)}<button className="add-space" onClick={() => setCreatingSpace(true)}><Plus size={15} /> Nuevo espacio</button></div>
     <div className="sidebar-bottom"><div className="offline"><span /><div><strong>Todo guardado</strong><small>Modo local</small></div></div><button className={view === 'about' ? 'active' : ''} title="Acerca de y actualizaciones" onClick={() => setView('about')}><Settings size={18} /></button></div>
+    {creatingSpace && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setCreatingSpace(false) }}><form className="space-dialog" onSubmit={event => { event.preventDefault(); if (spaceName.trim()) { addSpace(spaceName); setSpaceName(''); setCreatingSpace(false) } }}><header><div><span>NUEVO ESPACIO</span><h2>Organiza una campaña</h2></div><button type="button" className="icon-button" onClick={() => setCreatingSpace(false)}><X size={18} /></button></header><label>Nombre<input autoFocus value={spaceName} onChange={event => setSpaceName(event.target.value)} placeholder="Ej. Lanzamiento de verano" /></label><footer><button type="button" className="ghost-button" onClick={() => setCreatingSpace(false)}>Cancelar</button><button className="save-button" disabled={!spaceName.trim()}>Crear espacio</button></footer></form></div>}
   </aside>
 }
 

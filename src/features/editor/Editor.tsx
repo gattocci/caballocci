@@ -5,10 +5,10 @@ import { PlatformMark } from '../../components/layout/AppShell'
 import { usePlanner } from '../../app/store'
 import type { ContentType, Platform, Post, PostInput, PostStatus } from '../../shared/types'
 
-const blankPost = (): PostInput => ({
+const blankPost = (project: string): PostInput => ({
   title: '', caption: '', notes: '', hashtags: [], mentions: [], platforms: ['instagram'],
   contentType: 'reel', status: 'idea', scheduledAt: new Date().toISOString(), durationMinutes: 60,
-  project: 'Mi contenido', color: '#e76042',
+  project, color: '#e76042',
 })
 
 function Preview({ draft }: { draft: PostInput }) {
@@ -27,8 +27,8 @@ function Preview({ draft }: { draft: PostInput }) {
 }
 
 export function Editor({ initial, onClose }: { initial: Post | null; onClose(): void }) {
-  const { save, remove } = usePlanner()
-  const [draft, setDraft] = useState<PostInput>(initial ? { ...initial } : blankPost())
+  const { save, remove, activeSpace } = usePlanner()
+  const [draft, setDraft] = useState<PostInput>(initial ? { ...initial } : blankPost(activeSpace || 'Mi contenido'))
   const [tab, setTab] = useState<'content' | 'preview' | 'notes'>('content')
   const [saving, setSaving] = useState(false)
   const update = <K extends keyof PostInput>(key: K, value: PostInput[K]) => setDraft(d => ({ ...d, [key]: value }))

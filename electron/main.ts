@@ -22,7 +22,7 @@ function mapPost(row: Record<string, unknown>) {
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1500, height: 940, minWidth: 1120, minHeight: 720, show: false,
-    backgroundColor: '#101311', titleBarStyle: 'hidden', titleBarOverlay: { color: '#101311', symbolColor: '#c9d0ca', height: 42 },
+    backgroundColor: '#101311', titleBarStyle: 'hidden', titleBarOverlay: { color: '#101311', symbolColor: '#c9d0ca', height: 64 },
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   })
   if (isDev) await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL!)

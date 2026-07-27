@@ -9,6 +9,8 @@ interface PlannerState {
   view: PlannerView
   selectedId: string | null
   query: string
+  activeSpace: string | null
+  customSpaces: string[]
   load(): Promise<void>
   save(post: PostInput): Promise<Post>
   remove(id: string): Promise<void>
@@ -16,6 +18,13 @@ interface PlannerState {
   setView(view: PlannerView): void
   select(id: string | null): void
   setQuery(query: string): void
+  setActiveSpace(space: string | null): void
+  addSpace(space: string): void
+}
+
+function readStoredSpaces() {
+  try { return JSON.parse(localStorage.getItem('caballocci.spaces') || '[]') as string[] }
+  catch { return [] }
 }
 
 export const usePlanner = create<PlannerState>((set, get) => ({
@@ -24,6 +33,8 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   view: 'timeline',
   selectedId: null,
   query: '',
+  activeSpace: null,
+  customSpaces: readStoredSpaces(),
   load: async () => set({ posts: await window.planner.posts.list(), loading: false }),
   save: async (post) => {
     const saved = await window.planner.posts.save(post)
@@ -41,4 +52,12 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   setView: (view) => set({ view }),
   select: (selectedId) => set({ selectedId }),
   setQuery: (query) => set({ query }),
+  setActiveSpace: (activeSpace) => set({ activeSpace }),
+  addSpace: (space) => {
+    const name = space.trim()
+    if (!name) return
+    const customSpaces = Array.from(new Set([...get().customSpaces, name]))
+    localStorage.setItem('caballocci.spaces', JSON.stringify(customSpaces))
+    set({ customSpaces, activeSpace: name })
+  },
 }))

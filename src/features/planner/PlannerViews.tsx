@@ -20,7 +20,8 @@ function PostCard({ post, onSelect, onDrag }: { post: Post; onSelect(): void; on
 }
 
 export function Timeline() {
-  const { posts, save, select } = usePlanner()
+  const { posts: allPosts, save, select, activeSpace } = usePlanner()
+  const posts = activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts
   const [anchor, setAnchor] = useState(new Date())
   const [dragged, setDragged] = useState<string | null>(null)
   const days = Array.from({ length: 14 }, (_, i) => addDays(startOfWeek(anchor, { weekStartsOn: 1 }), i))
@@ -47,7 +48,8 @@ export function Timeline() {
 }
 
 export function CalendarView() {
-  const { posts, select, save } = usePlanner()
+  const { posts: allPosts, select, save, activeSpace } = usePlanner()
+  const posts = activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts
   const [month, setMonth] = useState(new Date())
   const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
   const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
@@ -66,7 +68,8 @@ export function CalendarView() {
 }
 
 export function Board() {
-  const { posts, move, select } = usePlanner()
+  const { posts: allPosts, move, select, activeSpace } = usePlanner()
+  const posts = activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts
   const [drag, setDrag] = useState<string | null>(null)
   return <section className="workspace"><ViewHeading title="Tablero de contenido" subtitle="Mueve cada idea hasta convertirla en una publicación." />
     <div className="board">{stages.map(status => <div className="board-column" key={status} onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, status); setDrag(null) }}><header><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{posts.filter(p => p.status === status).length}</em></header><div className="board-stack">{posts.filter(p => p.status === status).map(post => <article draggable onDragStart={() => setDrag(post.id)} key={post.id} onClick={() => select(post.id)}><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title}</h3><p>{post.caption}</p>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}</div></div>)}</div>

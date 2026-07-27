@@ -7,13 +7,14 @@ import { AboutUpdates } from '../features/settings/AboutUpdates'
 import { usePlanner } from './store'
 
 export default function App() {
-  const { load, loading, view, posts, selectedId, select, query } = usePlanner()
+  const { load, loading, view, posts, selectedId, select, query, activeSpace } = usePlanner()
   const [creating, setCreating] = useState(false)
   useEffect(() => { void load() }, [load])
   const filtered = useMemo(() => {
     const normalized = query.toLowerCase()
-    return normalized ? posts.filter(post => [post.title, post.caption, post.project, ...post.hashtags].join(' ').toLowerCase().includes(normalized)) : posts
-  }, [posts, query])
+    const inSpace = activeSpace ? posts.filter(post => post.project === activeSpace) : posts
+    return normalized ? inSpace.filter(post => [post.title, post.caption, post.project, ...post.hashtags].join(' ').toLowerCase().includes(normalized)) : inSpace
+  }, [posts, query, activeSpace])
   const selected = posts.find(post => post.id === selectedId) || null
   if (loading) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><p>Preparando tu espacio local...</p></div>
   return <div className="app"><Sidebar /><main><Topbar onNew={() => setCreating(true)} /><div className="content">{query && view !== 'about' && <div className="search-result"><Search size={16} />{filtered.length} resultados para “{query}”</div>}{view === 'timeline' && <Timeline />}{view === 'calendar' && <CalendarView />}{view === 'board' && <Board />}{view === 'library' && <LibraryView />}{view === 'about' && <AboutUpdates />}</div></main>{(creating || selected) && <Editor initial={selected} onClose={() => { setCreating(false); select(null) }} />}</div>
