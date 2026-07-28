@@ -46,6 +46,15 @@ function mediaAsset(value: unknown, index: number) {
   }
 }
 
+function ideaBlock(value: unknown, index: number) {
+  const block = record(value, `ideaBlocks[${index}]`)
+  return {
+    id: text(block.id, `ideaBlocks[${index}].id`, 128, false),
+    title: text(block.title, `ideaBlocks[${index}].title`, 160),
+    text: text(block.text, `ideaBlocks[${index}].text`, 10_000),
+  }
+}
+
 export function validatePostInput(value: unknown): Record<string, unknown> {
   const post = record(value, 'post')
   const durationMinutes = post.durationMinutes
@@ -64,6 +73,8 @@ export function validatePostInput(value: unknown): Record<string, unknown> {
 
   const media = post.media === undefined ? [] : post.media
   if (!Array.isArray(media) || media.length > 100) invalid('post.media')
+  const ideaBlocks = post.ideaBlocks === undefined ? [] : post.ideaBlocks
+  if (!Array.isArray(ideaBlocks) || ideaBlocks.length > 50) invalid('post.ideaBlocks')
 
   const validated: Record<string, unknown> = {
     title: text(post.title, 'post.title', 300),
@@ -80,6 +91,7 @@ export function validatePostInput(value: unknown): Record<string, unknown> {
     project: text(post.project, 'post.project', 200),
     color,
     media: media.map(mediaAsset),
+    ideaBlocks: ideaBlocks.map(ideaBlock),
   }
   const id = optionalId(post.id, 'post.id')
   if (id) validated.id = id

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell, type IpcMainInvokeEvent } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -20,6 +20,12 @@ let updater: UpdateManager
 const devServerUrl = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL
 const rendererFilePath = path.join(__dirname, '../dist/index.html')
 const rendererFileUrl = pathToFileURL(rendererFilePath).href
+const mediaScheme = 'caballocci-media'
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: mediaScheme,
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+}])
 
 function isTrustedRendererUrl(candidate: string) {
   try {
@@ -78,14 +84,47 @@ function mapMediaAssets(value: unknown) {
   }
 }
 
+function mapIdeaBlocks(value: unknown) {
+  try {
+    const parsed = JSON.parse(String(value || '[]')) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter(item => typeof item === 'object' && item !== null && !Array.isArray(item))
+      .map(item => {
+        const block = item as Record<string, unknown>
+        return { id: block.id, title: block.title, text: block.text }
+      })
+  } catch {
+    return []
+  }
+}
+
 function mapPost(row: Record<string, unknown>) {
   return {
     id: row.id, title: row.title, caption: row.caption, notes: row.notes,
     hashtags: JSON.parse(String(row.hashtags || '[]')), mentions: JSON.parse(String(row.mentions || '[]')),
     platforms: JSON.parse(String(row.platforms || '[]')), contentType: row.content_type, status: row.status,
     scheduledAt: row.scheduled_at, durationMinutes: row.duration_minutes, project: row.project, color: row.color,
-    media: mapMediaAssets(row.media), createdAt: row.created_at, updatedAt: row.updated_at,
+    media: mapMediaAssets(row.media), ideaBlocks: mapIdeaBlocks(row.idea_blocks), createdAt: row.created_at, updatedAt: row.updated_at,
   }
+}
+
+function registerMediaProtocol() {
+  protocol.handle(mediaScheme, async request => {
+    if (request.method !== 'GET') return new Response(null, { status: 405 })
+    try {
+      const url = new URL(request.url)
+      if (url.hostname !== 'asset') return new Response(null, { status: 404 })
+      const id = validateId(decodeURIComponent(url.pathname.slice(1)), 'media.id')
+      const media = database.getMediaFile(id)
+      if (!media || media.kind !== 'image' || !path.isAbsolute(media.path) || !fs.existsSync(media.path)) {
+        return new Response(null, { status: 404 })
+      }
+      return net.fetch(pathToFileURL(media.path).href, { bypassCustomProtocolHandlers: true })
+    } catch {
+      return new Response(null, { status: 400 })
+    }
+  })
 }
 
 async function createWindow() {
@@ -137,6 +176,7 @@ app.whenReady().then(async () => {
   }
   database = new PlannerDatabase(databasePath, wasmPath, backupsDirectory)
   await database.init()
+  registerMediaProtocol()
   updater = new UpdateManager(() => mainWindow, () => { database.createBackup('before-update') })
   handle('posts:list', withoutArguments(() => database.list().map(mapPost)))
   handle('posts:save', args => {

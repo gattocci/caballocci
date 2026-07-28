@@ -1,0 +1,158 @@
+.idea-blocks {
+  display: grid;
+  gap: 12px;
+}
+
+.idea-blocks > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.idea-blocks > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.idea-blocks > header span,
+.idea-block > header > span {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.idea-blocks > header strong {
+  font-size: 13px;
+}
+
+.idea-blocks > header .new-button {
+  height: 32px;
+}
+
+.empty-ideas {
+  min-height: 180px;
+  border: 1px dashed #424c45;
+  background: #191e1b;
+  color: #7f8a83;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.empty-ideas:hover {
+  border-color: #66736b;
+  color: #d5dbd7;
+}
+
+.empty-ideas span {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.idea-block {
+  border: 1px solid #303833;
+  background: #181d1a;
+  padding: 12px;
+  display: grid;
+  gap: 11px;
+}
+
+.idea-block > header {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.idea-block > header > div {
+  display: flex;
+  gap: 3px;
+}
+
+.idea-block > header button {
+  width: 27px;
+  height: 27px;
+  border: 0;
+  background: transparent;
+  color: #7d8881;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.idea-block > header button:hover:not(:disabled) {
+  background: #282f2a;
+  color: #fff;
+}
+
+.idea-block > header button:last-child:hover {
+  color: #ef7259;
+}
+
+.idea-block > header button:disabled {
+  opacity: .28;
+  cursor: default;
+}
+
+.idea-block textarea {
+  min-height: 104px;
+}
+
+.preview-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+}
+
+.preview-media > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.preview-placeholder {
+  width: 100%;
+  height: 100%;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #737e77;
+}
+
+.preview-placeholder strong {
+  max-width: 85%;
+  margin: 13px 0 5px;
+  color: #e1e6e2;
+  font-size: 17px;
+  line-height: 22px;
+}
+
+.preview-placeholder p {
+  max-width: 85%;
+  margin: 0;
+  color: #9ba59f;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: pre-wrap;
+}
+
+.preview-dimensions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 6px;
+  border: 1px solid #ffffff24;
+  background: #0c0f0dcc;
+  color: #d7ddd9;
+  font: 8px 'DM Mono', monospace !important;
+  letter-spacing: 0;
+  text-transform: none !important;
+}

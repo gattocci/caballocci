@@ -31,6 +31,11 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'post_idea_blocks',
+    up: `ALTER TABLE posts ADD COLUMN idea_blocks TEXT NOT NULL DEFAULT '[]';`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -78,11 +83,11 @@ export class PlannerDatabase {
       hashtags: JSON.stringify(input.hashtags || []), mentions: JSON.stringify(input.mentions || []),
       platforms: JSON.stringify(input.platforms || []), contentType: input.contentType || 'post', status: input.status || 'idea',
       scheduledAt: input.scheduledAt || null, durationMinutes: input.durationMinutes || 60, project: input.project || '',
-      color: input.color || '#ff6b4a', media: JSON.stringify(input.media || []), createdAt, updatedAt: now,
+      color: input.color || '#ff6b4a', media: JSON.stringify(input.media || []), ideaBlocks: JSON.stringify(input.ideaBlocks || []), createdAt, updatedAt: now,
     }
     this.db.run(`INSERT OR REPLACE INTO posts
-      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,created_at,updated_at)
-      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$createdAt,$updatedAt)`,
+      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,created_at,updated_at)
+      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$createdAt,$updatedAt)`,
       Object.fromEntries(Object.entries(values).map(([key, value]) => [`$${key}`, value])) as Record<string, string | number | null>)
     const previousStatus = current ? String(current.status) : null
     const nextStatus = String(values.status)
@@ -115,12 +120,17 @@ export class PlannerDatabase {
   }
 
   getMediaPath(id: string): string | undefined {
-    const statement = this.db.prepare('SELECT path FROM media_assets WHERE id = ?')
+    return this.getMediaFile(id)?.path
+  }
+
+  getMediaFile(id: string): { path: string; kind: string } | undefined {
+    const statement = this.db.prepare('SELECT path,kind FROM media_assets WHERE id = ?')
     try {
       statement.bind([id])
       if (!statement.step()) return undefined
-      const value = statement.getAsObject().path
-      return typeof value === 'string' ? value : undefined
+      const row = statement.getAsObject()
+      if (typeof row.path !== 'string' || typeof row.kind !== 'string') return undefined
+      return { path: row.path, kind: row.kind }
     } finally {
       statement.free()
     }

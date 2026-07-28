@@ -17,6 +17,7 @@ export interface Post {
   project: string
   color: string
   media: MediaAsset[]
+  ideaBlocks: IdeaBlock[]
   createdAt: string
   updatedAt: string
 }
@@ -29,7 +30,13 @@ export interface MediaAsset {
   mode: 'copy' | 'reference'
 }
 
-export type PostInput = Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'media'> & { id?: string; media?: MediaAsset[] }
+export interface IdeaBlock {
+  id: string
+  title: string
+  text: string
+}
+
+export type PostInput = Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'media' | 'ideaBlocks'> & { id?: string; media?: MediaAsset[]; ideaBlocks?: IdeaBlock[] }
 
 export interface DashboardStats { total: number; scheduled: number; drafts: number; published: number }
 
@@ -59,7 +66,7 @@ export interface ElectronAPI {
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(id: string): Promise<void> }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   system: {
     info(): Promise<SystemInfo>

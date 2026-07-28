@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('planner', {
     list: () => ipcRenderer.invoke('media:list'),
     choose: (mode: 'copy' | 'reference') => ipcRenderer.invoke('media:choose', mode),
     reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
+    imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
   clipboard: { write: (text: string) => ipcRenderer.invoke('clipboard:write', text) },
   system: {
