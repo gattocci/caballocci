@@ -70,6 +70,19 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS concept_map_links_to_idx ON concept_map_links(to_node_id);
     `,
   },
+  {
+    version: 5,
+    name: 'concept_map_folders',
+    up: `
+      CREATE TABLE IF NOT EXISTS concept_map_folders (
+        id TEXT PRIMARY KEY, parent_id TEXT, name TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      ALTER TABLE concept_map_nodes ADD COLUMN folder_id TEXT;
+      CREATE INDEX IF NOT EXISTS concept_map_nodes_folder_idx ON concept_map_nodes(folder_id);
+      CREATE INDEX IF NOT EXISTS concept_map_folders_parent_idx ON concept_map_folders(parent_id);
+    `,
+  },
 ]
 
 export class PlannerDatabase {
@@ -235,10 +248,11 @@ export class PlannerDatabase {
     }
   }
 
-  listConceptMap(): { nodes: Row[]; links: Row[] } {
+  listConceptMap(): { nodes: Row[]; links: Row[]; folders: Row[] } {
     return {
       nodes: this.rows('SELECT * FROM concept_map_nodes ORDER BY created_at ASC'),
       links: this.rows('SELECT * FROM concept_map_links ORDER BY created_at ASC'),
+      folders: this.rows('SELECT * FROM concept_map_folders ORDER BY created_at ASC'),
     }
   }
 
@@ -247,9 +261,10 @@ export class PlannerDatabase {
     const id = String(input.id || crypto.randomUUID())
     const current = this.conceptNodeOne(id)
     this.db.run(`INSERT OR REPLACE INTO concept_map_nodes
-      (id,kind,source_id,title,body,x,y,created_at,updated_at)
-      VALUES ($id,$kind,$sourceId,$title,$body,$x,$y,$createdAt,$updatedAt)`, {
+      (id,folder_id,kind,source_id,title,body,x,y,created_at,updated_at)
+      VALUES ($id,$folderId,$kind,$sourceId,$title,$body,$x,$y,$createdAt,$updatedAt)`, {
       $id: id,
+      $folderId: input.folderId ? String(input.folderId) : null,
       $kind: String(input.kind),
       $sourceId: input.sourceId ? String(input.sourceId) : null,
       $title: String(input.title || ''),
@@ -295,6 +310,41 @@ export class PlannerDatabase {
   removeConceptLink(id: string) {
     this.db.run('DELETE FROM concept_map_links WHERE id = ?', [id])
     this.persist()
+  }
+
+  saveConceptFolder(input: Row): Row {
+    const now = new Date().toISOString()
+    const id = String(input.id || crypto.randomUUID())
+    const current = this.conceptFolderOne(id)
+    this.db.run(`INSERT OR REPLACE INTO concept_map_folders
+      (id,parent_id,name,created_at,updated_at)
+      VALUES ($id,$parentId,$name,$createdAt,$updatedAt)`, {
+      $id: id,
+      $parentId: input.parentId ? String(input.parentId) : null,
+      $name: String(input.name),
+      $createdAt: current?.created_at ? String(current.created_at) : now,
+      $updatedAt: now,
+    })
+    this.persist()
+    return this.conceptFolderOne(id)!
+  }
+
+  removeConceptFolder(id: string): { parentId: string | null } {
+    const folder = this.conceptFolderOne(id)
+    if (!folder) throw new Error('Carpeta del mapa no encontrada')
+    const parentId = folder.parent_id ? String(folder.parent_id) : null
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('UPDATE concept_map_nodes SET folder_id = ? WHERE folder_id = ?', [parentId, id])
+      this.db.run('UPDATE concept_map_folders SET parent_id = ?, updated_at = ? WHERE parent_id = ?', [parentId, new Date().toISOString(), id])
+      this.db.run('DELETE FROM concept_map_folders WHERE id = ?', [id])
+      this.db.run('COMMIT')
+      this.persist()
+      return { parentId }
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
   }
 
   listMedia(): Row[] {
@@ -364,6 +414,7 @@ export class PlannerDatabase {
   private ideaOne(id: string): Row | undefined { return this.listIdeas().find((row) => row.id === id) }
   private conceptNodeOne(id: string): Row | undefined { return this.rows('SELECT * FROM concept_map_nodes WHERE id = ' + this.sqlString(id)).at(0) }
   private conceptLinkOne(id: string): Row | undefined { return this.rows('SELECT * FROM concept_map_links WHERE id = ' + this.sqlString(id)).at(0) }
+  private conceptFolderOne(id: string): Row | undefined { return this.rows('SELECT * FROM concept_map_folders WHERE id = ' + this.sqlString(id)).at(0) }
   private sqlString(value: string) { return "'" + value.replaceAll("'", "''") + "'" }
   private count() { return Number(this.db.exec('SELECT COUNT(*) AS n FROM posts')[0]?.values[0]?.[0] || 0) }
 

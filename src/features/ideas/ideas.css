@@ -1,0 +1,19 @@
+.ideas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.idea-card { min-height: 195px; padding: 13px; border: 1px solid var(--line); border-top: 3px solid #d0a64b; background: #181d1a; display: flex; flex-direction: column; }
+.idea-card header, .idea-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.idea-card header div { display: flex; gap: 4px; }
+.idea-card header button { width: 28px; height: 28px; border: 0; background: transparent; color: #8d9991; display: grid; place-items: center; cursor: pointer; }
+.idea-card header button:hover { color: #fff; background: #252c27; }
+.idea-card header .idea-delete:hover { color: #f2937e; }
+.idea-priority, .idea-status { color: #aeb8b1; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+.idea-priority.high { color: #ff9a7e; }.idea-priority.low { color: #7fae96; }
+.idea-status { margin-top: 18px; color: #d0a64b; }
+.idea-card h2 { margin: 5px 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
+.idea-card p { display: -webkit-box; margin: 0; overflow: hidden; color: #98a39c; font-size: 10px; line-height: 15px; -webkit-box-orient: vertical; -webkit-line-clamp: 4; }
+.idea-card footer { margin-top: auto; padding-top: 14px; color: #808b84; font-size: 9px; }
+.idea-card footer span, .idea-card footer button { display: flex; align-items: center; gap: 4px; }
+.idea-card footer button { border: 0; background: transparent; color: #d7ddd9; font-size: 9px; cursor: pointer; }
+.idea-card footer button:hover { color: #fff; }.idea-card footer small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ideas-empty { min-height: 360px; display: grid; place-content: center; justify-items: center; gap: 9px; color: #7f8b83; font-size: 10px; }
+.ideas-empty strong { color: #d8dfda; font-size: 14px; }.ideas-empty .new-button { margin-top: 8px; }
+.idea-dialog { display: grid; gap: 14px; }.idea-dialog header { margin-bottom: 0; }.idea-dialog textarea { min-height: 120px; padding: 10px 11px; border: 1px solid #353d38; border-radius: 4px; resize: vertical; background: #1d231f; color: #fff; font: inherit; }.idea-dialog footer { margin-top: 0; }.idea-dialog-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

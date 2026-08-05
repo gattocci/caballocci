@@ -62,6 +62,7 @@ export type PostInput = Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'media' | 
 
 export interface ConceptMapNode {
   id: string
+  folderId: string | null
   kind: ConceptNodeKind
   sourceId: string | null
   title: string
@@ -80,8 +81,17 @@ export interface ConceptMapLink {
   createdAt: string
 }
 
+export interface ConceptMapFolder {
+  id: string
+  parentId: string | null
+  name: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type ConceptMapNodeInput = Omit<ConceptMapNode, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
 export type ConceptMapLinkInput = Omit<ConceptMapLink, 'id' | 'createdAt'> & { id?: string }
+export type ConceptMapFolderInput = Omit<ConceptMapFolder, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
 
 export interface DashboardStats { total: number; scheduled: number; drafts: number; published: number }
 
@@ -118,11 +128,13 @@ export interface ElectronAPI {
     convert(id: string): Promise<{ idea: Idea; post: Post }>
   }
   conceptMap: {
-    list(): Promise<{ nodes: ConceptMapNode[]; links: ConceptMapLink[] }>
+    list(): Promise<{ nodes: ConceptMapNode[]; links: ConceptMapLink[]; folders: ConceptMapFolder[] }>
     saveNode(node: ConceptMapNodeInput): Promise<ConceptMapNode>
     removeNode(id: string): Promise<void>
     saveLink(link: ConceptMapLinkInput): Promise<ConceptMapLink>
     removeLink(id: string): Promise<void>
+    saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
+    removeFolder(id: string): Promise<{ parentId: string | null }>
   }
   media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }

@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('planner', {
     removeNode: (id: string) => ipcRenderer.invoke('concept-map:remove-node', id),
     saveLink: (link: unknown) => ipcRenderer.invoke('concept-map:save-link', link),
     removeLink: (id: string) => ipcRenderer.invoke('concept-map:remove-link', id),
+    saveFolder: (folder: unknown) => ipcRenderer.invoke('concept-map:save-folder', folder),
+    removeFolder: (id: string) => ipcRenderer.invoke('concept-map:remove-folder', id),
   },
   media: {
     list: () => ipcRenderer.invoke('media:list'),

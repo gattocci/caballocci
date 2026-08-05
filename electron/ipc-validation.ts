@@ -135,7 +135,9 @@ export function validateConceptNodeInput(value: unknown): Record<string, unknown
   if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 20_000) invalid('conceptMap.node.x')
   if (typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 20_000) invalid('conceptMap.node.y')
   const sourceId = node.sourceId === null || node.sourceId === undefined || node.sourceId === '' ? null : text(node.sourceId, 'conceptMap.node.sourceId', 128, false)
+  const folderId = node.folderId === null || node.folderId === undefined || node.folderId === '' ? null : text(node.folderId, 'conceptMap.node.folderId', 128, false)
   const validated: Record<string, unknown> = {
+    folderId,
     kind: enumValue(node.kind, 'conceptMap.node.kind', conceptNodeKinds),
     sourceId,
     title: text(node.title, 'conceptMap.node.title', 240, false),
@@ -145,6 +147,21 @@ export function validateConceptNodeInput(value: unknown): Record<string, unknown
   }
   const id = optionalId(node.id, 'conceptMap.node.id')
   if (id) validated.id = id
+  return validated
+}
+
+export function validateConceptFolderInput(value: unknown): Record<string, unknown> {
+  const folder = record(value, 'conceptMap.folder')
+  const parentId = folder.parentId === null || folder.parentId === undefined || folder.parentId === '' ? null : text(folder.parentId, 'conceptMap.folder.parentId', 128, false)
+  const validated: Record<string, unknown> = {
+    parentId,
+    name: text(folder.name, 'conceptMap.folder.name', 120, false),
+  }
+  const id = optionalId(folder.id, 'conceptMap.folder.id')
+  if (id) {
+    if (parentId === id) invalid('conceptMap.folder.parentId')
+    validated.id = id
+  }
   return validated
 }
 

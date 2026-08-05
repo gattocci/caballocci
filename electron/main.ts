@@ -6,6 +6,7 @@ import { PlannerDatabase } from './database'
 import {
   validateArgumentCount,
   validateClipboardText,
+  validateConceptFolderInput,
   validateConceptLinkInput,
   validateConceptNodeInput,
   validateId,
@@ -131,10 +132,14 @@ function mapIdea(row: Record<string, unknown>) {
 
 function mapConceptNode(row: Record<string, unknown>) {
   return {
-    id: row.id, kind: row.kind, sourceId: row.source_id || null,
+    id: row.id, folderId: row.folder_id || null, kind: row.kind, sourceId: row.source_id || null,
     title: row.title, body: row.body, x: row.x, y: row.y,
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
+}
+
+function mapConceptFolder(row: Record<string, unknown>) {
+  return { id: row.id, parentId: row.parent_id || null, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at }
 }
 
 function mapConceptLink(row: Record<string, unknown>) {
@@ -242,7 +247,7 @@ app.whenReady().then(async () => {
   })
   handle('concept-map:list', withoutArguments(() => {
     const conceptMap = database.listConceptMap()
-    return { nodes: conceptMap.nodes.map(mapConceptNode), links: conceptMap.links.map(mapConceptLink) }
+    return { nodes: conceptMap.nodes.map(mapConceptNode), links: conceptMap.links.map(mapConceptLink), folders: conceptMap.folders.map(mapConceptFolder) }
   }))
   handle('concept-map:save-node', args => {
     validateArgumentCount(args, 1)
@@ -259,6 +264,14 @@ app.whenReady().then(async () => {
   handle('concept-map:remove-link', args => {
     validateArgumentCount(args, 1)
     return database.removeConceptLink(validateId(args[0], 'conceptMap.link.id'))
+  })
+  handle('concept-map:save-folder', args => {
+    validateArgumentCount(args, 1)
+    return mapConceptFolder(database.saveConceptFolder(validateConceptFolderInput(args[0])))
+  })
+  handle('concept-map:remove-folder', args => {
+    validateArgumentCount(args, 1)
+    return database.removeConceptFolder(validateId(args[0], 'conceptMap.folder.id'))
   })
   handle('clipboard:write', args => {
     validateArgumentCount(args, 1)
