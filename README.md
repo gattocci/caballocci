@@ -18,6 +18,7 @@ Las actualizaciones posteriores se ofrecen dentro de **Acerca de / Actualizacion
 - Espacios para organizar, filtrar y renombrar proyectos.
 - Editor, vista previa y publicación manual.
 - Biblioteca multimedia local en modo copia o referencia.
+- Mapa conceptual persistente para relacionar ideas, publicaciones y recursos generales.
 - Migraciones SQLite numeradas y transaccionales.
 - Backups fechados antes de migraciones e instalaciones de actualizaciones.
 - Actualizaciones desde GitHub Releases, siempre confirmadas por el usuario.
@@ -50,6 +51,7 @@ El instalador NSIS x64 y sus metadatos se generan en **release/**. Esa carpeta e
 ## Documentación
 
 - [Versionado y publicación](docs/RELEASING.md)
+- [Firma de código de Windows](docs/CODE-SIGNING.md)
 - [Migraciones y protección de datos](docs/DATA-MIGRATIONS.md)
 - [Iconos e instalador](docs/BRANDING.md)
 - [Política y modelo de seguridad](SECURITY.md)

@@ -7,6 +7,19 @@ contextBridge.exposeInMainWorld('planner', {
     remove: (id: string) => ipcRenderer.invoke('posts:remove', id),
     reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
   },
+  ideas: {
+    list: () => ipcRenderer.invoke('ideas:list'),
+    save: (idea: unknown) => ipcRenderer.invoke('ideas:save', idea),
+    remove: (id: string) => ipcRenderer.invoke('ideas:remove', id),
+    convert: (id: string) => ipcRenderer.invoke('ideas:convert', id),
+  },
+  conceptMap: {
+    list: () => ipcRenderer.invoke('concept-map:list'),
+    saveNode: (node: unknown) => ipcRenderer.invoke('concept-map:save-node', node),
+    removeNode: (id: string) => ipcRenderer.invoke('concept-map:remove-node', id),
+    saveLink: (link: unknown) => ipcRenderer.invoke('concept-map:save-link', link),
+    removeLink: (id: string) => ipcRenderer.invoke('concept-map:remove-link', id),
+  },
   media: {
     list: () => ipcRenderer.invoke('media:list'),
     choose: (mode: 'copy' | 'reference') => ipcRenderer.invoke('media:choose', mode),

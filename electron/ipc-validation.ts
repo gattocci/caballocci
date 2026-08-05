@@ -1,8 +1,12 @@
 const platforms = ['instagram', 'facebook', 'x'] as const
 const contentTypes = ['reel', 'carousel', 'story', 'post', 'thread'] as const
 const postStatuses = ['idea', 'draft', 'review', 'approved', 'scheduled', 'published', 'archived'] as const
+const ideaStatuses = ['inbox', 'developing', 'ready', 'converted', 'archived'] as const
+const ideaPriorities = ['low', 'normal', 'high'] as const
 const mediaKinds = ['image', 'video', 'document'] as const
 const mediaModes = ['copy', 'reference'] as const
+const conceptNodeKinds = ['idea', 'post', 'resource'] as const
+const conceptRelations = ['references', 'depends_on', 'related'] as const
 
 function invalid(field: string): never {
   throw new TypeError(`Argumento IPC no valido: ${field}`)
@@ -94,6 +98,67 @@ export function validatePostInput(value: unknown): Record<string, unknown> {
     ideaBlocks: ideaBlocks.map(ideaBlock),
   }
   const id = optionalId(post.id, 'post.id')
+  if (id) validated.id = id
+  return validated
+}
+
+export function validateIdeaInput(value: unknown): Record<string, unknown> {
+  const idea = record(value, 'idea')
+  let dueDate: string | null = null
+  if (idea.dueDate !== null && idea.dueDate !== undefined && idea.dueDate !== '') {
+    dueDate = text(idea.dueDate, 'idea.dueDate', 32, false)
+    if (Number.isNaN(Date.parse(dueDate))) invalid('idea.dueDate')
+  }
+  const tags = idea.tags === undefined ? [] : idea.tags
+  if (!Array.isArray(tags) || tags.length > 30) invalid('idea.tags')
+  const media = idea.media === undefined ? [] : idea.media
+  if (!Array.isArray(media) || media.length > 100) invalid('idea.media')
+  const validated: Record<string, unknown> = {
+    space: text(idea.space, 'idea.space', 200, false),
+    title: text(idea.title, 'idea.title', 240),
+    body: text(idea.body, 'idea.body', 20_000),
+    tags: stringList(tags, 'idea.tags', 30, 80),
+    media: media.map(mediaAsset),
+    status: enumValue(idea.status, 'idea.status', ideaStatuses),
+    priority: enumValue(idea.priority, 'idea.priority', ideaPriorities),
+    dueDate,
+  }
+  const id = optionalId(idea.id, 'idea.id')
+  if (id) validated.id = id
+  return validated
+}
+
+export function validateConceptNodeInput(value: unknown): Record<string, unknown> {
+  const node = record(value, 'conceptMap.node')
+  const x = node.x
+  const y = node.y
+  if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 20_000) invalid('conceptMap.node.x')
+  if (typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 20_000) invalid('conceptMap.node.y')
+  const sourceId = node.sourceId === null || node.sourceId === undefined || node.sourceId === '' ? null : text(node.sourceId, 'conceptMap.node.sourceId', 128, false)
+  const validated: Record<string, unknown> = {
+    kind: enumValue(node.kind, 'conceptMap.node.kind', conceptNodeKinds),
+    sourceId,
+    title: text(node.title, 'conceptMap.node.title', 240, false),
+    body: text(node.body, 'conceptMap.node.body', 20_000),
+    x,
+    y,
+  }
+  const id = optionalId(node.id, 'conceptMap.node.id')
+  if (id) validated.id = id
+  return validated
+}
+
+export function validateConceptLinkInput(value: unknown): Record<string, unknown> {
+  const link = record(value, 'conceptMap.link')
+  const fromNodeId = text(link.fromNodeId, 'conceptMap.link.fromNodeId', 128, false)
+  const toNodeId = text(link.toNodeId, 'conceptMap.link.toNodeId', 128, false)
+  if (fromNodeId === toNodeId) invalid('conceptMap.link')
+  const validated: Record<string, unknown> = {
+    fromNodeId,
+    toNodeId,
+    relation: enumValue(link.relation, 'conceptMap.link.relation', conceptRelations),
+  }
+  const id = optionalId(link.id, 'conceptMap.link.id')
   if (id) validated.id = id
   return validated
 }

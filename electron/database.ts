@@ -36,6 +36,40 @@ const migrations: Migration[] = [
     name: 'post_idea_blocks',
     up: `ALTER TABLE posts ADD COLUMN idea_blocks TEXT NOT NULL DEFAULT '[]';`,
   },
+  {
+    version: 3,
+    name: 'ideas_inbox',
+    up: `
+      CREATE TABLE IF NOT EXISTS ideas (
+        id TEXT PRIMARY KEY, space TEXT NOT NULL DEFAULT 'Mi contenido',
+        title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '[]', media TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL DEFAULT 'inbox', priority TEXT NOT NULL DEFAULT 'normal',
+        due_at TEXT, post_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS ideas_space_idx ON ideas(space);
+      CREATE INDEX IF NOT EXISTS ideas_post_idx ON ideas(post_id);
+      ALTER TABLE posts ADD COLUMN source_idea_id TEXT;
+    `,
+  },
+  {
+    version: 4,
+    name: 'concept_map',
+    up: `
+      CREATE TABLE IF NOT EXISTS concept_map_nodes (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_id TEXT,
+        title TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+        x REAL NOT NULL DEFAULT 40, y REAL NOT NULL DEFAULT 40,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS concept_map_links (
+        id TEXT PRIMARY KEY, from_node_id TEXT NOT NULL, to_node_id TEXT NOT NULL,
+        relation TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS concept_map_links_from_idx ON concept_map_links(from_node_id);
+      CREATE INDEX IF NOT EXISTS concept_map_links_to_idx ON concept_map_links(to_node_id);
+    `,
+  },
 ]
 
 export class PlannerDatabase {
@@ -83,11 +117,12 @@ export class PlannerDatabase {
       hashtags: JSON.stringify(input.hashtags || []), mentions: JSON.stringify(input.mentions || []),
       platforms: JSON.stringify(input.platforms || []), contentType: input.contentType || 'post', status: input.status || 'idea',
       scheduledAt: input.scheduledAt || null, durationMinutes: input.durationMinutes || 60, project: input.project || '',
-      color: input.color || '#ff6b4a', media: JSON.stringify(input.media || []), ideaBlocks: JSON.stringify(input.ideaBlocks || []), createdAt, updatedAt: now,
+      color: input.color || '#ff6b4a', media: JSON.stringify(input.media || []), ideaBlocks: JSON.stringify(input.ideaBlocks || []),
+      sourceIdeaId: current?.source_idea_id || null, createdAt, updatedAt: now,
     }
     this.db.run(`INSERT OR REPLACE INTO posts
-      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,created_at,updated_at)
-      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$createdAt,$updatedAt)`,
+      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,created_at,updated_at)
+      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$sourceIdeaId,$createdAt,$updatedAt)`,
       Object.fromEntries(Object.entries(values).map(([key, value]) => [`$${key}`, value])) as Record<string, string | number | null>)
     const previousStatus = current ? String(current.status) : null
     const nextStatus = String(values.status)
@@ -98,19 +133,168 @@ export class PlannerDatabase {
     return this.one(id)!
   }
 
-  remove(id: string) { this.db.run('DELETE FROM posts WHERE id = ?', [id]); this.persist() }
-
-  reassignProject(fromProject: string, toProject: string) {
-    const now = new Date().toISOString()
+  remove(id: string) {
     this.db.run('BEGIN TRANSACTION')
     try {
-      this.db.run('UPDATE posts SET project = ?, updated_at = ? WHERE project = ?', [toProject, now, fromProject])
+      this.db.run("UPDATE ideas SET post_id = NULL, status = CASE WHEN status = 'converted' THEN 'ready' ELSE status END, updated_at = ? WHERE post_id = ?", [new Date().toISOString(), id])
+      this.db.run('DELETE FROM posts WHERE id = ?', [id])
       this.db.run('COMMIT')
       this.persist()
     } catch (error) {
       this.db.run('ROLLBACK')
       throw error
     }
+  }
+
+  reassignProject(fromProject: string, toProject: string) {
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('UPDATE posts SET project = ?, updated_at = ? WHERE project = ?', [toProject, now, fromProject])
+      this.db.run('UPDATE ideas SET space = ?, updated_at = ? WHERE space = ?', [toProject, now, fromProject])
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
+  }
+
+  listIdeas(): Row[] {
+    const result = this.db.exec(`SELECT * FROM ideas ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, updated_at DESC`)
+    if (!result[0]) return []
+    return result[0].values.map(values => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
+  }
+
+  saveIdea(input: Row): Row {
+    const now = new Date().toISOString()
+    const id = String(input.id || crypto.randomUUID())
+    const current = this.ideaOne(id)
+    this.db.run(`INSERT OR REPLACE INTO ideas
+      (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at)
+      VALUES ($id,$space,$title,$body,$tags,$media,$status,$priority,$dueDate,$postId,$createdAt,$updatedAt)`, {
+      $id: id,
+      $space: String(input.space || 'Mi contenido'),
+      $title: String(input.title || ''),
+      $body: String(input.body || ''),
+      $tags: JSON.stringify(input.tags || []),
+      $media: JSON.stringify(input.media || []),
+      $status: String(input.status || 'inbox'),
+      $priority: String(input.priority || 'normal'),
+      $dueDate: input.dueDate ? String(input.dueDate) : null,
+      $postId: current?.post_id ? String(current.post_id) : null,
+      $createdAt: current?.created_at ? String(current.created_at) : now,
+      $updatedAt: now,
+    })
+    this.persist()
+    return this.ideaOne(id)!
+  }
+
+  removeIdea(id: string) {
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('UPDATE posts SET source_idea_id = NULL WHERE source_idea_id = ?', [id])
+      this.db.run('DELETE FROM ideas WHERE id = ?', [id])
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
+  }
+
+  convertIdea(id: string): { idea: Row; post: Row } {
+    const idea = this.ideaOne(id)
+    if (!idea) throw new Error('Idea no encontrada')
+    if (idea.post_id) {
+      const existingPost = this.one(String(idea.post_id))
+      if (existingPost) return { idea, post: existingPost }
+    }
+
+    const now = new Date().toISOString()
+    const postId = crypto.randomUUID()
+    const tags = this.parseStringArray(idea.tags)
+    const hashtags = tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+    const ideaBlocks = JSON.stringify([{ id: String(idea.id), title: String(idea.title), text: String(idea.body) }])
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run(`INSERT INTO posts
+        (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+        postId, String(idea.title || 'Nueva publicación'), String(idea.body || ''), '', JSON.stringify(hashtags), '[]', '["instagram"]', 'post', 'idea',
+        idea.due_at ? String(idea.due_at) : null, 60, String(idea.space || 'Mi contenido'), '#e76042', String(idea.media || '[]'), ideaBlocks, String(idea.id), now, now,
+      ])
+      this.db.run('INSERT INTO status_history (post_id,from_status,to_status,changed_at) VALUES (?,?,?,?)', [postId, null, 'idea', now])
+      this.db.run("UPDATE ideas SET post_id = ?, status = 'converted', updated_at = ? WHERE id = ?", [postId, now, id])
+      this.db.run('COMMIT')
+      this.persist()
+      return { idea: this.ideaOne(id)!, post: this.one(postId)! }
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
+  }
+
+  listConceptMap(): { nodes: Row[]; links: Row[] } {
+    return {
+      nodes: this.rows('SELECT * FROM concept_map_nodes ORDER BY created_at ASC'),
+      links: this.rows('SELECT * FROM concept_map_links ORDER BY created_at ASC'),
+    }
+  }
+
+  saveConceptNode(input: Row): Row {
+    const now = new Date().toISOString()
+    const id = String(input.id || crypto.randomUUID())
+    const current = this.conceptNodeOne(id)
+    this.db.run(`INSERT OR REPLACE INTO concept_map_nodes
+      (id,kind,source_id,title,body,x,y,created_at,updated_at)
+      VALUES ($id,$kind,$sourceId,$title,$body,$x,$y,$createdAt,$updatedAt)`, {
+      $id: id,
+      $kind: String(input.kind),
+      $sourceId: input.sourceId ? String(input.sourceId) : null,
+      $title: String(input.title || ''),
+      $body: String(input.body || ''),
+      $x: Number(input.x),
+      $y: Number(input.y),
+      $createdAt: current?.created_at ? String(current.created_at) : now,
+      $updatedAt: now,
+    })
+    this.persist()
+    return this.conceptNodeOne(id)!
+  }
+
+  removeConceptNode(id: string) {
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('DELETE FROM concept_map_links WHERE from_node_id = ? OR to_node_id = ?', [id, id])
+      this.db.run('DELETE FROM concept_map_nodes WHERE id = ?', [id])
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
+  }
+
+  saveConceptLink(input: Row): Row {
+    const now = new Date().toISOString()
+    const id = String(input.id || crypto.randomUUID())
+    this.db.run(`INSERT OR REPLACE INTO concept_map_links
+      (id,from_node_id,to_node_id,relation,created_at)
+      VALUES ($id,$fromNodeId,$toNodeId,$relation,$createdAt)`, {
+      $id: id,
+      $fromNodeId: String(input.fromNodeId),
+      $toNodeId: String(input.toNodeId),
+      $relation: String(input.relation),
+      $createdAt: now,
+    })
+    this.persist()
+    return this.conceptLinkOne(id)!
+  }
+
+  removeConceptLink(id: string) {
+    this.db.run('DELETE FROM concept_map_links WHERE id = ?', [id])
+    this.persist()
   }
 
   listMedia(): Row[] {
@@ -171,8 +355,26 @@ export class PlannerDatabase {
     fs.copyFileSync(this.filePath, destination, fs.constants.COPYFILE_EXCL)
   }
 
+  private rows(sql: string): Row[] {
+    const result = this.db.exec(sql)
+    if (!result[0]) return []
+    return result[0].values.map(values => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
+  }
   private one(id: string): Row | undefined { return this.list().find((row) => row.id === id) }
+  private ideaOne(id: string): Row | undefined { return this.listIdeas().find((row) => row.id === id) }
+  private conceptNodeOne(id: string): Row | undefined { return this.rows('SELECT * FROM concept_map_nodes WHERE id = ' + this.sqlString(id)).at(0) }
+  private conceptLinkOne(id: string): Row | undefined { return this.rows('SELECT * FROM concept_map_links WHERE id = ' + this.sqlString(id)).at(0) }
+  private sqlString(value: string) { return "'" + value.replaceAll("'", "''") + "'" }
   private count() { return Number(this.db.exec('SELECT COUNT(*) AS n FROM posts')[0]?.values[0]?.[0] || 0) }
+
+  private parseStringArray(value: unknown): string[] {
+    try {
+      const parsed = JSON.parse(String(value || '[]'))
+      return Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : []
+    } catch {
+      return []
+    }
+  }
 
   private persist() {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true })

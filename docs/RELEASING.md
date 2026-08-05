@@ -34,6 +34,32 @@ git push origin v0.1.1
 
 No crees la etiqueta antes de que el commit con la misma versión esté en la rama remota. El workflow falla si la etiqueta no es SemVer o no coincide con `package.json`.
 
+## Proxima Release: 0.1.9
+
+La version `0.1.9` contiene el mapa conceptual. Antes de publicarla, valida el estado y el empaquetado local:
+
+```powershell
+git status --short
+npm.cmd ci
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd run dist:win
+node scripts/verify-release.mjs v0.1.9 --artifacts
+```
+
+Tras probar `release/caballocci-Setup-0.1.9-x64.exe`, confirma codigo y documentacion, nunca los artefactos de `release/`:
+
+```powershell
+git add .gitignore package.json package-lock.json tsconfig.app.tsbuildinfo .github/workflows/release-windows.yml docs README.md electron src
+git status --short
+git commit -m "release: 0.1.9"
+git push origin main
+git tag -a v0.1.9 -m "caballocci 0.1.9"
+git push origin v0.1.9
+```
+
+El ultimo comando inicia la publicacion de GitHub Actions. Comprueba que la Release `v0.1.9` incluya el instalador, el blockmap y `latest.yml`.
+
 ## Artefactos
 
 La Release pública debe contener como mínimo:

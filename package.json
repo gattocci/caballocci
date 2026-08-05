@@ -1,8 +1,9 @@
 {
   "name": "caballocci",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
-  "author": "gattocci",
+  "author": "NU WAVE",
+  "copyright": "Copyright © 2026 NU WAVE",
   "description": "caballocci — offline-first content planning workspace",
   "main": "dist-electron/main.js",
   "scripts": {

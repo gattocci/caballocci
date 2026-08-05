@@ -6,7 +6,10 @@ import { PlannerDatabase } from './database'
 import {
   validateArgumentCount,
   validateClipboardText,
+  validateConceptLinkInput,
+  validateConceptNodeInput,
   validateId,
+  validateIdeaInput,
   validateMediaMode,
   validateNoArguments,
   validatePostInput,
@@ -105,7 +108,39 @@ function mapPost(row: Record<string, unknown>) {
     hashtags: JSON.parse(String(row.hashtags || '[]')), mentions: JSON.parse(String(row.mentions || '[]')),
     platforms: JSON.parse(String(row.platforms || '[]')), contentType: row.content_type, status: row.status,
     scheduledAt: row.scheduled_at, durationMinutes: row.duration_minutes, project: row.project, color: row.color,
-    media: mapMediaAssets(row.media), ideaBlocks: mapIdeaBlocks(row.idea_blocks), createdAt: row.created_at, updatedAt: row.updated_at,
+    media: mapMediaAssets(row.media), ideaBlocks: mapIdeaBlocks(row.idea_blocks), sourceIdeaId: row.source_idea_id || null,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function mapIdea(row: Record<string, unknown>) {
+  let tags: string[] = []
+  try {
+    const parsed = JSON.parse(String(row.tags || '[]')) as unknown
+    if (Array.isArray(parsed)) tags = parsed.filter((tag): tag is string => typeof tag === 'string')
+  } catch {
+    tags = []
+  }
+  return {
+    id: row.id, space: row.space, title: row.title, body: row.body, tags,
+    media: mapMediaAssets(row.media), status: row.status, priority: row.priority,
+    dueDate: row.due_at || null, postId: row.post_id || null,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function mapConceptNode(row: Record<string, unknown>) {
+  return {
+    id: row.id, kind: row.kind, sourceId: row.source_id || null,
+    title: row.title, body: row.body, x: row.x, y: row.y,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function mapConceptLink(row: Record<string, unknown>) {
+  return {
+    id: row.id, fromNodeId: row.from_node_id, toNodeId: row.to_node_id,
+    relation: row.relation, createdAt: row.created_at,
   }
 }
 
@@ -190,6 +225,40 @@ app.whenReady().then(async () => {
   handle('posts:reassign-project', args => {
     validateArgumentCount(args, 2)
     return database.reassignProject(validateProject(args[0], 'fromProject'), validateProject(args[1], 'toProject'))
+  })
+  handle('ideas:list', withoutArguments(() => database.listIdeas().map(mapIdea)))
+  handle('ideas:save', args => {
+    validateArgumentCount(args, 1)
+    return mapIdea(database.saveIdea(validateIdeaInput(args[0])))
+  })
+  handle('ideas:remove', args => {
+    validateArgumentCount(args, 1)
+    return database.removeIdea(validateId(args[0], 'idea.id'))
+  })
+  handle('ideas:convert', args => {
+    validateArgumentCount(args, 1)
+    const converted = database.convertIdea(validateId(args[0], 'idea.id'))
+    return { idea: mapIdea(converted.idea), post: mapPost(converted.post) }
+  })
+  handle('concept-map:list', withoutArguments(() => {
+    const conceptMap = database.listConceptMap()
+    return { nodes: conceptMap.nodes.map(mapConceptNode), links: conceptMap.links.map(mapConceptLink) }
+  }))
+  handle('concept-map:save-node', args => {
+    validateArgumentCount(args, 1)
+    return mapConceptNode(database.saveConceptNode(validateConceptNodeInput(args[0])))
+  })
+  handle('concept-map:remove-node', args => {
+    validateArgumentCount(args, 1)
+    return database.removeConceptNode(validateId(args[0], 'conceptMap.node.id'))
+  })
+  handle('concept-map:save-link', args => {
+    validateArgumentCount(args, 1)
+    return mapConceptLink(database.saveConceptLink(validateConceptLinkInput(args[0])))
+  })
+  handle('concept-map:remove-link', args => {
+    validateArgumentCount(args, 1)
+    return database.removeConceptLink(validateId(args[0], 'conceptMap.link.id'))
   })
   handle('clipboard:write', args => {
     validateArgumentCount(args, 1)
