@@ -33,15 +33,26 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Build and publish NSIS release
+      - name: Build NSIS release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: npx electron-builder --win nsis --x64 --publish always
+        run: npx electron-builder --win nsis --x64 --publish never
 
       - name: Verify update artifacts
         run: node scripts/verify-release.mjs --artifacts
+
+      - name: Publish GitHub Release and update assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          gh release create "${{ github.ref_name }}" `
+            "release/caballocci-Setup-$version-x64.exe" `
+            "release/caballocci-Setup-$version-x64.exe.blockmap" `
+            "release/latest.yml" `
+            --title "caballocci $version" --generate-notes
 
       - name: Preserve artifacts in workflow run
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
