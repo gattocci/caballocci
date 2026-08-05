@@ -132,8 +132,8 @@ export function validateConceptNodeInput(value: unknown): Record<string, unknown
   const node = record(value, 'conceptMap.node')
   const x = node.x
   const y = node.y
-  if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 20_000) invalid('conceptMap.node.x')
-  if (typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 20_000) invalid('conceptMap.node.y')
+  if (typeof x !== 'number' || !Number.isFinite(x) || x < -1_000_000 || x > 1_000_000) invalid('conceptMap.node.x')
+  if (typeof y !== 'number' || !Number.isFinite(y) || y < -1_000_000 || y > 1_000_000) invalid('conceptMap.node.y')
   const sourceId = node.sourceId === null || node.sourceId === undefined || node.sourceId === '' ? null : text(node.sourceId, 'conceptMap.node.sourceId', 128, false)
   const folderId = node.folderId === null || node.folderId === undefined || node.folderId === '' ? null : text(node.folderId, 'conceptMap.node.folderId', 128, false)
   const validated: Record<string, unknown> = {
