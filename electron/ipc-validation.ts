@@ -7,6 +7,10 @@ const mediaKinds = ['image', 'video', 'document'] as const
 const mediaModes = ['copy', 'reference'] as const
 const conceptNodeKinds = ['idea', 'post', 'resource'] as const
 const conceptRelations = ['references', 'depends_on', 'related'] as const
+const sourceMethods = ['GET', 'POST'] as const
+const sourceFormats = ['json', 'ndjson', 'csv'] as const
+const sourceAuthTypes = ['none', 'apiKey', 'bearer', 'basic'] as const
+const sourceImportModes = ['post', 'idea', 'both'] as const
 
 function invalid(field: string): never {
   throw new TypeError(`Argumento IPC no valido: ${field}`)
@@ -126,6 +130,126 @@ export function validateIdeaInput(value: unknown): Record<string, unknown> {
   const id = optionalId(idea.id, 'idea.id')
   if (id) validated.id = id
   return validated
+}
+
+function stringRecord(value: unknown, field: string, maxItems: number, maxLength: number): Record<string, string> {
+  const object = record(value, field)
+  const entries = Object.entries(object)
+  if (entries.length > maxItems) invalid(field)
+  return Object.fromEntries(entries.map(([key, item]) => {
+    const cleanKey = text(key, `${field}.key`, 200, false)
+    const cleanValue = text(item, `${field}.${cleanKey}`, maxLength)
+    if (/\r|\n/.test(cleanKey) || /\r|\n/.test(cleanValue)) invalid(`${field}.${cleanKey}`)
+    return [cleanKey, cleanValue]
+  }))
+}
+
+export function validateSourceInput(value: unknown): Record<string, unknown> {
+  const source = record(value, 'source')
+  const bodyTemplate = source.bodyTemplate === null || source.bodyTemplate === undefined || source.bodyTemplate === '' ? null : text(source.bodyTemplate, 'source.bodyTemplate', 100_000)
+  if (bodyTemplate) { try { JSON.parse(bodyTemplate) } catch { invalid('source.bodyTemplate') } }
+  const maxRecords = source.maxRecords === undefined ? 500 : source.maxRecords
+  if (typeof maxRecords !== 'number' || !Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 10_000) invalid('source.maxRecords')
+  const headers = stringRecord(source.headers === undefined ? {} : source.headers, 'source.headers', 100, 8_000)
+  const authType = enumValue(source.authType || 'none', 'source.authType', sourceAuthTypes)
+  const authConfig = stringRecord(source.authConfig === undefined ? {} : source.authConfig, 'source.authConfig', 20, 20_000)
+  if (authType === 'bearer' && !authConfig.token?.trim()) {
+    const tokenAlias = Object.keys(authConfig).find(key => /token/i.test(key) && authConfig[key].trim())
+    if (tokenAlias) authConfig.token = authConfig[tokenAlias]
+  }
+  const hasBearerHeader = Object.entries(headers).some(([key, value]) => key.toLowerCase() === 'authorization' && /^Bearer\s+\S+/i.test(value))
+  if (authType === 'bearer' && !authConfig.token?.trim() && !hasBearerHeader) throw new TypeError('Para Bearer token, Auth JSON debe tener la forma {"token":"TU_TOKEN"} o define Authorization en Headers JSON')
+  if (authType === 'apiKey' && !authConfig.value?.trim()) throw new TypeError('Para API key, Auth JSON debe tener la forma {"value":"TU_API_KEY"} y opcionalmente "header"')
+  if (authType === 'basic' && (!authConfig.username?.trim() || authConfig.password === undefined)) throw new TypeError('Para Basic, Auth JSON debe tener username y password')
+  const targetProject = text(source.targetProject === undefined ? 'Mi contenido' : source.targetProject, 'source.targetProject', 200, false)
+  const importMode = enumValue(source.importMode || 'post', 'source.importMode', sourceImportModes)
+  const initialStatus = enumValue(source.initialStatus || 'idea', 'source.initialStatus', postStatuses)
+  const validated: Record<string, unknown> = {
+    name: text(source.name, 'source.name', 200, false),
+    baseUrl: text(source.baseUrl, 'source.baseUrl', 4_000, false),
+    method: enumValue(source.method, 'source.method', sourceMethods),
+    format: enumValue(source.format, 'source.format', sourceFormats),
+    recordsPath: source.recordsPath ? text(source.recordsPath, 'source.recordsPath', 300, false) : null,
+    headers,
+    bodyTemplate,
+    authType,
+    authConfig,
+    targetProject,
+    importMode,
+    initialStatus,
+    maxRecords,
+  }
+  const id = optionalId(source.id, 'source.id'); if (id) validated.id = id
+  return validated
+}
+
+export function validateSourceDefinitionInput(value: unknown): Record<string, unknown> {
+  const definition = record(value, 'sourceDefinition')
+  const fieldMap = record(definition.fieldMap, 'sourceDefinition.fieldMap')
+  const hashFields = definition.hashFields
+  if (!Array.isArray(hashFields) || hashFields.length > 100) invalid('sourceDefinition.hashFields')
+  const contentTypeMap = stringRecord(definition.contentTypeMap === undefined ? {} : definition.contentTypeMap, 'sourceDefinition.contentTypeMap', 100, 100)
+  const customFieldDefaults = record(definition.customFieldDefaults === undefined ? {} : definition.customFieldDefaults, 'sourceDefinition.customFieldDefaults')
+  const validated: Record<string, unknown> = {
+    sourceId: validateId(definition.sourceId, 'sourceDefinition.sourceId'),
+    fieldMap: {
+      externalRef: text(fieldMap.externalRef, 'sourceDefinition.fieldMap.externalRef', 300, false),
+      title: text(fieldMap.title, 'sourceDefinition.fieldMap.title', 300, false),
+      sourceKindField: text(fieldMap.sourceKindField, 'sourceDefinition.fieldMap.sourceKindField', 300),
+    },
+    hashFields: hashFields.map((item, index) => text(item, `sourceDefinition.hashFields[${index}]`, 300, false)),
+    contentTypeMap,
+    customFieldDefaults,
+  }
+  const id = optionalId(definition.id, 'sourceDefinition.id'); if (id) validated.id = id
+  return validated
+}
+
+export function validateEnrichedInput(value: unknown): Record<string, unknown> {
+  const input = record(value, 'contentRecord')
+  const enriched = record(input.enriched, 'contentRecord.enriched')
+  if (JSON.stringify(enriched).length > 200_000) invalid('contentRecord.enriched')
+  return { id: validateId(input.id, 'contentRecord.id'), enriched }
+}
+
+function exportColumns(value: unknown, field: string): Array<{ header: string; source: string; order: number }> {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 100) invalid(field)
+  return value.map((item, index) => {
+    const column = record(item, `${field}[${index}]`)
+    const order = column.order
+    if (typeof order !== 'number' || !Number.isInteger(order) || order < 0 || order > 1_000) invalid(`${field}[${index}].order`)
+    return { header: text(column.header, `${field}[${index}].header`, 200, false), source: text(column.source, `${field}[${index}].source`, 300, false), order }
+  })
+}
+
+export function validateContentTypeTemplateInput(value: unknown): Record<string, unknown> {
+  const template = record(value, 'contentTypeTemplate')
+  const fields = template.fields
+  if (!Array.isArray(fields) || fields.length > 50) invalid('contentTypeTemplate.fields')
+  const validatedFields = fields.map((item, index) => {
+    const field = record(item, `contentTypeTemplate.fields[${index}]`)
+    return { key: text(field.key, `contentTypeTemplate.fields[${index}].key`, 100, false), label: text(field.label, `contentTypeTemplate.fields[${index}].label`, 160, false), type: enumValue(field.type, `contentTypeTemplate.fields[${index}].type`, ['text', 'textarea'] as const) }
+  })
+  const keys = new Set(validatedFields.map(field => field.key)); if (keys.size !== validatedFields.length) invalid('contentTypeTemplate.fields')
+  const validated: Record<string, unknown> = { contentType: text(template.contentType, 'contentTypeTemplate.contentType', 100, false), fields: validatedFields }
+  const id = optionalId(template.id, 'contentTypeTemplate.id'); if (id) validated.id = id
+  return validated
+}
+
+export function validateExportProfileInput(value: unknown): Record<string, unknown> {
+  const profile = record(value, 'exportProfile')
+  const validated: Record<string, unknown> = {
+    name: text(profile.name, 'exportProfile.name', 200, false),
+    appliesToContentType: text(profile.appliesToContentType || 'all', 'exportProfile.appliesToContentType', 100, false),
+    columns: exportColumns(profile.columns, 'exportProfile.columns'),
+  }
+  const id = optionalId(profile.id, 'exportProfile.id'); if (id) validated.id = id
+  return validated
+}
+
+export function validateOptionalPostStatus(value: unknown, field: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  return enumValue(value, field, postStatuses)
 }
 
 export function validateConceptNodeInput(value: unknown): Record<string, unknown> {

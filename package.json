@@ -1,6 +1,6 @@
 {
   "name": "caballocci",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "author": "NU WAVE",
   "copyright": "Copyright © 2026 NU WAVE",
@@ -8,7 +8,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "brand:assets": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/generate-brand-assets.ps1",
-    "dev": "tsc -p electron/tsconfig.json && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev": "tsc -p electron/tsconfig.json && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && scripts\\start-electron-dev.cmd\"",
     "build": "tsc -b && vite build && tsc -p electron/tsconfig.json",
     "preview": "vite preview",
     "start": "electron .",

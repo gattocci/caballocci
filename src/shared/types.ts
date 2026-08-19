@@ -114,12 +114,105 @@ export interface SystemInfo {
   packaged: boolean
 }
 
+export interface Source {
+  id: string
+  name: string
+  baseUrl: string
+  method: 'GET' | 'POST'
+  format: 'json' | 'ndjson' | 'csv'
+  recordsPath: string | null
+  bodyTemplate: string | null
+  authType: 'none' | 'apiKey' | 'bearer' | 'basic'
+  maxRecords: number
+  targetProject: string
+  importMode: 'post' | 'idea' | 'both'
+  initialStatus: PostStatus
+  createdAt: string
+  updatedAt: string
+  hasStoredCredentials: boolean
+  hasStoredHeaders: boolean
+  hasStoredAuth: boolean
+}
+
+export interface SourceDefinition {
+  id: string
+  sourceId: string
+  fieldMap: { externalRef: string; title: string; sourceKindField: string; hashFields?: string[] }
+  contentTypeMap: Record<string, string>
+  customFieldDefaults: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ImportReport {
+  new: number
+  updated: number
+  unchanged: number
+  invalid: number
+  total: number
+}
+
+export interface ContentRecord {
+  id: string
+  postId: string | null
+  ideaId: string | null
+  sourceId: string
+  externalRef: string
+  sourceKind: string
+  contentHash: string
+  raw: Record<string, unknown>
+  normalized: Record<string, unknown>
+  enriched: Record<string, unknown>
+  suggestedTitle: string | null
+  titleManuallyEdited: boolean
+  status: 'active' | 'archived'
+  createdAt: string
+  updatedAt: string
+  lastSeenAt: string
+}
+
+export interface EnrichmentField { key: string; label: string; type: 'text' | 'textarea' }
+export interface ContentTypeTemplate { id: string; contentType: string; fields: EnrichmentField[]; createdAt: string; updatedAt: string }
+export interface ExportColumn { header: string; source: string; order: number }
+export interface ExportProfile { id: string; name: string; appliesToContentType: string; columns: ExportColumn[]; createdAt: string; updatedAt: string }
+
 export interface ElectronAPI {
   posts: {
     list(): Promise<Post[]>
     save(post: PostInput): Promise<Post>
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
+  }
+  sources: {
+    list(): Promise<Source[]>
+    save(source: unknown): Promise<Source>
+    remove(id: string): Promise<void>
+    applyDestination(id: string): Promise<{ total: number; postsMoved: number; ideasMoved: number; postsCreated: number; ideasCreated: number }>
+    test(source: unknown): Promise<{ ok: boolean; bytes: number; status: number; statusText: string; contentType: string; sample: string; requestDetails: string; recordCount: number; fields: string[]; suggestion: { externalRef: string; title: string; sourceKindField: string; hashFields: string[]; contentTypeMap: Record<string, string> } | null; parseWarning: string }>
+  }
+  sourceDefinitions: {
+    list(sourceId?: string): Promise<SourceDefinition[]>
+    save(definition: unknown): Promise<SourceDefinition>
+  }
+  imports: {
+    preview(sourceId: string, definitionId: string): Promise<{ previewId: string; truncated: boolean; records: Record<string, unknown>[]; report: { summary: ImportReport } }>
+    confirm(previewId: string): Promise<ImportReport>
+  }
+  contentRecords: {
+    list(sourceId?: string): Promise<ContentRecord[]>
+    byPost(postId: string): Promise<ContentRecord | null>
+    saveEnriched(record: { id: string; enriched: Record<string, unknown> }): Promise<ContentRecord>
+  }
+  contentTypeTemplates: {
+    list(): Promise<ContentTypeTemplate[]>
+    save(template: { id?: string; contentType: string; fields: EnrichmentField[] }): Promise<ContentTypeTemplate>
+  }
+  exportProfiles: {
+    list(): Promise<ExportProfile[]>
+    save(profile: { id?: string; name: string; appliesToContentType: string; columns: ExportColumn[] }): Promise<ExportProfile>
+  }
+  exports: {
+    csv(sourceId: string | null, profileId: string, deltaOnly?: boolean, project?: string, status?: PostStatus): Promise<{ filename: string; csv: string; count: number; total: number; delta: boolean }>
   }
   ideas: {
     list(): Promise<Idea[]>

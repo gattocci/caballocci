@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CalendarDays, Clock3, Columns3, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Search, Settings, Trash2, X } from 'lucide-react'
+import { CalendarDays, Clock3, Columns3, Database, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Search, Settings, Trash2, X } from 'lucide-react'
 import { usePlanner } from '../../app/store'
 import { platformMeta } from '../../shared/constants'
 import type { Platform } from '../../shared/types'
@@ -23,6 +23,7 @@ export function Sidebar() {
     { id: 'board', label: 'Tablero', icon: Columns3 },
     { id: 'ideas', label: 'Ideas', icon: Lightbulb },
     { id: 'concept-map', label: 'Mapa conceptual', icon: Network },
+    { id: 'sources', label: 'Fuentes', icon: Database },
     { id: 'library', label: 'Biblioteca', icon: Library },
   ] as const
   return <aside className="sidebar">
@@ -38,7 +39,7 @@ export function Sidebar() {
 export function Topbar({ onNew }: { onNew: () => void }) {
   const { query, setQuery, setView } = usePlanner()
   const [open, setOpen] = useState(false)
-  const go = (view: 'timeline' | 'calendar' | 'board' | 'ideas' | 'library' | 'about') => { setView(view); setOpen(false) }
+  const go = (view: 'timeline' | 'calendar' | 'board' | 'ideas' | 'library' | 'sources' | 'about') => { setView(view); setOpen(false) }
   return <header className="topbar"><div className="search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar publicaciones, ideas, etiquetas..." /><kbd>Ctrl K</kbd></div><div className="top-actions"><div className="app-menu-wrap"><button className="icon-button" title="Abrir menú" aria-expanded={open} onClick={() => setOpen(value => !value)}><Menu size={18} /></button>{open && <div className="app-menu"><button onClick={() => go('timeline')}><Clock3 size={15} /> Línea de tiempo</button><button onClick={() => go('calendar')}><CalendarDays size={15} /> Calendario</button><button onClick={() => go('board')}><Columns3 size={15} /> Tablero</button><button onClick={() => go('ideas')}><Lightbulb size={15} /> Ideas</button><button onClick={() => go('library')}><Library size={15} /> Biblioteca</button><hr /><button onClick={() => go('about')}><Settings size={15} /> Acerca de y actualizaciones</button></div>}</div><button className="new-button" onClick={onNew}><Plus size={17} /> Nueva publicación</button><div className="avatar">CG</div></div></header>
 }
 

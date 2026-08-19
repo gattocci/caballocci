@@ -83,6 +83,78 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS concept_map_folders_parent_idx ON concept_map_folders(parent_id);
     `,
   },
+  {
+    version: 6,
+    name: 'external_content_sources',
+    up: `
+      ALTER TABLE posts ADD COLUMN title_manually_edited INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS sources (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, base_url TEXT NOT NULL,
+        method TEXT NOT NULL DEFAULT 'GET', format TEXT NOT NULL DEFAULT 'json',
+        records_path TEXT, headers_ciphertext TEXT NOT NULL DEFAULT '', body_template TEXT,
+        auth_type TEXT NOT NULL DEFAULT 'none', auth_ciphertext TEXT,
+        max_records INTEGER NOT NULL DEFAULT 500, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS source_definitions (
+        id TEXT PRIMARY KEY, source_id TEXT NOT NULL, field_map_json TEXT NOT NULL,
+        content_type_map_json TEXT NOT NULL DEFAULT '{}', custom_field_defaults_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS source_definitions_source_idx ON source_definitions(source_id);
+      CREATE TABLE IF NOT EXISTS content_records (
+        id TEXT PRIMARY KEY, post_id TEXT, source_id TEXT NOT NULL, external_ref TEXT NOT NULL,
+        source_kind TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL, raw_json TEXT NOT NULL,
+        normalized_json TEXT NOT NULL, enriched_json TEXT NOT NULL DEFAULT '{}', suggested_title TEXT,
+        title_manually_edited INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+        UNIQUE(source_id, external_ref)
+      );
+      CREATE INDEX IF NOT EXISTS content_records_post_idx ON content_records(post_id);
+      CREATE INDEX IF NOT EXISTS content_records_source_idx ON content_records(source_id);
+      CREATE TABLE IF NOT EXISTS content_type_templates (
+        id TEXT PRIMARY KEY, content_type TEXT NOT NULL UNIQUE, fields_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS export_profiles (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, applies_to_content_type TEXT NOT NULL DEFAULT 'all',
+        columns_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS import_runs (
+        id TEXT PRIMARY KEY, source_id TEXT NOT NULL, definition_id TEXT, summary_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 7,
+    name: 'export_snapshots',
+    up: `
+      CREATE TABLE IF NOT EXISTS export_runs (
+        id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, source_id TEXT, mode TEXT NOT NULL DEFAULT 'delta', created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS export_run_items (
+        run_id TEXT NOT NULL, row_key TEXT NOT NULL, row_hash TEXT NOT NULL,
+        PRIMARY KEY (run_id, row_key)
+      );
+      CREATE INDEX IF NOT EXISTS export_runs_profile_idx ON export_runs(profile_id, source_id, created_at);
+      CREATE INDEX IF NOT EXISTS export_run_items_key_idx ON export_run_items(row_key);
+    `,
+  },
+  {
+    version: 8,
+    name: 'export_snapshot_scope',
+    up: `ALTER TABLE export_runs ADD COLUMN scope TEXT NOT NULL DEFAULT ''; CREATE INDEX IF NOT EXISTS export_runs_scope_idx ON export_runs(profile_id, source_id, scope, created_at);`,
+  },
+  {
+    version: 9,
+    name: 'source_import_destination',
+    up: `ALTER TABLE sources ADD COLUMN target_project TEXT NOT NULL DEFAULT 'Mi contenido'; ALTER TABLE sources ADD COLUMN import_mode TEXT NOT NULL DEFAULT 'post'; ALTER TABLE sources ADD COLUMN initial_status TEXT NOT NULL DEFAULT 'idea';`,
+  },
+  {
+    version: 10,
+    name: 'content_record_idea_link',
+    up: `ALTER TABLE content_records ADD COLUMN idea_id TEXT; CREATE INDEX IF NOT EXISTS content_records_idea_idx ON content_records(idea_id);`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -124,6 +196,8 @@ export class PlannerDatabase {
     const now = new Date().toISOString()
     const id = String(input.id || crypto.randomUUID())
     const current = this.one(id)
+    const linkedContent = this.rows('SELECT id FROM content_records WHERE post_id = ' + this.sqlString(id)).at(0)
+    const titleManuallyEdited = linkedContent && current && String(current.title || '') !== String(input.title || '') ? 1 : Number(current?.title_manually_edited || 0)
     const createdAt = current?.created_at || input.createdAt || now
     const values = {
       id, title: input.title || 'Sin título', caption: input.caption || '', notes: input.notes || '',
@@ -132,18 +206,250 @@ export class PlannerDatabase {
       scheduledAt: input.scheduledAt || null, durationMinutes: input.durationMinutes || 60, project: input.project || '',
       color: input.color || '#ff6b4a', media: JSON.stringify(input.media || []), ideaBlocks: JSON.stringify(input.ideaBlocks || []),
       sourceIdeaId: current?.source_idea_id || null, createdAt, updatedAt: now,
+      titleManuallyEdited,
     }
     this.db.run(`INSERT OR REPLACE INTO posts
-      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,created_at,updated_at)
-      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$sourceIdeaId,$createdAt,$updatedAt)`,
+      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
+      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$sourceIdeaId,$titleManuallyEdited,$createdAt,$updatedAt)`,
       Object.fromEntries(Object.entries(values).map(([key, value]) => [`$${key}`, value])) as Record<string, string | number | null>)
     const previousStatus = current ? String(current.status) : null
     const nextStatus = String(values.status)
     if (!current || previousStatus !== nextStatus) {
       this.db.run('INSERT INTO status_history (post_id,from_status,to_status,changed_at) VALUES (?,?,?,?)', [id, previousStatus, nextStatus, now])
     }
+    if (titleManuallyEdited) this.db.run('UPDATE content_records SET title_manually_edited = 1, updated_at = ? WHERE post_id = ?', [now, id])
     this.persist()
     return this.one(id)!
+  }
+
+  listSources(): Row[] { return this.rows('SELECT * FROM sources ORDER BY name COLLATE NOCASE ASC') }
+
+  getSource(id: string): Row | undefined { return this.rows('SELECT * FROM sources WHERE id = ' + this.sqlString(id)).at(0) }
+
+  saveSource(input: Row): Row {
+    const now = new Date().toISOString()
+    const id = String(input.id || crypto.randomUUID())
+    const current = this.getSource(id)
+    this.db.run(`INSERT OR REPLACE INTO sources
+      (id,name,base_url,method,format,records_path,headers_ciphertext,body_template,auth_type,auth_ciphertext,max_records,target_project,import_mode,initial_status,created_at,updated_at)
+      VALUES ($id,$name,$baseUrl,$method,$format,$recordsPath,$headers,$body,$authType,$auth,$maxRecords,$targetProject,$importMode,$initialStatus,$createdAt,$updatedAt)`, {
+      $id: id, $name: String(input.name), $baseUrl: String(input.baseUrl), $method: String(input.method), $format: String(input.format),
+      $recordsPath: input.recordsPath ? String(input.recordsPath) : null, $headers: String(input.headersCiphertext || ''),
+      $body: input.bodyTemplate ? String(input.bodyTemplate) : null, $authType: String(input.authType || 'none'),
+      $auth: input.authCiphertext ? String(input.authCiphertext) : null, $maxRecords: Number(input.maxRecords || 500),
+      $targetProject: String(input.targetProject || 'Mi contenido'), $importMode: String(input.importMode || 'post'), $initialStatus: String(input.initialStatus || 'idea'),
+      $createdAt: current?.created_at ? String(current.created_at) : now, $updatedAt: now,
+    })
+    this.persist()
+    return this.getSource(id)!
+  }
+
+  removeSource(id: string) {
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('DELETE FROM content_records WHERE source_id = ?', [id])
+      this.db.run('DELETE FROM source_definitions WHERE source_id = ?', [id])
+      this.db.run('DELETE FROM sources WHERE id = ?', [id])
+      this.db.run('COMMIT'); this.persist()
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  listSourceDefinitions(sourceId?: string): Row[] {
+    return sourceId ? this.rows('SELECT * FROM source_definitions WHERE source_id = ' + this.sqlString(sourceId) + ' ORDER BY updated_at DESC') : this.rows('SELECT * FROM source_definitions ORDER BY updated_at DESC')
+  }
+
+  getSourceDefinition(id: string): Row | undefined { return this.rows('SELECT * FROM source_definitions WHERE id = ' + this.sqlString(id)).at(0) }
+
+  saveSourceDefinition(input: Row): Row {
+    const now = new Date().toISOString(); const id = String(input.id || crypto.randomUUID()); const current = this.getSourceDefinition(id)
+    this.db.run(`INSERT OR REPLACE INTO source_definitions
+      (id,source_id,field_map_json,content_type_map_json,custom_field_defaults_json,created_at,updated_at)
+      VALUES ($id,$sourceId,$fieldMap,$typeMap,$defaults,$createdAt,$updatedAt)`, {
+      $id: id, $sourceId: String(input.sourceId), $fieldMap: String(input.fieldMapJson || '{}'),
+      $typeMap: String(input.contentTypeMapJson || '{}'), $defaults: String(input.customFieldDefaultsJson || '{}'),
+      $createdAt: current?.created_at ? String(current.created_at) : now, $updatedAt: now,
+    })
+    this.persist(); return this.getSourceDefinition(id)!
+  }
+
+  listContentRecords(sourceId?: string): Row[] {
+    return sourceId ? this.rows('SELECT * FROM content_records WHERE source_id = ' + this.sqlString(sourceId) + ' ORDER BY updated_at DESC') : this.rows('SELECT * FROM content_records ORDER BY updated_at DESC')
+  }
+
+  getContentRecordForPost(postId: string): Row | undefined {
+    return this.rows('SELECT * FROM content_records WHERE post_id = ' + this.sqlString(postId) + ' ORDER BY updated_at DESC LIMIT 1').at(0)
+  }
+
+  saveContentEnriched(id: string, enrichedJson: string): Row {
+    const current = this.rows('SELECT * FROM content_records WHERE id = ' + this.sqlString(id)).at(0)
+    if (!current) throw new Error('Registro importado no encontrado')
+    const now = new Date().toISOString()
+    this.db.run('UPDATE content_records SET enriched_json = ?, updated_at = ? WHERE id = ?', [enrichedJson, now, id])
+    this.persist()
+    return this.rows('SELECT * FROM content_records WHERE id = ' + this.sqlString(id)).at(0)!
+  }
+
+  listContentTypeTemplates(): Row[] { return this.rows('SELECT * FROM content_type_templates ORDER BY content_type ASC') }
+
+  saveContentTypeTemplate(input: Row): Row {
+    const now = new Date().toISOString(); const contentType = String(input.contentType)
+    const byType = this.rows('SELECT * FROM content_type_templates WHERE content_type = ' + this.sqlString(contentType)).at(0)
+    const id = String(input.id || byType?.id || crypto.randomUUID())
+    const current = this.rows('SELECT * FROM content_type_templates WHERE id = ' + this.sqlString(id)).at(0)
+    this.db.run(`INSERT OR REPLACE INTO content_type_templates (id,content_type,fields_json,created_at,updated_at)
+      VALUES ($id,$contentType,$fields,$createdAt,$updatedAt)`, {
+      $id: id, $contentType: contentType, $fields: String(input.fieldsJson || '[]'),
+      $createdAt: current?.created_at ? String(current.created_at) : now, $updatedAt: now,
+    })
+    this.persist(); return this.rows('SELECT * FROM content_type_templates WHERE id = ' + this.sqlString(id)).at(0)!
+  }
+
+  listExportProfiles(): Row[] { return this.rows('SELECT * FROM export_profiles ORDER BY name COLLATE NOCASE ASC') }
+
+  getExportProfile(id: string): Row | undefined { return this.rows('SELECT * FROM export_profiles WHERE id = ' + this.sqlString(id)).at(0) }
+
+  saveExportProfile(input: Row): Row {
+    const now = new Date().toISOString(); const id = String(input.id || crypto.randomUUID()); const current = this.getExportProfile(id)
+    this.db.run(`INSERT OR REPLACE INTO export_profiles (id,name,applies_to_content_type,columns_json,created_at,updated_at)
+      VALUES ($id,$name,$contentType,$columns,$createdAt,$updatedAt)`, {
+      $id: id, $name: String(input.name), $contentType: String(input.appliesToContentType || 'all'), $columns: String(input.columnsJson || '[]'),
+      $createdAt: current?.created_at ? String(current.created_at) : now, $updatedAt: now,
+    })
+    this.persist(); return this.getExportProfile(id)!
+  }
+
+  listExportRows(sourceId?: string, project?: string): Row[] {
+    const projectClause = project ? ' AND p.project = ' + this.sqlString(project) : ''
+    if (sourceId) return this.rows(`SELECT c.id AS content_id, c.*, p.title AS post_title, p.caption AS post_caption, p.notes AS post_notes, p.hashtags AS post_hashtags, p.mentions AS post_mentions, p.platforms AS post_platforms, p.media AS post_media, p.idea_blocks AS post_idea_blocks, p.project AS post_project, p.status AS post_status, p.scheduled_at AS post_scheduled_at, p.content_type AS post_content_type
+      FROM content_records c LEFT JOIN posts p ON p.id = c.post_id WHERE c.source_id = ${this.sqlString(sourceId)}${projectClause} ORDER BY COALESCE(p.scheduled_at, c.updated_at) ASC`)
+    return this.rows(`SELECT c.id AS content_id, c.*, p.id AS post_id, p.title AS post_title, p.caption AS post_caption, p.notes AS post_notes, p.hashtags AS post_hashtags, p.mentions AS post_mentions, p.platforms AS post_platforms, p.media AS post_media, p.idea_blocks AS post_idea_blocks, p.project AS post_project, p.status AS post_status, p.scheduled_at AS post_scheduled_at, p.content_type AS post_content_type
+      FROM posts p LEFT JOIN content_records c ON c.post_id = p.id WHERE 1 = 1${projectClause} ORDER BY COALESCE(p.scheduled_at, p.updated_at) ASC`)
+  }
+
+  listLastExportSnapshot(profileId: string, sourceId?: string, scope = ''): Row[] {
+    const sourceClause = sourceId ? ' AND source_id = ' + this.sqlString(sourceId) : ' AND source_id IS NULL'
+    const run = this.rows('SELECT id FROM export_runs WHERE profile_id = ' + this.sqlString(profileId) + sourceClause + ' AND scope = ' + this.sqlString(scope) + ' ORDER BY created_at DESC LIMIT 1').at(0)
+    return run ? this.rows('SELECT row_key, row_hash FROM export_run_items WHERE run_id = ' + this.sqlString(String(run.id))) : []
+  }
+
+  saveExportSnapshot(profileId: string, sourceId: string | undefined, scope: string, mode: string, items: { rowKey: string; rowHash: string }[]) {
+    const runId = crypto.randomUUID(); const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run('INSERT INTO export_runs (id,profile_id,source_id,scope,mode,created_at) VALUES (?,?,?,?,?,?)', [runId, profileId, sourceId || null, scope, mode, now])
+      for (const item of items) this.db.run('INSERT INTO export_run_items (run_id,row_key,row_hash) VALUES (?,?,?)', [runId, item.rowKey, item.rowHash])
+      this.db.run('COMMIT'); this.persist()
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  applyImport(sourceId: string, items: Row[]) {
+    const now = new Date().toISOString(); const result = { new: 0, updated: 0, unchanged: 0, invalid: 0, total: items.length }
+    const source = this.getSource(sourceId)
+    const targetProject = String(source?.target_project || 'Mi contenido')
+    const importMode = String(source?.import_mode || 'post')
+    const initialStatus = String(source?.initial_status || 'idea')
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const item of items) {
+        const kind = String(item.kind); if (kind === 'invalid') { result.invalid += 1; continue }
+        const record = item.record as Row; const hash = String(item.contentHash)
+        const ref = String(record.externalRef); const current = this.rows('SELECT * FROM content_records WHERE source_id = ' + this.sqlString(sourceId) + ' AND external_ref = ' + this.sqlString(ref)).at(0)
+        if (!current) {
+          const postId = importMode === 'idea' ? null : crypto.randomUUID(); const contentId = crypto.randomUUID()
+          if (postId) this.db.run(`INSERT INTO posts (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [postId, String(record.title), '', '', '[]', '[]', '["instagram"]', String(record.contentType || 'post'), initialStatus, null, 60, targetProject, '#e76042', '[]', '[]', null, 0, now, now])
+          const ideaId = importMode === 'idea' || importMode === 'both' ? crypto.randomUUID() : null
+          if (ideaId) {
+            const raw = record.raw && typeof record.raw === 'object' ? record.raw as Row : {}
+            this.db.run(`INSERT INTO ideas (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [ideaId, targetProject, String(record.title), String(raw.description || raw.body || ''), '[]', '[]', 'inbox', 'normal', null, null, now, now])
+          }
+          this.db.run(`INSERT INTO content_records (id,post_id,idea_id,source_id,external_ref,source_kind,content_hash,raw_json,normalized_json,enriched_json,suggested_title,title_manually_edited,status,created_at,updated_at,last_seen_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [contentId, postId, ideaId, sourceId, ref, String(record.sourceKind || ''), hash, JSON.stringify(record.raw), JSON.stringify(record), JSON.stringify(record.enriched || {}), null, 0, 'active', now, now, now])
+          result.new += 1
+        } else {
+          // Sources imported before a destination was configured can be reconciled later.
+          // Only add a missing link; existing planner items keep their user-selected location.
+          let postId = current.post_id ? String(current.post_id) : null
+          let ideaId = current.idea_id ? String(current.idea_id) : null
+          const raw = record.raw && typeof record.raw === 'object' ? record.raw as Row : {}
+          if (!postId && (importMode === 'post' || importMode === 'both')) {
+            postId = crypto.randomUUID()
+            this.db.run(`INSERT INTO posts (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [postId, String(record.title), '', '', '[]', '[]', '["instagram"]', String(record.contentType || 'post'), initialStatus, null, 60, targetProject, '#e76042', '[]', '[]', null, 0, now, now])
+          }
+          if (!ideaId && (importMode === 'idea' || importMode === 'both')) {
+            ideaId = crypto.randomUUID()
+            this.db.run(`INSERT INTO ideas (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [ideaId, targetProject, String(record.title), String(raw.description || raw.body || ''), '[]', '[]', 'inbox', 'normal', null, null, now, now])
+          }
+          if (postId !== (current.post_id ? String(current.post_id) : null) || ideaId !== (current.idea_id ? String(current.idea_id) : null)) {
+            this.db.run('UPDATE content_records SET post_id=?, idea_id=?, updated_at=? WHERE id=?', [postId, ideaId, now, String(current.id)])
+          }
+
+          if (kind === 'updated') {
+          const manuallyEdited = Number(current.title_manually_edited || 0) === 1
+          this.db.run(`UPDATE content_records SET source_kind=?,content_hash=?,raw_json=?,normalized_json=?,suggested_title=?,updated_at=?,last_seen_at=? WHERE id=?`, [String(record.sourceKind || ''), hash, JSON.stringify(record.raw), JSON.stringify(record), manuallyEdited ? String(record.title) : null, now, now, String(current.id)])
+          if (ideaId) {
+            this.db.run('UPDATE ideas SET title=?,body=?,space=?,updated_at=? WHERE id=?', [String(record.title), String(raw.description || raw.body || ''), targetProject, now, ideaId])
+          }
+          if (!manuallyEdited && postId) this.db.run('UPDATE posts SET title = ?, content_type = ?, updated_at = ? WHERE id = ?', [String(record.title), String(record.contentType || 'post'), now, postId])
+          result.updated += 1
+          } else {
+            this.db.run('UPDATE content_records SET last_seen_at = ? WHERE id = ?', [now, String(current.id)])
+            result.unchanged += 1
+          }
+        }
+      }
+      this.db.run('COMMIT'); this.persist(); return result
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  applySourceDestination(sourceId: string) {
+    const source = this.getSource(sourceId)
+    if (!source) throw new Error('Fuente no encontrada')
+    const targetProject = String(source.target_project || 'Mi contenido')
+    const importMode = String(source.import_mode || 'post')
+    const initialStatus = String(source.initial_status || 'idea')
+    const records = this.listContentRecords(sourceId)
+    const result = { total: records.length, postsMoved: 0, ideasMoved: 0, postsCreated: 0, ideasCreated: 0 }
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const current of records) {
+        let normalized: Row = {}; let raw: Row = {}
+        try { const parsed = JSON.parse(String(current.normalized_json || '{}')) as unknown; if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) normalized = parsed as Row } catch { /* Empty fallback. */ }
+        try { const parsed = JSON.parse(String(current.raw_json || '{}')) as unknown; if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) raw = parsed as Row } catch { /* Empty fallback. */ }
+        let postId = current.post_id ? String(current.post_id) : null
+        let ideaId = current.idea_id ? String(current.idea_id) : null
+
+        if (importMode === 'post' || importMode === 'both') {
+          const post = postId ? this.one(postId) : undefined
+          if (post) {
+            if (String(post.project) !== targetProject) result.postsMoved += 1
+            this.db.run('UPDATE posts SET project = ?, updated_at = ? WHERE id = ?', [targetProject, now, postId])
+          } else {
+            postId = crypto.randomUUID(); result.postsCreated += 1
+            this.db.run(`INSERT INTO posts (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [postId, String(normalized.title || current.external_ref), '', '', '[]', '[]', '["instagram"]', String(normalized.contentType || 'post'), initialStatus, null, 60, targetProject, '#e76042', '[]', '[]', null, 0, now, now])
+          }
+        }
+
+        if (importMode === 'idea' || importMode === 'both') {
+          const idea = ideaId ? this.ideaOne(ideaId) : undefined
+          if (idea) {
+            if (String(idea.space) !== targetProject) result.ideasMoved += 1
+            this.db.run('UPDATE ideas SET space = ?, updated_at = ? WHERE id = ?', [targetProject, now, ideaId])
+          } else {
+            ideaId = crypto.randomUUID(); result.ideasCreated += 1
+            this.db.run(`INSERT INTO ideas (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [ideaId, targetProject, String(normalized.title || current.external_ref), String(raw.description || raw.body || ''), '[]', '[]', 'inbox', 'normal', null, null, now, now])
+          }
+        }
+
+        if (postId !== (current.post_id ? String(current.post_id) : null) || ideaId !== (current.idea_id ? String(current.idea_id) : null)) {
+          this.db.run('UPDATE content_records SET post_id = ?, idea_id = ?, updated_at = ? WHERE id = ?', [postId, ideaId, now, String(current.id)])
+        }
+      }
+      this.db.run('COMMIT'); this.persist(); return result
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 
   remove(id: string) {

@@ -7,6 +7,37 @@ contextBridge.exposeInMainWorld('planner', {
     remove: (id: string) => ipcRenderer.invoke('posts:remove', id),
     reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
   },
+  sources: {
+    list: () => ipcRenderer.invoke('sources:list'),
+    save: (source: unknown) => ipcRenderer.invoke('sources:save', source),
+    remove: (id: string) => ipcRenderer.invoke('sources:remove', id),
+    applyDestination: (id: string) => ipcRenderer.invoke('sources:apply-destination', id),
+    test: (source: unknown) => ipcRenderer.invoke('sources:test', source),
+  },
+  sourceDefinitions: {
+    list: (sourceId?: string) => sourceId ? ipcRenderer.invoke('source-definitions:list', sourceId) : ipcRenderer.invoke('source-definitions:list'),
+    save: (definition: unknown) => ipcRenderer.invoke('source-definitions:save', definition),
+  },
+  imports: {
+    preview: (sourceId: string, definitionId: string) => ipcRenderer.invoke('imports:preview', sourceId, definitionId),
+    confirm: (previewId: string) => ipcRenderer.invoke('imports:confirm', previewId),
+  },
+  contentRecords: {
+    list: (sourceId?: string) => sourceId ? ipcRenderer.invoke('content-records:list', sourceId) : ipcRenderer.invoke('content-records:list'),
+    byPost: (postId: string) => ipcRenderer.invoke('content-records:by-post', postId),
+    saveEnriched: (record: unknown) => ipcRenderer.invoke('content-records:save-enriched', record),
+  },
+  contentTypeTemplates: {
+    list: () => ipcRenderer.invoke('content-type-templates:list'),
+    save: (template: unknown) => ipcRenderer.invoke('content-type-templates:save', template),
+  },
+  exportProfiles: {
+    list: () => ipcRenderer.invoke('export-profiles:list'),
+    save: (profile: unknown) => ipcRenderer.invoke('export-profiles:save', profile),
+  },
+  exports: {
+    csv: (sourceId: string | null, profileId: string, deltaOnly?: boolean, project?: string, status?: string) => ipcRenderer.invoke('exports:csv', sourceId, profileId, deltaOnly, project, status),
+  },
   ideas: {
     list: () => ipcRenderer.invoke('ideas:list'),
     save: (idea: unknown) => ipcRenderer.invoke('ideas:save', idea),

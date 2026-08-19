@@ -2,6 +2,9 @@
   padding-right: 176px;
 }
 
+.sidebar { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #404842 #111512; }
+.sidebar nav, .side-section, .sidebar-bottom { flex: none; }
+
 .space-row {
   position: relative;
   display: flex;

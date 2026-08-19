@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 import type { Idea, IdeaInput, Post, PostInput, PostStatus } from '../shared/types'
 
-export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'about'
+export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'sources' | 'about'
 
 interface PlannerState {
   posts: Post[]
   ideas: Idea[]
   loading: boolean
+  loadError: string | null
   view: PlannerView
   selectedId: string | null
   selectedIdeaId: string | null
@@ -40,6 +41,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   posts: [],
   ideas: [],
   loading: true,
+  loadError: null,
   view: 'timeline',
   selectedId: null,
   selectedIdeaId: null,
@@ -51,8 +53,20 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     catch { return [] }
   })(),
   load: async () => {
-    const [posts, ideas] = await Promise.all([window.planner.posts.list(), window.planner.ideas.list()])
-    set({ posts, ideas, loading: false })
+    try {
+      if (!window.planner) throw new Error('La API de Electron no esta disponible. Inicia la aplicacion con npm.cmd run dev.')
+      const [posts, ideas] = await Promise.all([window.planner.posts.list(), window.planner.ideas.list()])
+      set(state => ({
+        posts,
+        ideas,
+        loading: false,
+        loadError: null,
+        selectedId: state.selectedId && posts.some(post => post.id === state.selectedId) ? state.selectedId : null,
+        selectedIdeaId: state.selectedIdeaId && ideas.some(idea => idea.id === state.selectedIdeaId) ? state.selectedIdeaId : null,
+      }))
+    } catch (error) {
+      set({ loading: false, loadError: error instanceof Error ? error.message : 'No se pudo cargar el workspace local.' })
+    }
   },
   save: async (post) => {
     const saved = await window.planner.posts.save(post)
