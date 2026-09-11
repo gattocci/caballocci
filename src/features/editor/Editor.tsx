@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronUp, Clipboard, Database, FileImage, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Trash2, X } from 'lucide-react'
+import { Archive, ChevronDown, ChevronUp, Clipboard, Database, FileImage, FolderOpen, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Trash2, X } from 'lucide-react'
 import { contentLabels, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { usePlanner } from '../../app/store'
@@ -7,6 +7,7 @@ import type { ContentRecord, ContentType, IdeaBlock, Platform, Post, PostInput, 
 import './editor.css'
 
 const blankPost = (project: string): PostInput => ({
+  id: crypto.randomUUID(),
   title: '', caption: '', notes: '', hashtags: [], mentions: [], platforms: ['instagram'],
   contentType: 'reel', status: 'idea', scheduledAt: new Date().toISOString(), durationMinutes: 60,
   project, color: '#e76042', ideaBlocks: [],
@@ -64,7 +65,12 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
 
 export function Editor({ initial, onClose }: { initial: Post | null; onClose(): void }) {
   const { save, remove, activeSpace } = usePlanner()
-  const [draft, setDraft] = useState<PostInput>(initial ? { ...initial } : blankPost(activeSpace || 'Mi contenido'))
+  const draftKey = `caballocci.draft.${initial?.id || 'new'}`
+  const [draft, setDraft] = useState<PostInput>(() => {
+    if (initial) return { ...initial }
+    try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return saved } catch { /* Ignore invalid drafts. */ }
+    return blankPost(activeSpace || 'Mi contenido')
+  })
   const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'external'>('content')
   const [saving, setSaving] = useState(false)
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
@@ -77,10 +83,17 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   const update = <K extends keyof PostInput>(key: K, value: PostInput[K]) => setDraft(d => ({ ...d, [key]: value }))
   const togglePlatform = (platform: Platform) => update('platforms', draft.platforms.includes(platform) ? draft.platforms.filter(p => p !== platform) : [...draft.platforms, platform])
   const submit = async () => { setSaving(true); await save(draft); setSaving(false); onClose() }
-  const attach = async () => update('media', [...(draft.media || []), ...await window.planner.media.choose('copy')])
+  useEffect(() => { if (!initial) localStorage.setItem(draftKey, JSON.stringify(draft)) }, [draft, draftKey, initial])
+  const close = () => {
+    const changed = !initial && Boolean(draft.title || draft.caption || draft.notes || draft.media?.length || draft.ideaBlocks?.length)
+    if (changed && !window.confirm('Hay cambios sin guardar. ¿Quieres salir y conservar el borrador?')) return
+    onClose()
+  }
+  const submitAndClear = async () => { await submit(); localStorage.removeItem(draftKey) }
+  const attach = async () => update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id)])
 
-  return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}><aside className="editor">
-    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={onClose}><X size={19} /></button></header>
+  return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor">
+    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header>
     <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}</div>
     <div className="editor-body">
       {tab === 'content' && <>
@@ -90,7 +103,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
         <label>Texto de la publicación<div className="caption-box"><textarea value={draft.caption} onChange={e => update('caption', e.target.value)} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean))} placeholder="#contenido #campaña" /></label>
         <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={draft.scheduledAt?.slice(0, 16) || ''} onChange={e => update('scheduledAt', e.target.value ? new Date(e.target.value).toISOString() : null)} /></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
-        <button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir material</strong><small>Imágenes, vídeo o documentos</small></span><Plus size={18} /></button>
+        <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir material</strong><small>Se guardará en la carpeta de esta publicación</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
       {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={blocks => update('ideaBlocks', blocks)} />}
@@ -98,6 +111,6 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
       {tab === 'notes' && <label>Notas internas<textarea className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value)} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}
     </div>
-    <footer>{initial ? <button className="danger-button" title="Eliminar" onClick={async () => { await remove(initial.id); onClose() }}><Trash2 size={16} /></button> : <span />}<div><button className="ghost-button" onClick={onClose}>Cancelar</button><button className="save-button" disabled={!draft.title || saving} onClick={submit}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
+    <footer>{initial ? <button className="danger-button" title="Eliminar" onClick={async () => { await remove(initial.id); onClose() }}><Trash2 size={16} /></button> : <span />}<div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
   </aside></div>
 }

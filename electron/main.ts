@@ -573,14 +573,22 @@ app.whenReady().then(async () => {
     if (!target || !path.isAbsolute(target)) throw new Error('Archivo multimedia no encontrado')
     shell.showItemInFolder(target)
   })
+  handle('media:open-folder', args => {
+    if (args.length > 1) throw new TypeError('Argumento IPC no valido: media.openFolder')
+    const postId = args[0] === undefined || args[0] === null || args[0] === '' ? undefined : validateId(args[0], 'post.id')
+    const folder = path.join(app.getPath('userData'), 'Media', postId || 'General')
+    fs.mkdirSync(folder, { recursive: true })
+    return shell.openPath(folder)
+  })
   handle('media:list', withoutArguments(() => database.listMedia()))
   handle('media:choose', async args => {
-    validateArgumentCount(args, 1)
+    if (args.length < 1 || args.length > 2) throw new TypeError('Argumento IPC no valido: media.choose')
     const mode = validateMediaMode(args[0])
+    const postId = args[1] === undefined || args[1] === null || args[1] === '' ? undefined : validateId(args[1], 'post.id')
     if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile','multiSelections'], filters: [{ name:'Contenido', extensions:['png','jpg','jpeg','webp','gif','mp4','mov','pdf','doc','docx'] }] })
     if (result.canceled) return []
-    const library = path.join(app.getPath('userData'), 'Media')
+    const library = path.join(app.getPath('userData'), 'Media', postId || 'General')
     if (mode === 'copy') fs.mkdirSync(library, { recursive: true })
     const assets = result.filePaths.map((source) => {
       let finalPath = source

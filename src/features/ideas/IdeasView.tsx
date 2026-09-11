@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, CalendarDays, Lightbulb, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { ViewHeading } from '../../components/layout/AppShell'
-import { usePlanner } from '../../app/store'
+import { ideaMatchesQuery, usePlanner } from '../../app/store'
 import type { Idea, IdeaInput, IdeaPriority, IdeaStatus } from '../../shared/types'
 import './ideas.css'
 
@@ -13,9 +13,9 @@ const priorityLabels: Record<IdeaPriority, string> = { low: 'Baja', normal: 'Nor
 const statusLabels: Record<IdeaStatus, string> = { inbox: 'Nueva', developing: 'En desarrollo', ready: 'Lista', converted: 'Convertida', archived: 'Archivada' }
 
 export function IdeasView() {
-  const { ideas, activeSpace, saveIdea, removeIdea, convertIdea, select, setView } = usePlanner()
+  const { ideas, activeSpace, saveIdea, removeIdea, convertIdea, select, setView, query } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
-  const ideasInSpace = useMemo(() => activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas, [activeSpace, ideas])
+  const ideasInSpace = useMemo(() => (activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas).filter(idea => ideaMatchesQuery(idea, query)), [activeSpace, ideas, query])
   const edit = (idea: Idea) => setDraft({ ...idea })
   const save = async () => {
     if (!draft?.title.trim()) return

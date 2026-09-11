@@ -3,6 +3,22 @@ import type { Idea, IdeaInput, Post, PostInput, PostStatus } from '../shared/typ
 
 export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'sources' | 'about'
 
+export function postMatchesQuery(post: Post, query: string) {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (!normalized) return true
+  return [post.title, post.caption, post.notes, post.project, ...post.hashtags, ...post.mentions]
+    .join(' ')
+    .toLocaleLowerCase()
+    .includes(normalized)
+}
+
+export function ideaMatchesQuery(idea: Idea, query: string) {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (!normalized) return true
+  if (!normalized) return true
+  return [idea.title, idea.body, idea.space, ...idea.tags].join(' ').toLocaleLowerCase().includes(normalized)
+}
+
 interface PlannerState {
   posts: Post[]
   ideas: Idea[]

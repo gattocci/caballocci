@@ -55,8 +55,9 @@ contextBridge.exposeInMainWorld('planner', {
   },
   media: {
     list: () => ipcRenderer.invoke('media:list'),
-    choose: (mode: 'copy' | 'reference') => ipcRenderer.invoke('media:choose', mode),
+    choose: (mode: 'copy' | 'reference', postId?: string) => ipcRenderer.invoke('media:choose', mode, postId),
     reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
+    openFolder: (postId?: string) => ipcRenderer.invoke('media:open-folder', postId),
     imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
   clipboard: { write: (text: string) => ipcRenderer.invoke('clipboard:write', text) },

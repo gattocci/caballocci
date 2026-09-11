@@ -229,7 +229,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference'): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; imageUrl(id: string): string }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; openFolder(postId?: string): Promise<void>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   system: {
     info(): Promise<SystemInfo>
