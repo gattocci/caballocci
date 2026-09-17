@@ -183,6 +183,14 @@ export interface ElectronAPI {
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
   }
+  catalog: {
+    config(scope?: string): Promise<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }>
+    saveConfig(config: { endpoint: string; createdBy: string; token?: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }): Promise<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }>
+    sync(postId: string, kind: 'resource' | 'resource_lite', dryRun?: boolean, publish?: boolean): Promise<{ status: number; dryRun: boolean; response: Record<string, unknown>; sync: CatalogSync }>
+    syncState(postId: string): Promise<CatalogSync | null>
+    postFields(postId: string): Promise<{ summary: string; content: string; useHashtags: boolean; kind: 'resource' | 'resource_lite' }>
+    savePostFields(fields: { postId: string; summary: string; content: string; useHashtags: boolean; kind: 'resource' | 'resource_lite' }): Promise<{ summary: string; content: string; useHashtags: boolean; kind: 'resource' | 'resource_lite' }>
+  }
   sources: {
     list(): Promise<Source[]>
     save(source: unknown): Promise<Source>
@@ -245,3 +253,5 @@ export interface ElectronAPI {
     onStateChange(listener: (state: UpdateState) => void): () => void
   }
 }
+
+export interface CatalogSync { postId: string; source: string; externalId: string; kind: string; remoteId: string | null; publicUrl: string | null; action: string; error: string | null; updatedAt: string }

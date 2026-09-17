@@ -178,6 +178,30 @@ function mapContentRecord(row: Record<string, unknown>) {
   }
 }
 
+function mapCatalogConfig(row: Record<string, unknown> | undefined) {
+  if (!row) return { configured: false, endpoint: '', createdBy: '', defaultKind: 'resource' }
+  return { configured: Boolean(row.endpoint && row.created_by && row.token_ciphertext), endpoint: row.endpoint || '', createdBy: row.created_by || '', defaultKind: row.default_kind || 'resource', scope: row.scope || '' }
+}
+
+function mapCatalogSync(row: Record<string, unknown> | undefined) {
+  if (!row) return null
+  let error: unknown = null
+  try { error = row.error_json ? JSON.parse(String(row.error_json)) : null } catch { error = row.error_json }
+  return { postId: row.post_id, source: row.source, externalId: row.external_id, kind: row.kind, remoteId: row.remote_id || null, publicUrl: row.public_url || null, action: row.action, error: error == null ? null : JSON.stringify(error), updatedAt: row.updated_at }
+}
+
+function mapCatalogPostFields(row: Record<string, unknown> | undefined) {
+  return { summary: row?.summary || '', content: row?.content || '', useHashtags: Number(row?.use_hashtags || 0) === 1, kind: row?.kind === 'resource_lite' ? 'resource_lite' : 'resource' }
+}
+
+function catalogPayload(post: Record<string, unknown>, kind: string, overrides: Record<string, unknown> = {}) {
+  const externalId = `post-${String(post.id)}`
+  const base = kind === 'resource_lite'
+    ? { kind, external_id: externalId, title: String(post.title || ''), summary: String(post.notes || ''), content: String(post.caption || ''), copy_text: String(post.caption || ''), copy_label: 'Copiar', tag_ids: [] }
+    : { kind: 'resource', external_id: externalId, title: String(post.title || ''), summary: String(post.notes || ''), content: String(post.caption || ''), learning_outcomes: [], estimated_minutes: Number(post.duration_minutes || 0), access_mode: 'public', tag_ids: [] }
+  return { ...base, ...overrides }
+}
+
 function mapContentTypeTemplate(row: Record<string, unknown>) {
   let fields: unknown[] = []
   try { const parsed = JSON.parse(String(row.fields_json || '[]')) as unknown; if (Array.isArray(parsed)) fields = parsed } catch { /* Invalid rows are treated as empty. */ }
@@ -379,6 +403,61 @@ app.whenReady().then(async () => {
     validateArgumentCount(args, 2)
     return database.reassignProject(validateProject(args[0], 'fromProject'), validateProject(args[1], 'toProject'))
   })
+  handle('catalog:config', args => {
+    if (args.length > 1) throw new TypeError('Argumento IPC no valido: catalog.config')
+    const scope = args[0] === undefined ? '' : String(args[0])
+    return mapCatalogConfig(database.getCatalogConfig(scope) || database.getCatalogConfig(''))
+  })
+  handle('catalog:save-config', args => {
+    validateArgumentCount(args, 1)
+    const input = args[0] as Record<string, unknown>
+    const endpoint = String(input.endpoint || '').trim()
+    const createdBy = String(input.createdBy || '').trim()
+    const defaultKind = input.defaultKind === 'resource_lite' ? 'resource_lite' : 'resource'
+    if (!/^https?:\/\//i.test(endpoint) || endpoint.length > 4_000) throw new TypeError('Endpoint de catalogo no valido')
+    if (!createdBy || createdBy.length > 128) throw new TypeError('createdBy no valido')
+    const scope = String(input.scope || '')
+    const current = database.getCatalogConfig(scope)
+    let tokenCiphertext = current?.token_ciphertext || ''
+    if (typeof input.token === 'string' && input.token.trim()) {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('El almacenamiento seguro no esta disponible')
+      tokenCiphertext = safeStorage.encryptString(input.token.trim()).toString('base64')
+    }
+    return mapCatalogConfig(database.saveCatalogConfig({ endpoint, createdBy, defaultKind, tokenCiphertext, scope }))
+  })
+  handle('catalog:post-fields', args => { validateArgumentCount(args, 1); return mapCatalogPostFields(database.getCatalogPostFields(validateId(args[0], 'catalog.postId'))) })
+  handle('catalog:save-post-fields', args => {
+    validateArgumentCount(args, 1); const input = args[0] as Record<string, unknown>; const postId = validateId(input.postId, 'catalog.postId')
+    if (typeof input.summary !== 'string' || input.summary.length > 100_000 || typeof input.content !== 'string' || input.content.length > 500_000) throw new TypeError('Campos de catalogo no validos')
+    return mapCatalogPostFields(database.saveCatalogPostFields({ postId, summary: input.summary, content: input.content, useHashtags: input.useHashtags === true, kind: input.kind }))
+  })
+  handle('catalog:sync', async args => {
+    if (args.length < 2 || args.length > 4) throw new TypeError('Argumento IPC no valido: catalog.sync')
+    const postId = validateId(args[0], 'catalog.postId')
+    const kind = args[1] === 'resource_lite' ? 'resource_lite' : 'resource'
+    const dryRun = args[2] === true
+    const publish = args[3] === true && !dryRun
+    const postFields = database.getCatalogPostFields(postId)
+    const post = database.getPost(postId)
+    if (!post) throw new Error('Publicacion no encontrada')
+    const config = database.getCatalogConfig(String(post.project || '')) || database.getCatalogConfig('')
+    if (!config?.endpoint || !config.created_by || !config.token_ciphertext) throw new Error('Configura primero la integracion de catalogo')
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('El almacenamiento seguro no esta disponible')
+    const token = safeStorage.decryptString(Buffer.from(String(config.token_ciphertext), 'base64'))
+    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
+    const payload = { source: 'caballocci', dry_run: dryRun, publish, items: [item] }
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 30_000)
+    try {
+      const response = await fetch(String(config.endpoint), { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal })
+      const text = await response.text(); let body: Record<string, unknown> = {}
+      try { body = JSON.parse(text) as Record<string, unknown> } catch { /* Response is reported below. */ }
+      if (!response.ok) throw new Error(`La API de catalogo respondio HTTP ${response.status}: ${text.slice(0, 500)}`)
+      const result = Array.isArray(body.items) ? body.items[0] as Record<string, unknown> : {}
+      const sync = database.saveCatalogSync({ postId, externalId: item.external_id, kind, remoteId: result.id, publicUrl: result.public_url, action: String(result.action || (dryRun ? 'would_create' : 'created')), errorJson: result.error ? JSON.stringify(result.error) : '' })
+      return { status: response.status, dryRun, response: body, sync: mapCatalogSync(sync) }
+    } finally { clearTimeout(timeout) }
+  })
+  handle('catalog:sync-state', args => { validateArgumentCount(args, 1); return mapCatalogSync(database.getCatalogSync(validateId(args[0], 'catalog.postId'))) })
   handle('sources:list', withoutArguments(() => database.listSources().map(mapSource)))
   handle('sources:save', args => {
     validateArgumentCount(args, 1)

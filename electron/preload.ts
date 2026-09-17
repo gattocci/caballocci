@@ -7,6 +7,14 @@ contextBridge.exposeInMainWorld('planner', {
     remove: (id: string) => ipcRenderer.invoke('posts:remove', id),
     reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
   },
+  catalog: {
+    config: (scope?: string) => ipcRenderer.invoke('catalog:config', scope),
+    saveConfig: (config: unknown) => ipcRenderer.invoke('catalog:save-config', config),
+    sync: (postId: string, kind: 'resource' | 'resource_lite', dryRun?: boolean, publish?: boolean) => ipcRenderer.invoke('catalog:sync', postId, kind, dryRun, publish),
+    syncState: (postId: string) => ipcRenderer.invoke('catalog:sync-state', postId),
+    postFields: (postId: string) => ipcRenderer.invoke('catalog:post-fields', postId),
+    savePostFields: (fields: unknown) => ipcRenderer.invoke('catalog:save-post-fields', fields),
+  },
   sources: {
     list: () => ipcRenderer.invoke('sources:list'),
     save: (source: unknown) => ipcRenderer.invoke('sources:save', source),

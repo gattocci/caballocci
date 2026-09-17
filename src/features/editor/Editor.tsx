@@ -3,7 +3,7 @@ import { Archive, ChevronDown, ChevronUp, Clipboard, Database, FileImage, Folder
 import { contentLabels, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { usePlanner } from '../../app/store'
-import type { ContentRecord, ContentType, IdeaBlock, Platform, Post, PostInput, PostStatus } from '../../shared/types'
+import type { CatalogSync, ContentRecord, ContentType, IdeaBlock, Platform, Post, PostInput, PostStatus } from '../../shared/types'
 import './editor.css'
 
 const blankPost = (project: string): PostInput => ({
@@ -71,14 +71,32 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
     try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return saved } catch { /* Ignore invalid drafts. */ }
     return blankPost(activeSpace || 'Mi contenido')
   })
-  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'external'>('content')
+  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'external' | 'catalog'>('content')
   const [saving, setSaving] = useState(false)
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
+  const [catalogConfig, setCatalogConfig] = useState<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite' }>({ configured: false, endpoint: '', createdBy: '', defaultKind: 'resource' })
+  const [catalogToken, setCatalogToken] = useState('')
+  const [catalogKind, setCatalogKind] = useState<'resource' | 'resource_lite'>('resource')
+  const [catalogSync, setCatalogSync] = useState<CatalogSync | null>(null)
+  const [catalogBusy, setCatalogBusy] = useState(false)
+  const [catalogPublish, setCatalogPublish] = useState(false)
+  const [catalogMessage, setCatalogMessage] = useState('')
+  const [catalogEndpoint, setCatalogEndpoint] = useState('')
+  const [catalogCreatedBy, setCatalogCreatedBy] = useState('')
+  const [catalogSummary, setCatalogSummary] = useState('')
+  const [catalogContent, setCatalogContent] = useState('')
+  const [catalogUseHashtags, setCatalogUseHashtags] = useState(false)
   useEffect(() => {
     let active = true
     if (!initial) { setExternalRecord(null); return () => { active = false } }
     void window.planner.contentRecords.byPost(initial.id).then(record => { if (active) setExternalRecord(record) }).catch(() => { if (active) setExternalRecord(null) })
     return () => { active = false }
+  }, [initial?.id])
+  useEffect(() => {
+    const scope = initial?.project || activeSpace || ''
+    void window.planner.catalog.config(scope).then(config => { setCatalogConfig(config); setCatalogEndpoint(config.endpoint); setCatalogCreatedBy(config.createdBy); setCatalogKind(config.defaultKind) })
+    if (initial) { void window.planner.catalog.syncState(initial.id).then(setCatalogSync).catch(() => setCatalogSync(null)); void window.planner.catalog.postFields(initial.id).then(fields => { setCatalogSummary(fields.summary || initial.notes || ''); setCatalogContent(fields.content || initial.caption || ''); setCatalogUseHashtags(fields.useHashtags); setCatalogKind(fields.kind) }) }
+    else setCatalogSync(null)
   }, [initial?.id])
   const update = <K extends keyof PostInput>(key: K, value: PostInput[K]) => setDraft(d => ({ ...d, [key]: value }))
   const togglePlatform = (platform: Platform) => update('platforms', draft.platforms.includes(platform) ? draft.platforms.filter(p => p !== platform) : [...draft.platforms, platform])
@@ -91,10 +109,12 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   }
   const submitAndClear = async () => { await submit(); localStorage.removeItem(draftKey) }
   const attach = async () => update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id)])
+  const saveCatalog = async () => { setCatalogBusy(true); setCatalogMessage(''); try { const config = await window.planner.catalog.saveConfig({ endpoint: catalogEndpoint, createdBy: catalogCreatedBy, token: catalogToken, defaultKind: catalogKind, scope: draft.project || activeSpace || '' }); setCatalogConfig(config); setCatalogToken(''); if (initial) await window.planner.catalog.savePostFields({ postId: initial.id, summary: catalogSummary, content: catalogContent, useHashtags: catalogUseHashtags, kind: catalogKind }); setCatalogMessage('Configuracion guardada') } catch (error) { setCatalogMessage(error instanceof Error ? error.message : 'No se pudo guardar la configuracion') } finally { setCatalogBusy(false) } }
+  const syncCatalog = async (dryRun: boolean, publishOverride = catalogPublish) => { if (!initial) { setCatalogMessage('Guarda la publicacion antes de sincronizar'); return }; setCatalogBusy(true); setCatalogMessage(dryRun ? 'Validando en la API...' : 'Sincronizando...'); try { await save(draft); await window.planner.catalog.savePostFields({ postId: initial.id, summary: catalogSummary, content: catalogContent, useHashtags: catalogUseHashtags, kind: catalogKind }); const result = await window.planner.catalog.sync(initial.id, catalogKind, dryRun, publishOverride); setCatalogSync(result.sync); setCatalogMessage(dryRun ? `Simulacion: ${result.sync.action}` : `Catalogo: ${result.sync.action}`) } catch (error) { setCatalogMessage(error instanceof Error ? error.message : 'No se pudo sincronizar') } finally { setCatalogBusy(false) } }
 
   return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor">
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header>
-    <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}</div>
+    <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
     <div className="editor-body">
       {tab === 'content' && <>
         <label>Título<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Nombra esta pieza de contenido" /></label>
@@ -110,6 +130,8 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
       {tab === 'preview' && <Preview draft={draft} />}
       {tab === 'notes' && <label>Notas internas<textarea className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value)} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}
+      {tab === 'catalog' && <div className="catalog-fields"><label>Resumen del catalogo<textarea value={catalogSummary} onChange={event => setCatalogSummary(event.target.value)} placeholder="Resumen breve; conserva saltos de linea y Markdown pegado." /></label><label>Contenido del catalogo<textarea value={catalogContent} onChange={event => setCatalogContent(event.target.value)} placeholder="Pega aqui el Markdown completo." /></label><label><input type="checkbox" checked={catalogUseHashtags} onChange={event => setCatalogUseHashtags(event.target.checked)} /> Convertir hashtags a tags (requiere IDs)</label></div>}
+      {tab === 'catalog' && <section className="external-data catalog-panel"><header><div><span>INTEGRACION DE CONTENIDO</span><strong>{catalogSync ? `Estado: ${catalogSync.action}` : 'Sin sincronizar'}</strong></div>{catalogSync?.updatedAt && <small>{new Date(catalogSync.updatedAt).toLocaleString()}</small>}</header><label>Endpoint<input value={catalogEndpoint} onChange={event => setCatalogEndpoint(event.target.value)} placeholder="https://dominio.tld/api/integrations/content/batch" /></label><label>CONTENT_INTEGRATION_CREATED_BY<input value={catalogCreatedBy} onChange={event => setCatalogCreatedBy(event.target.value)} placeholder="UUID del administrador" /></label><label>Token de integracion<input type="password" value={catalogToken} onChange={event => setCatalogToken(event.target.value)} placeholder={catalogConfig.configured ? 'Guardado de forma segura; deja vacio para conservarlo' : 'Token largo'} /></label><label>Tipo<select value={catalogKind} onChange={event => setCatalogKind(event.target.value as 'resource' | 'resource_lite')}><option value="resource">Resource</option><option value="resource_lite">Resource Lite</option></select></label><div className="source-actions"><button className="settings-button" disabled={catalogBusy || !catalogEndpoint || !catalogCreatedBy} onClick={() => void saveCatalog()}>Guardar configuracion</button><button className="settings-button" disabled={catalogBusy || !catalogConfig.configured} onClick={() => void syncCatalog(true)}>Probar (dry run)</button><button className="save-button" disabled={catalogBusy || !catalogConfig.configured} onClick={() => void syncCatalog(false)}>Sincronizar</button></div>{catalogMessage && <p className="source-message">{catalogMessage}</p>}{catalogSync?.publicUrl && <a href={catalogSync.publicUrl} target="_blank" rel="noreferrer">Abrir contenido remoto</a>}{catalogSync?.error && <pre>{JSON.stringify(catalogSync.error, null, 2)}</pre>}<details><summary>Payload generado</summary><pre>{JSON.stringify({ source: 'caballocci', dry_run: true, publish: false, items: [{ kind: catalogKind, external_id: `post-${initial?.id || ''}`, title: draft.title, summary: draft.notes, content: draft.caption }] }, null, 2)}</pre></details></section>}
     </div>
     <footer>{initial ? <button className="danger-button" title="Eliminar" onClick={async () => { await remove(initial.id); onClose() }}><Trash2 size={16} /></button> : <span />}<div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
   </aside></div>

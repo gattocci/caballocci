@@ -155,6 +155,34 @@ const migrations: Migration[] = [
     name: 'content_record_idea_link',
     up: `ALTER TABLE content_records ADD COLUMN idea_id TEXT; CREATE INDEX IF NOT EXISTS content_records_idea_idx ON content_records(idea_id);`,
   },
+  {
+    version: 11,
+    name: 'catalog_integrations',
+    up: `
+      CREATE TABLE IF NOT EXISTS catalog_integration_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1), endpoint TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '', token_ciphertext TEXT NOT NULL DEFAULT '',
+        default_kind TEXT NOT NULL DEFAULT 'resource', updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS catalog_syncs (
+        post_id TEXT PRIMARY KEY, source TEXT NOT NULL, external_id TEXT NOT NULL,
+        kind TEXT NOT NULL, remote_id TEXT, public_url TEXT, action TEXT NOT NULL,
+        error_json TEXT, updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 12,
+    name: 'catalog_scoped_config_and_fields',
+    up: `
+      ALTER TABLE catalog_integration_config ADD COLUMN scope TEXT NOT NULL DEFAULT '';
+      CREATE UNIQUE INDEX IF NOT EXISTS catalog_config_scope_idx ON catalog_integration_config(scope);
+      CREATE TABLE IF NOT EXISTS catalog_post_fields (
+        post_id TEXT PRIMARY KEY, summary TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '',
+        use_hashtags INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'resource', updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ]
 
 export class PlannerDatabase {
@@ -278,6 +306,37 @@ export class PlannerDatabase {
 
   getContentRecordForPost(postId: string): Row | undefined {
     return this.rows('SELECT * FROM content_records WHERE post_id = ' + this.sqlString(postId) + ' ORDER BY updated_at DESC LIMIT 1').at(0)
+  }
+
+  getPost(id: string): Row | undefined { return this.one(id) }
+
+  getCatalogConfig(scope = ''): Row | undefined { return this.rows('SELECT * FROM catalog_integration_config WHERE scope = ' + this.sqlString(scope)).at(0) }
+
+  saveCatalogConfig(input: Row): Row {
+    const now = new Date().toISOString()
+    const scope = String(input.scope || '')
+    const current = this.getCatalogConfig(scope)
+    const id = current?.id || crypto.randomUUID()
+    this.db.run(`INSERT OR REPLACE INTO catalog_integration_config (id,endpoint,created_by,token_ciphertext,default_kind,updated_at,scope)
+      VALUES (?,?,?,?,?,?,?)`, [id, String(input.endpoint || ''), String(input.createdBy || ''), String(input.tokenCiphertext || ''), String(input.defaultKind || 'resource'), now, scope] as (string | number | null)[])
+    this.persist(); return this.getCatalogConfig(scope)!
+  }
+
+  getCatalogPostFields(postId: string): Row | undefined { return this.rows('SELECT * FROM catalog_post_fields WHERE post_id = ' + this.sqlString(postId)).at(0) }
+
+  saveCatalogPostFields(input: Row): Row {
+    const now = new Date().toISOString()
+    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,updated_at) VALUES (?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), now])
+    this.persist(); return this.getCatalogPostFields(String(input.postId))!
+  }
+
+  getCatalogSync(postId: string): Row | undefined { return this.rows('SELECT * FROM catalog_syncs WHERE post_id = ' + this.sqlString(postId)).at(0) }
+
+  saveCatalogSync(input: Row): Row {
+    const now = new Date().toISOString()
+    this.db.run(`INSERT OR REPLACE INTO catalog_syncs (post_id,source,external_id,kind,remote_id,public_url,action,error_json,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`, [String(input.postId), String(input.source || 'caballocci'), String(input.externalId), String(input.kind), input.remoteId ? String(input.remoteId) : null, input.publicUrl ? String(input.publicUrl) : null, String(input.action), input.errorJson ? String(input.errorJson) : null, now])
+    this.persist(); return this.getCatalogSync(String(input.postId))!
   }
 
   saveContentEnriched(id: string, enrichedJson: string): Row {
