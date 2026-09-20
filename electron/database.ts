@@ -183,6 +183,22 @@ const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 13,
+    name: 'catalog_config_multi_scope_ids',
+    up: `
+      ALTER TABLE catalog_integration_config RENAME TO catalog_integration_config_old;
+      CREATE TABLE catalog_integration_config (
+        id INTEGER PRIMARY KEY, endpoint TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '', token_ciphertext TEXT NOT NULL DEFAULT '',
+        default_kind TEXT NOT NULL DEFAULT 'resource', updated_at TEXT NOT NULL, scope TEXT NOT NULL DEFAULT ''
+      );
+      INSERT INTO catalog_integration_config (id,endpoint,created_by,token_ciphertext,default_kind,updated_at,scope)
+        SELECT id,endpoint,created_by,token_ciphertext,default_kind,updated_at,scope FROM catalog_integration_config_old;
+      DROP TABLE catalog_integration_config_old;
+      CREATE UNIQUE INDEX IF NOT EXISTS catalog_config_scope_idx ON catalog_integration_config(scope);
+    `,
+  },
 ]
 
 export class PlannerDatabase {
@@ -316,7 +332,9 @@ export class PlannerDatabase {
     const now = new Date().toISOString()
     const scope = String(input.scope || '')
     const current = this.getCatalogConfig(scope)
-    const id = current?.id || crypto.randomUUID()
+    // Migration 11 created this column as INTEGER; keep numeric ids for existing databases.
+    const nextId = Number(this.rows('SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM catalog_integration_config').at(0)?.next_id || 1)
+    const id = current?.id ? Number(current.id) : nextId
     this.db.run(`INSERT OR REPLACE INTO catalog_integration_config (id,endpoint,created_by,token_ciphertext,default_kind,updated_at,scope)
       VALUES (?,?,?,?,?,?,?)`, [id, String(input.endpoint || ''), String(input.createdBy || ''), String(input.tokenCiphertext || ''), String(input.defaultKind || 'resource'), now, scope] as (string | number | null)[])
     this.persist(); return this.getCatalogConfig(scope)!
