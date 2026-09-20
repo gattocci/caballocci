@@ -191,7 +191,7 @@ function mapCatalogSync(row: Record<string, unknown> | undefined) {
 }
 
 function mapCatalogPostFields(row: Record<string, unknown> | undefined) {
-  return { summary: row?.summary || '', content: row?.content || '', useHashtags: Number(row?.use_hashtags || 0) === 1, kind: row?.kind === 'resource_lite' ? 'resource_lite' : 'resource' }
+  return { summary: row?.summary || '', content: row?.content || '', useHashtags: Number(row?.use_hashtags || 0) === 1, categoryId: row?.category_id == null ? null : Number(row.category_id), kind: row?.kind === 'resource_lite' ? 'resource_lite' : 'resource' }
 }
 
 function catalogPayload(post: Record<string, unknown>, kind: string, overrides: Record<string, unknown> = {}) {
@@ -429,7 +429,9 @@ app.whenReady().then(async () => {
   handle('catalog:save-post-fields', args => {
     validateArgumentCount(args, 1); const input = args[0] as Record<string, unknown>; const postId = validateId(input.postId, 'catalog.postId')
     if (typeof input.summary !== 'string' || input.summary.length > 100_000 || typeof input.content !== 'string' || input.content.length > 500_000) throw new TypeError('Campos de catalogo no validos')
-    return mapCatalogPostFields(database.saveCatalogPostFields({ postId, summary: input.summary, content: input.content, useHashtags: input.useHashtags === true, kind: input.kind }))
+    const categoryId = input.categoryId == null || input.categoryId === '' ? null : Number(input.categoryId)
+    if (categoryId !== null && (!Number.isInteger(categoryId) || categoryId < 1)) throw new TypeError('categoryId no valido')
+    return mapCatalogPostFields(database.saveCatalogPostFields({ postId, summary: input.summary, content: input.content, useHashtags: input.useHashtags === true, kind: input.kind, categoryId }))
   })
   handle('catalog:sync', async args => {
     if (args.length < 2 || args.length > 4) throw new TypeError('Argumento IPC no valido: catalog.sync')
@@ -444,7 +446,8 @@ app.whenReady().then(async () => {
     if (!config?.endpoint || !config.created_by || !config.token_ciphertext) throw new Error('Configura primero la integracion de catalogo')
     if (!safeStorage.isEncryptionAvailable()) throw new Error('El almacenamiento seguro no esta disponible')
     const token = safeStorage.decryptString(Buffer.from(String(config.token_ciphertext), 'base64'))
-    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
+    if (kind === 'resource' && (postFields?.category_id == null || Number(postFields.category_id) < 1)) throw new Error('Configura category_id para este Resource antes de sincronizar')
+    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...(kind === 'resource' ? { category_id: Number(postFields?.category_id) } : {}), ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
     const payload = { source: 'caballocci', dry_run: dryRun, publish, items: [item] }
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 30_000)
     try {

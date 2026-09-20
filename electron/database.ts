@@ -199,6 +199,11 @@ const migrations: Migration[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS catalog_config_scope_idx ON catalog_integration_config(scope);
     `,
   },
+  {
+    version: 14,
+    name: 'catalog_resource_category',
+    up: `ALTER TABLE catalog_post_fields ADD COLUMN category_id INTEGER;`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -344,7 +349,7 @@ export class PlannerDatabase {
 
   saveCatalogPostFields(input: Row): Row {
     const now = new Date().toISOString()
-    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,updated_at) VALUES (?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), now])
+    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,category_id,updated_at) VALUES (?,?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), input.categoryId == null ? null : Number(input.categoryId), now])
     this.persist(); return this.getCatalogPostFields(String(input.postId))!
   }
 
