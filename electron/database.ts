@@ -204,6 +204,11 @@ const migrations: Migration[] = [
     name: 'catalog_resource_category',
     up: `ALTER TABLE catalog_post_fields ADD COLUMN category_id INTEGER;`,
   },
+  {
+    version: 15,
+    name: 'catalog_copy_text',
+    up: `ALTER TABLE catalog_post_fields ADD COLUMN copy_text TEXT NOT NULL DEFAULT '';`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -349,7 +354,7 @@ export class PlannerDatabase {
 
   saveCatalogPostFields(input: Row): Row {
     const now = new Date().toISOString()
-    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,category_id,updated_at) VALUES (?,?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), input.categoryId == null ? null : Number(input.categoryId), now])
+    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,category_id,copy_text,updated_at) VALUES (?,?,?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), input.categoryId == null ? null : Number(input.categoryId), String(input.copyText || ''), now])
     this.persist(); return this.getCatalogPostFields(String(input.postId))!
   }
 

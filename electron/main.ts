@@ -197,7 +197,7 @@ function mapCatalogPostFields(row: Record<string, unknown> | undefined) {
 function catalogPayload(post: Record<string, unknown>, kind: string, overrides: Record<string, unknown> = {}) {
   const externalId = `post-${String(post.id)}`
   const base = kind === 'resource_lite'
-    ? { kind, external_id: externalId, title: String(post.title || ''), summary: String(post.notes || ''), content: String(post.caption || ''), copy_text: String(post.caption || ''), copy_label: 'Copiar', tag_ids: [] }
+    ? { kind, external_id: externalId, title: String(post.title || ''), summary: String(post.notes || ''), content: String(post.caption || ''), tag_ids: [] }
     : { kind: 'resource', external_id: externalId, title: String(post.title || ''), summary: String(post.notes || ''), content: String(post.caption || ''), learning_outcomes: [], estimated_minutes: Number(post.duration_minutes || 0), access_mode: 'public', tag_ids: [] }
   return { ...base, ...overrides }
 }
@@ -447,7 +447,7 @@ app.whenReady().then(async () => {
     if (!safeStorage.isEncryptionAvailable()) throw new Error('El almacenamiento seguro no esta disponible')
     const token = safeStorage.decryptString(Buffer.from(String(config.token_ciphertext), 'base64'))
     if (kind === 'resource' && (postFields?.category_id == null || Number(postFields.category_id) < 1)) throw new Error('Configura category_id para este Resource antes de sincronizar')
-    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...(kind === 'resource' ? { category_id: Number(postFields?.category_id) } : {}), ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
+    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...(kind === 'resource' ? { category_id: Number(postFields?.category_id) } : {}), ...(kind === 'resource_lite' ? { copy_text: postFields?.copy_text || String(postFields?.content || post.caption || ''), copy_label: 'Copiar' } : {}), ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
     const payload = { source: 'caballocci', dry_run: dryRun, publish, items: [item] }
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 30_000)
     try {
