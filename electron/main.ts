@@ -461,9 +461,9 @@ app.whenReady().then(async () => {
       try { body = JSON.parse(text) as Record<string, unknown> } catch { /* Response is reported below. */ }
       if (!response.ok) throw new Error(`La API de catalogo respondio HTTP ${response.status}: ${text.slice(0, 500)}`)
       const result = Array.isArray(body.items) ? body.items[0] as Record<string, unknown> : {}
-      const hasError = Boolean(result.error) || body.committed === false
+      const hasError = Boolean(result.error) || Boolean(body.error) || Boolean(body.code && body.code !== 'ok')
       const action = hasError ? 'error' : String(result.action || (dryRun ? 'would_create' : 'created'))
-      const errorValue = result.error || (body.committed === false ? { code: 'batch_rolled_back', message: 'El lote no fue persistido por la API' } : null)
+      const errorValue = result.error || body.error || (hasError ? { code: body.code, message: body.message || 'La API rechazo el lote' } : null)
       const responseHeaders = Object.fromEntries(response.headers.entries())
       const sync = database.saveCatalogSync({ postId, externalId: item.external_id, kind, remoteId: result.id, publicUrl: result.public_url, action, errorJson: errorValue ? JSON.stringify(errorValue) : '', requestUrl: String(config.endpoint), responseStatus: response.status, responseHeadersJson: JSON.stringify(responseHeaders), responseBody: text })
       return { status: response.status, dryRun, response: body, sync: mapCatalogSync(sync) }
