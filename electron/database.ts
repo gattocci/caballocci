@@ -206,13 +206,18 @@ const migrations: Migration[] = [
   },
   {
     version: 15,
-    name: 'catalog_response_diagnostics_and_slug',
-    up: `ALTER TABLE catalog_post_fields ADD COLUMN category_slug TEXT NOT NULL DEFAULT ''; ALTER TABLE catalog_syncs ADD COLUMN request_url TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_status INTEGER; ALTER TABLE catalog_syncs ADD COLUMN response_headers_json TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_body TEXT;`,
-  },
-  {
-    version: 15,
     name: 'catalog_copy_text',
     up: `ALTER TABLE catalog_post_fields ADD COLUMN copy_text TEXT NOT NULL DEFAULT '';`,
+  },
+  {
+    version: 16,
+    name: 'catalog_category_slug',
+    up: `ALTER TABLE catalog_post_fields ADD COLUMN category_slug TEXT NOT NULL DEFAULT '';`,
+  },
+  {
+    version: 17,
+    name: 'catalog_response_diagnostics',
+    up: `ALTER TABLE catalog_syncs ADD COLUMN request_url TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_status INTEGER; ALTER TABLE catalog_syncs ADD COLUMN response_headers_json TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_body TEXT;`,
   },
 ]
 
@@ -232,7 +237,21 @@ export class PlannerDatabase {
     const SQL = await initSqlJs({ locateFile: () => this.wasmPath })
     this.db = this.existedAtStartup ? new SQL.Database(fs.readFileSync(this.filePath)) : new SQL.Database()
     this.runMigrations()
+    this.ensureCatalogColumns()
     if (!this.existedAtStartup && this.count() === 0) this.seed()
+    this.persist()
+  }
+
+  private ensureCatalogColumns() {
+    const columns = (table: string) => new Set(this.rows(`PRAGMA table_info(${table})`).map(row => String(row.name)))
+    const postFields = columns('catalog_post_fields')
+    const syncs = columns('catalog_syncs')
+    const additions: Array<[string, string]> = [
+      ['category_slug', "TEXT NOT NULL DEFAULT ''"],
+    ]
+    for (const [name, definition] of additions) if (!postFields.has(name)) this.db.run(`ALTER TABLE catalog_post_fields ADD COLUMN ${name} ${definition}`)
+    const syncAdditions: Array<[string, string]> = [['request_url', 'TEXT'], ['response_status', 'INTEGER'], ['response_headers_json', 'TEXT'], ['response_body', 'TEXT']]
+    for (const [name, definition] of syncAdditions) if (!syncs.has(name)) this.db.run(`ALTER TABLE catalog_syncs ADD COLUMN ${name} ${definition}`)
     this.persist()
   }
 
