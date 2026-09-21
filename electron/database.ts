@@ -206,6 +206,11 @@ const migrations: Migration[] = [
   },
   {
     version: 15,
+    name: 'catalog_response_diagnostics_and_slug',
+    up: `ALTER TABLE catalog_post_fields ADD COLUMN category_slug TEXT NOT NULL DEFAULT ''; ALTER TABLE catalog_syncs ADD COLUMN request_url TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_status INTEGER; ALTER TABLE catalog_syncs ADD COLUMN response_headers_json TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_body TEXT;`,
+  },
+  {
+    version: 15,
     name: 'catalog_copy_text',
     up: `ALTER TABLE catalog_post_fields ADD COLUMN copy_text TEXT NOT NULL DEFAULT '';`,
   },
@@ -354,7 +359,7 @@ export class PlannerDatabase {
 
   saveCatalogPostFields(input: Row): Row {
     const now = new Date().toISOString()
-    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,category_id,copy_text,updated_at) VALUES (?,?,?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), input.categoryId == null ? null : Number(input.categoryId), String(input.copyText || ''), now])
+    this.db.run(`INSERT OR REPLACE INTO catalog_post_fields (post_id,summary,content,use_hashtags,kind,category_id,copy_text,category_slug,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`, [String(input.postId), String(input.summary || ''), String(input.content || ''), input.useHashtags ? 1 : 0, String(input.kind || 'resource'), input.categoryId == null ? null : Number(input.categoryId), '', String(input.categorySlug || ''), now])
     this.persist(); return this.getCatalogPostFields(String(input.postId))!
   }
 
@@ -362,8 +367,8 @@ export class PlannerDatabase {
 
   saveCatalogSync(input: Row): Row {
     const now = new Date().toISOString()
-    this.db.run(`INSERT OR REPLACE INTO catalog_syncs (post_id,source,external_id,kind,remote_id,public_url,action,error_json,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)`, [String(input.postId), String(input.source || 'caballocci'), String(input.externalId), String(input.kind), input.remoteId ? String(input.remoteId) : null, input.publicUrl ? String(input.publicUrl) : null, String(input.action), input.errorJson ? String(input.errorJson) : null, now])
+    this.db.run(`INSERT OR REPLACE INTO catalog_syncs (post_id,source,external_id,kind,remote_id,public_url,action,error_json,request_url,response_status,response_headers_json,response_body,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [String(input.postId), String(input.source || 'caballocci'), String(input.externalId), String(input.kind), input.remoteId ? String(input.remoteId) : null, input.publicUrl ? String(input.publicUrl) : null, String(input.action), input.errorJson ? String(input.errorJson) : null, String(input.requestUrl || ''), input.responseStatus == null ? null : Number(input.responseStatus), String(input.responseHeadersJson || '{}'), String(input.responseBody || ''), now])
     this.persist(); return this.getCatalogSync(String(input.postId))!
   }
 

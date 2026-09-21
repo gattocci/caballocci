@@ -188,8 +188,8 @@ export interface ElectronAPI {
     saveConfig(config: { endpoint: string; createdBy: string; token?: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }): Promise<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }>
     sync(postId: string, kind: 'resource' | 'resource_lite', dryRun?: boolean, publish?: boolean): Promise<{ status: number; dryRun: boolean; response: Record<string, unknown>; sync: CatalogSync }>
     syncState(postId: string): Promise<CatalogSync | null>
-    postFields(postId: string): Promise<{ summary: string; content: string; useHashtags: boolean; categoryId: number | null; kind: 'resource' | 'resource_lite' }>
-    savePostFields(fields: { postId: string; summary: string; content: string; useHashtags: boolean; categoryId: number | null; kind: 'resource' | 'resource_lite' }): Promise<{ summary: string; content: string; useHashtags: boolean; categoryId: number | null; kind: 'resource' | 'resource_lite' }>
+    postFields(postId: string): Promise<{ summary: string; content: string; useHashtags: boolean; categoryId: number | null; categorySlug: string; kind: 'resource' | 'resource_lite' }>
+    savePostFields(fields: { postId: string; summary: string; content: string; useHashtags: boolean; categoryId: number | null; categorySlug?: string; kind: 'resource' | 'resource_lite' }): Promise<{ summary: string; content: string; useHashtags: boolean; categoryId: number | null; categorySlug: string; kind: 'resource' | 'resource_lite' }>
   }
   sources: {
     list(): Promise<Source[]>
@@ -254,4 +254,4 @@ export interface ElectronAPI {
   }
 }
 
-export interface CatalogSync { postId: string; source: string; externalId: string; kind: string; remoteId: string | null; publicUrl: string | null; action: string; error: string | null; updatedAt: string }
+export interface CatalogSync { postId: string; source: string; externalId: string; kind: string; remoteId: string | null; publicUrl: string | null; action: string; error: string | null; requestUrl: string; responseStatus: number | null; responseHeaders: Record<string, string>; responseBody: string; updatedAt: string }

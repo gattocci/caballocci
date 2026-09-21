@@ -187,11 +187,13 @@ function mapCatalogSync(row: Record<string, unknown> | undefined) {
   if (!row) return null
   let error: unknown = null
   try { error = row.error_json ? JSON.parse(String(row.error_json)) : null } catch { error = row.error_json }
-  return { postId: row.post_id, source: row.source, externalId: row.external_id, kind: row.kind, remoteId: row.remote_id || null, publicUrl: row.public_url || null, action: row.action, error: error == null ? null : JSON.stringify(error), updatedAt: row.updated_at }
+  let responseHeaders: Record<string, string> = {}
+  try { responseHeaders = JSON.parse(String(row.response_headers_json || '{}')) as Record<string, string> } catch { responseHeaders = {} }
+  return { postId: row.post_id, source: row.source, externalId: row.external_id, kind: row.kind, remoteId: row.remote_id || null, publicUrl: row.public_url || null, action: row.action, error: error == null ? null : JSON.stringify(error), requestUrl: row.request_url || '', responseStatus: row.response_status == null ? null : Number(row.response_status), responseHeaders, responseBody: row.response_body || '', updatedAt: row.updated_at }
 }
 
 function mapCatalogPostFields(row: Record<string, unknown> | undefined) {
-  return { summary: row?.summary || '', content: row?.content || '', useHashtags: Number(row?.use_hashtags || 0) === 1, categoryId: row?.category_id == null ? null : Number(row.category_id), kind: row?.kind === 'resource_lite' ? 'resource_lite' : 'resource' }
+  return { summary: row?.summary || '', content: row?.content || '', useHashtags: Number(row?.use_hashtags || 0) === 1, categoryId: row?.category_id == null ? null : Number(row.category_id), categorySlug: row?.category_slug || '', kind: row?.kind === 'resource_lite' ? 'resource_lite' : 'resource' }
 }
 
 function catalogPayload(post: Record<string, unknown>, kind: string, overrides: Record<string, unknown> = {}) {
@@ -431,7 +433,9 @@ app.whenReady().then(async () => {
     if (typeof input.summary !== 'string' || input.summary.length > 100_000 || typeof input.content !== 'string' || input.content.length > 500_000) throw new TypeError('Campos de catalogo no validos')
     const categoryId = input.categoryId == null || input.categoryId === '' ? null : Number(input.categoryId)
     if (categoryId !== null && (!Number.isInteger(categoryId) || categoryId < 1)) throw new TypeError('categoryId no valido')
-    return mapCatalogPostFields(database.saveCatalogPostFields({ postId, summary: input.summary, content: input.content, useHashtags: input.useHashtags === true, kind: input.kind, categoryId }))
+    const categorySlug = typeof input.categorySlug === 'string' ? input.categorySlug.trim() : ''
+    if (categoryId !== null && categorySlug) throw new TypeError('Usa categoryId o categorySlug, no ambos')
+    return mapCatalogPostFields(database.saveCatalogPostFields({ postId, summary: input.summary, content: input.content, useHashtags: input.useHashtags === true, kind: input.kind, categoryId, categorySlug }))
   })
   handle('catalog:sync', async args => {
     if (args.length < 2 || args.length > 4) throw new TypeError('Argumento IPC no valido: catalog.sync')
@@ -446,8 +450,9 @@ app.whenReady().then(async () => {
     if (!config?.endpoint || !config.created_by || !config.token_ciphertext) throw new Error('Configura primero la integracion de catalogo')
     if (!safeStorage.isEncryptionAvailable()) throw new Error('El almacenamiento seguro no esta disponible')
     const token = safeStorage.decryptString(Buffer.from(String(config.token_ciphertext), 'base64'))
-    if (kind === 'resource' && (postFields?.category_id == null || Number(postFields.category_id) < 1)) throw new Error('Configura category_id para este Resource antes de sincronizar')
-    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...(kind === 'resource' ? { category_id: Number(postFields?.category_id) } : {}), ...(kind === 'resource_lite' ? { copy_text: postFields?.copy_text || String(postFields?.content || post.caption || ''), copy_label: 'Copiar' } : {}), ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
+    if (kind === 'resource' && (postFields?.category_id == null || Number(postFields.category_id) < 1) && !String(postFields?.category_slug || '').trim()) throw new Error('Configura category_id o category_slug para este Resource antes de sincronizar')
+    const categoryFields = kind === 'resource' ? (String(postFields?.category_slug || '').trim() ? { category_slug: String(postFields?.category_slug).trim() } : { category_id: Number(postFields?.category_id) }) : {}
+    const item = catalogPayload({ ...post, id: postId }, kind, { summary: postFields?.summary || String(post.notes || ''), content: postFields?.content || String(post.caption || ''), ...categoryFields, ...(postFields?.use_hashtags ? { tag_ids: [] } : {}) })
     const payload = { source: 'caballocci', dry_run: dryRun, publish, items: [item] }
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 30_000)
     try {
@@ -459,7 +464,8 @@ app.whenReady().then(async () => {
       const hasError = Boolean(result.error) || body.committed === false
       const action = hasError ? 'error' : String(result.action || (dryRun ? 'would_create' : 'created'))
       const errorValue = result.error || (body.committed === false ? { code: 'batch_rolled_back', message: 'El lote no fue persistido por la API' } : null)
-      const sync = database.saveCatalogSync({ postId, externalId: item.external_id, kind, remoteId: result.id, publicUrl: result.public_url, action, errorJson: errorValue ? JSON.stringify(errorValue) : '' })
+      const responseHeaders = Object.fromEntries(response.headers.entries())
+      const sync = database.saveCatalogSync({ postId, externalId: item.external_id, kind, remoteId: result.id, publicUrl: result.public_url, action, errorJson: errorValue ? JSON.stringify(errorValue) : '', requestUrl: String(config.endpoint), responseStatus: response.status, responseHeadersJson: JSON.stringify(responseHeaders), responseBody: text })
       return { status: response.status, dryRun, response: body, sync: mapCatalogSync(sync) }
     } finally { clearTimeout(timeout) }
   })
