@@ -116,10 +116,13 @@ function mapIdeaBlocks(value: unknown) {
 }
 
 function mapPost(row: Record<string, unknown>) {
+  const platforms = JSON.parse(String(row.platforms || '[]')) as string[]
+  let distribution = JSON.parse(String(row.distribution_json || '[]')) as unknown[]
+  if (!distribution.length) distribution = platforms.map(id => ({ id, name: id, status: 'pending' }))
   return {
     id: row.id, title: row.title, caption: row.caption, notes: row.notes,
     hashtags: JSON.parse(String(row.hashtags || '[]')), mentions: JSON.parse(String(row.mentions || '[]')),
-    platforms: JSON.parse(String(row.platforms || '[]')), contentType: row.content_type, status: row.status,
+    platforms, distribution, contentType: row.content_type, status: row.status,
     scheduledAt: row.scheduled_at, durationMinutes: row.duration_minutes, project: row.project, color: row.color,
     media: mapMediaAssets(row.media), ideaBlocks: mapIdeaBlocks(row.idea_blocks), sourceIdeaId: row.source_idea_id || null,
     createdAt: row.created_at, updatedAt: row.updated_at,
@@ -652,6 +655,13 @@ app.whenReady().then(async () => {
     packaged: app.isPackaged,
   })))
   handle('system:open-workspace', withoutArguments(() => shell.openPath(dataDirectory)))
+  handle('system:open-space-folder', args => {
+    if (args.length !== 1 || typeof args[0] !== 'string' || !args[0].trim()) throw new TypeError('Argumento IPC no valido: system.openSpaceFolder')
+    const safeName = args[0].trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/\.+$/g, '') || 'Espacio'
+    const folder = path.join(dataDirectory, 'Spaces', safeName)
+    fs.mkdirSync(folder, { recursive: true })
+    return shell.openPath(folder)
+  })
   handle('system:open-backups', withoutArguments(() => { fs.mkdirSync(backupsDirectory, { recursive: true }); return shell.openPath(backupsDirectory) }))
   handle('system:create-backup', withoutArguments(() => database.createBackup('manual')))
   handle('updates:get-state', withoutArguments(() => updater.getState()))
@@ -667,7 +677,9 @@ app.whenReady().then(async () => {
   handle('media:open-folder', args => {
     if (args.length > 1) throw new TypeError('Argumento IPC no valido: media.openFolder')
     const postId = args[0] === undefined || args[0] === null || args[0] === '' ? undefined : validateId(args[0], 'post.id')
-    const folder = path.join(app.getPath('userData'), 'Media', postId || 'General')
+    const project = postId ? database.projectForPost(postId) : undefined
+    const root = project ? path.join(dataDirectory, 'Spaces', project.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')) : path.join(app.getPath('userData'), 'Media')
+    const folder = path.join(root, 'Posts', postId || 'General')
     fs.mkdirSync(folder, { recursive: true })
     return shell.openPath(folder)
   })
@@ -679,7 +691,9 @@ app.whenReady().then(async () => {
     if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile','multiSelections'], filters: [{ name:'Contenido', extensions:['png','jpg','jpeg','webp','gif','mp4','mov','pdf','doc','docx'] }] })
     if (result.canceled) return []
-    const library = path.join(app.getPath('userData'), 'Media', postId || 'General')
+    const project = postId ? database.projectForPost(postId) : undefined
+    const root = project ? path.join(dataDirectory, 'Spaces', project.replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')) : path.join(app.getPath('userData'), 'Media')
+    const library = path.join(root, 'Posts', postId || 'General')
     if (mode === 'copy') fs.mkdirSync(library, { recursive: true })
     const assets = result.filePaths.map((source) => {
       let finalPath = source

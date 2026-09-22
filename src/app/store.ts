@@ -46,6 +46,8 @@ interface PlannerState {
   addSpace(space: string): void
   renameSpace(space: string, nextName: string): Promise<void>
   removeSpace(space: string, movePosts: boolean): Promise<void>
+  spaceNotes: Record<string, string>
+  saveSpaceNotes(space: string, notes: string): void
 }
 
 function readStoredSpaces() {
@@ -68,6 +70,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     try { return JSON.parse(localStorage.getItem('caballocci.hidden-spaces') || '[]') as string[] }
     catch { return [] }
   })(),
+  spaceNotes: (() => { try { return JSON.parse(localStorage.getItem('caballocci.space-notes') || '{}') as Record<string, string> } catch { return {} } })(),
   load: async () => {
     try {
       if (!window.planner) throw new Error('La API de Electron no esta disponible. Inicia la aplicacion con npm.cmd run dev.')
@@ -163,5 +166,10 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     localStorage.setItem('caballocci.spaces', JSON.stringify(customSpaces))
     localStorage.setItem('caballocci.hidden-spaces', JSON.stringify(hiddenSpaces))
     set({ customSpaces, hiddenSpaces, activeSpace: get().activeSpace === space ? null : get().activeSpace })
+  },
+  saveSpaceNotes: (space, notes) => {
+    const spaceNotes = { ...get().spaceNotes, [space]: notes }
+    localStorage.setItem('caballocci.space-notes', JSON.stringify(spaceNotes))
+    set({ spaceNotes })
   },
 }))

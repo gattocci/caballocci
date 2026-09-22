@@ -11,11 +11,13 @@ import { postMatchesQuery, usePlanner } from '../../app/store'
 import type { MediaAsset, Post } from '../../shared/types'
 
 function PostCard({ post, onSelect, onDrag }: { post: Post; onSelect(): void; onDrag(): void }) {
+  const distribution = post.distribution || []
+  const published = distribution.filter(target => target.status === 'published').length
   return <article className="post-card" draggable onDragStart={onDrag} onClick={onSelect} style={{ '--post-color': post.color } as React.CSSProperties}>
     <div className="card-top"><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}</div><MoreHorizontal size={15} /></div>
     <span className="type-label">{contentLabels[post.contentType]}</span>
     <h3>{post.title}</h3><p>{post.caption}</p>
-    <footer><span><Clock3 size={12} />{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span><i style={{ color: statusMeta[post.status].color }}>{statusMeta[post.status].label}</i></footer>
+    <footer><span><Clock3 size={12} />{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span><i>{distribution.length ? `${published}/${distribution.length} destinos` : statusMeta[post.status].label}</i></footer>
   </article>
 }
 
@@ -72,7 +74,7 @@ export function Board() {
   const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
   const [drag, setDrag] = useState<string | null>(null)
   return <section className="workspace"><ViewHeading title="Tablero de contenido" subtitle="Mueve cada idea hasta convertirla en una publicación." />
-    <div className="board">{stages.map(status => <div className="board-column" key={status} onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, status); setDrag(null) }}><header><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{posts.filter(p => p.status === status).length}</em></header><div className="board-stack">{posts.filter(p => p.status === status).map(post => <article draggable onDragStart={() => setDrag(post.id)} key={post.id} onClick={() => select(post.id)}><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title}</h3><p>{post.caption}</p>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}</div></div>)}</div>
+    <div className="board">{stages.map(status => <div className="board-column" key={status} onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, status); setDrag(null) }}><header><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{posts.filter(p => p.status === status).length}</em></header><div className="board-stack">{posts.filter(p => p.status === status).map(post => <article draggable onDragStart={() => setDrag(post.id)} key={post.id} onClick={() => select(post.id)}><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title}</h3><p>{post.caption}</p>{post.distribution?.length ? <small>{post.distribution.filter(target => target.status === 'published').length}/{post.distribution.length} destinos publicados</small> : null}{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}</div></div>)}</div>
   </section>
 }
 

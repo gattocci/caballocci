@@ -84,14 +84,17 @@ export function validatePostInput(value: unknown): Record<string, unknown> {
   const ideaBlocks = post.ideaBlocks === undefined ? [] : post.ideaBlocks
   if (!Array.isArray(ideaBlocks) || ideaBlocks.length > 50) invalid('post.ideaBlocks')
 
+  const distribution = post.distribution === undefined ? [] : post.distribution
+  if (!Array.isArray(distribution) || distribution.length > 100) invalid('post.distribution')
   const validated: Record<string, unknown> = {
     title: text(post.title, 'post.title', 300),
     caption: text(post.caption, 'post.caption', 100_000),
     notes: text(post.notes, 'post.notes', 100_000),
     hashtags: stringList(post.hashtags, 'post.hashtags', 100, 100),
     mentions: stringList(post.mentions, 'post.mentions', 100, 100),
-    platforms: stringList(post.platforms, 'post.platforms', platforms.length, 32)
-      .map((platform, index) => enumValue(platform, `post.platforms[${index}]`, platforms)),
+    platforms: stringList(post.platforms, 'post.platforms', 100, 64)
+      .map((platform) => platform),
+    distribution,
     contentType: enumValue(post.contentType, 'post.contentType', contentTypes),
     status: enumValue(post.status, 'post.status', postStatuses),
     scheduledAt,

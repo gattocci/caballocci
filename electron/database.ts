@@ -219,6 +219,11 @@ const migrations: Migration[] = [
     name: 'catalog_response_diagnostics',
     up: `ALTER TABLE catalog_syncs ADD COLUMN request_url TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_status INTEGER; ALTER TABLE catalog_syncs ADD COLUMN response_headers_json TEXT; ALTER TABLE catalog_syncs ADD COLUMN response_body TEXT;`,
   },
+  {
+    version: 18,
+    name: 'post_distribution_targets',
+    up: `ALTER TABLE posts ADD COLUMN distribution_json TEXT NOT NULL DEFAULT '[]';`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -270,6 +275,10 @@ export class PlannerDatabase {
     return result[0].values.map((values) => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
   }
 
+  projectForPost(id: string): string | undefined {
+    return this.rows('SELECT project FROM posts WHERE id = ' + this.sqlString(id)).at(0)?.project as string | undefined
+  }
+
   save(input: Row): Row {
     const now = new Date().toISOString()
     const id = String(input.id || crypto.randomUUID())
@@ -280,15 +289,15 @@ export class PlannerDatabase {
     const values = {
       id, title: input.title || 'Sin título', caption: input.caption || '', notes: input.notes || '',
       hashtags: JSON.stringify(input.hashtags || []), mentions: JSON.stringify(input.mentions || []),
-      platforms: JSON.stringify(input.platforms || []), contentType: input.contentType || 'post', status: input.status || 'idea',
+      platforms: JSON.stringify(input.platforms || []), distribution: JSON.stringify(input.distribution || (Array.isArray(input.platforms) ? input.platforms : []).map((id: unknown) => ({ id: String(id), name: String(id), status: 'pending' }))), contentType: input.contentType || 'post', status: input.status || 'idea',
       scheduledAt: input.scheduledAt || null, durationMinutes: input.durationMinutes || 60, project: input.project || '',
       color: input.color || '#ff6b4a', media: JSON.stringify(input.media || []), ideaBlocks: JSON.stringify(input.ideaBlocks || []),
       sourceIdeaId: current?.source_idea_id || null, createdAt, updatedAt: now,
       titleManuallyEdited,
     }
     this.db.run(`INSERT OR REPLACE INTO posts
-      (id,title,caption,notes,hashtags,mentions,platforms,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
-      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$sourceIdeaId,$titleManuallyEdited,$createdAt,$updatedAt)`,
+      (id,title,caption,notes,hashtags,mentions,platforms,distribution_json,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
+      VALUES ($id,$title,$caption,$notes,$hashtags,$mentions,$platforms,$distribution,$contentType,$status,$scheduledAt,$durationMinutes,$project,$color,$media,$ideaBlocks,$sourceIdeaId,$titleManuallyEdited,$createdAt,$updatedAt)`,
       Object.fromEntries(Object.entries(values).map(([key, value]) => [`$${key}`, value])) as Record<string, string | number | null>)
     const previousStatus = current ? String(current.status) : null
     const nextStatus = String(values.status)

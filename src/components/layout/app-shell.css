@@ -66,6 +66,17 @@
 .space-menu small { display: block; padding: 3px 8px 6px; color: #7f8983; font-size: 9px; line-height: 13px; }
 .space-menu .danger-menu-item { color: #f08a74; }
 
+.space-context { margin: 12px 6px 0; padding: 12px 10px; border: 1px solid #303832; background: #171c19; border-radius: 6px; display: grid; gap: 10px; }
+.space-context-heading { display: flex; align-items: center; gap: 6px; }
+.space-context-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.space-context-heading .icon-button { width: 27px; height: 27px; }
+.space-context-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.space-context-stats span { display: grid; gap: 2px; color: #7e8982; font-size: 8px; }
+.space-context-stats b { color: #e5ebe7; font: 500 14px 'DM Mono', monospace; }
+.space-context label { display: grid; gap: 6px; color: #8f9992; font-size: 8px; font-weight: 800; letter-spacing: .6px; }
+.space-context textarea { min-height: 92px; resize: vertical; border: 1px solid #343d37; border-radius: 4px; background: #111512; color: #dfe5e1; padding: 8px; font-size: 10px; line-height: 15px; }
+.space-folder-hint { color: #68736c; font-size: 8px; line-height: 12px; }
+
 .app-menu-wrap { position: relative; }
 .app-menu { position: absolute; z-index: 30; top: 41px; right: 0; width: 210px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: #1a1f1c; box-shadow: 0 14px 34px #0009; }
 .app-menu button { width: 100%; height: 35px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: #d7ddd9; display: flex; align-items: center; gap: 9px; font-size: 11px; cursor: pointer; }

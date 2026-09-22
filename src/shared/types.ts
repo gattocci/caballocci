@@ -1,4 +1,6 @@
-export type Platform = 'instagram' | 'facebook' | 'x'
+export type Platform = string
+export type DistributionStatus = 'pending' | 'preparing' | 'scheduled' | 'published' | 'not_applicable' | 'failed'
+export interface DistributionTarget { id: string; name: string; status: DistributionStatus; scheduledAt?: string | null; url?: string; note?: string }
 export type PostStatus = 'idea' | 'draft' | 'review' | 'approved' | 'scheduled' | 'published' | 'archived'
 export type ContentType = 'reel' | 'carousel' | 'story' | 'post' | 'thread'
 export type IdeaStatus = 'inbox' | 'developing' | 'ready' | 'converted' | 'archived'
@@ -14,6 +16,7 @@ export interface Post {
   hashtags: string[]
   mentions: string[]
   platforms: Platform[]
+  distribution?: DistributionTarget[]
   contentType: ContentType
   status: PostStatus
   scheduledAt: string | null
@@ -242,6 +245,7 @@ export interface ElectronAPI {
   system: {
     info(): Promise<SystemInfo>
     openWorkspace(): Promise<string>
+    openSpaceFolder(space: string): Promise<string>
     openBackups(): Promise<string>
     createBackup(): Promise<string>
   }

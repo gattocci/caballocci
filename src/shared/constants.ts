@@ -10,10 +10,14 @@ export const statusMeta: Record<PostStatus, { label: string; color: string }> = 
   archived: { label: 'Archivado', color: '#737d77' },
 }
 
-export const platformMeta: Record<Platform, { label: string; mark: string }> = {
+export const platformMeta: Record<string, { label: string; mark: string }> = {
   instagram: { label: 'Instagram', mark: 'IG' },
   facebook: { label: 'Facebook', mark: 'f' },
   x: { label: 'X', mark: 'X' },
+}
+
+export function getPlatformMeta(platform: string) {
+  return platformMeta[platform] || { label: platform, mark: platform.slice(0, 2).toUpperCase() }
 }
 
 export const contentLabels: Record<ContentType, string> = {

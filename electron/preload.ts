@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('planner', {
   system: {
     info: () => ipcRenderer.invoke('system:info'),
     openWorkspace: () => ipcRenderer.invoke('system:open-workspace'),
+    openSpaceFolder: (space: string) => ipcRenderer.invoke('system:open-space-folder', space),
     openBackups: () => ipcRenderer.invoke('system:open-backups'),
     createBackup: () => ipcRenderer.invoke('system:create-backup'),
   },
