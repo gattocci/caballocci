@@ -660,6 +660,8 @@ app.whenReady().then(async () => {
     const safeName = args[0].trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '-').replace(/\.+$/g, '') || 'Espacio'
     const folder = path.join(dataDirectory, 'Spaces', safeName)
     fs.mkdirSync(folder, { recursive: true })
+    fs.mkdirSync(path.join(folder, 'Posts'), { recursive: true })
+    fs.mkdirSync(path.join(folder, 'Archive'), { recursive: true })
     return shell.openPath(folder)
   })
   handle('system:open-backups', withoutArguments(() => { fs.mkdirSync(backupsDirectory, { recursive: true }); return shell.openPath(backupsDirectory) }))

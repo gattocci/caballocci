@@ -63,6 +63,19 @@ function ideaBlock(value: unknown, index: number) {
   }
 }
 
+function distributionTarget(value: unknown, index: number) {
+  const target = record(value, `distribution[${index}]`)
+  const status = ['pending', 'preparing', 'scheduled', 'published', 'not_applicable', 'failed'] as const
+  return {
+    id: text(target.id, `distribution[${index}].id`, 128, false),
+    name: text(target.name, `distribution[${index}].name`, 200, false),
+    status: enumValue(target.status, `distribution[${index}].status`, status),
+    scheduledAt: target.scheduledAt == null ? null : text(target.scheduledAt, `distribution[${index}].scheduledAt`, 64),
+    url: target.url == null ? undefined : text(target.url, `distribution[${index}].url`, 2_000),
+    note: target.note == null ? undefined : text(target.note, `distribution[${index}].note`, 10_000),
+  }
+}
+
 export function validatePostInput(value: unknown): Record<string, unknown> {
   const post = record(value, 'post')
   const durationMinutes = post.durationMinutes
@@ -94,7 +107,7 @@ export function validatePostInput(value: unknown): Record<string, unknown> {
     mentions: stringList(post.mentions, 'post.mentions', 100, 100),
     platforms: stringList(post.platforms, 'post.platforms', 100, 64)
       .map((platform) => platform),
-    distribution,
+    distribution: distribution.map(distributionTarget),
     contentType: enumValue(post.contentType, 'post.contentType', contentTypes),
     status: enumValue(post.status, 'post.status', postStatuses),
     scheduledAt,

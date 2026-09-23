@@ -47,6 +47,8 @@ interface PlannerState {
   renameSpace(space: string, nextName: string): Promise<void>
   removeSpace(space: string, movePosts: boolean): Promise<void>
   spaceNotes: Record<string, string>
+  spaceKeys: Record<string, string>
+  spaceKey(space: string): string
   saveSpaceNotes(space: string, notes: string): void
 }
 
@@ -71,6 +73,8 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     catch { return [] }
   })(),
   spaceNotes: (() => { try { return JSON.parse(localStorage.getItem('caballocci.space-notes') || '{}') as Record<string, string> } catch { return {} } })(),
+  spaceKeys: (() => { try { return JSON.parse(localStorage.getItem('caballocci.space-keys') || '{}') as Record<string, string> } catch { return {} } })(),
+  spaceKey: (space) => get().spaceKeys[space] || space,
   load: async () => {
     try {
       if (!window.planner) throw new Error('La API de Electron no esta disponible. Inicia la aplicacion con npm.cmd run dev.')
@@ -144,13 +148,22 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     if (!name || name === space) return
     await window.planner.posts.reassignProject(space, name)
     const customSpaces = Array.from(new Set([...get().customSpaces.filter(item => item !== space), name]))
+    const oldKey = get().spaceKey(space)
+    const newKey = get().spaceKeys[space] || crypto.randomUUID()
+    const spaceKeys = { ...get().spaceKeys, [name]: newKey }
+    delete spaceKeys[space]
+    const spaceNotes = { ...get().spaceNotes }
+    if (spaceNotes[oldKey] !== undefined) spaceNotes[newKey] = spaceNotes[oldKey]
+    if (oldKey !== newKey) delete spaceNotes[oldKey]
     const hiddenSpaces = Array.from(new Set([...get().hiddenSpaces.filter(item => item !== name), space]))
     localStorage.setItem('caballocci.spaces', JSON.stringify(customSpaces))
     localStorage.setItem('caballocci.hidden-spaces', JSON.stringify(hiddenSpaces))
+    localStorage.setItem('caballocci.space-keys', JSON.stringify(spaceKeys))
+    localStorage.setItem('caballocci.space-notes', JSON.stringify(spaceNotes))
     set({
       posts: get().posts.map(post => post.project === space ? { ...post, project: name } : post),
       ideas: get().ideas.map(idea => idea.space === space ? { ...idea, space: name } : idea),
-      customSpaces, hiddenSpaces, activeSpace: get().activeSpace === space ? name : get().activeSpace,
+      customSpaces, hiddenSpaces, spaceKeys, spaceNotes, activeSpace: get().activeSpace === space ? name : get().activeSpace,
     })
   },
   removeSpace: async (space, movePosts) => {
@@ -168,7 +181,11 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     set({ customSpaces, hiddenSpaces, activeSpace: get().activeSpace === space ? null : get().activeSpace })
   },
   saveSpaceNotes: (space, notes) => {
-    const spaceNotes = { ...get().spaceNotes, [space]: notes }
+    const key = get().spaceKey(space)
+    const spaceKeys = get().spaceKeys[key] ? get().spaceKeys : { ...get().spaceKeys, [space]: crypto.randomUUID() }
+    const stableKey = spaceKeys[space] || key
+    if (!get().spaceKeys[space]) { localStorage.setItem('caballocci.space-keys', JSON.stringify(spaceKeys)); set({ spaceKeys }) }
+    const spaceNotes = { ...get().spaceNotes, [stableKey]: notes }
     localStorage.setItem('caballocci.space-notes', JSON.stringify(spaceNotes))
     set({ spaceNotes })
   },

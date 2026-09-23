@@ -17,7 +17,9 @@ export const platformMeta: Record<string, { label: string; mark: string }> = {
 }
 
 export function getPlatformMeta(platform: string) {
-  return platformMeta[platform] || { label: platform, mark: platform.slice(0, 2).toUpperCase() }
+  if (platformMeta[platform]) return platformMeta[platform]
+  const label = platform.replace(/[-_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+  return { label, mark: platform.slice(0, 2).toUpperCase() }
 }
 
 export const contentLabels: Record<ContentType, string> = {
