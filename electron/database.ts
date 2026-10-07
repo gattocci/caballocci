@@ -240,6 +240,11 @@ const migrations: Migration[] = [
     name: 'idea_import_identity',
     up: `ALTER TABLE ideas ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''; ALTER TABLE ideas ADD COLUMN source_name TEXT NOT NULL DEFAULT ''; CREATE INDEX IF NOT EXISTS ideas_content_hash_idx ON ideas(content_hash);`,
   },
+  {
+    version: 21,
+    name: 'renderer_preferences_backup',
+    up: `CREATE TABLE IF NOT EXISTS app_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -308,6 +313,24 @@ export class PlannerDatabase {
     const result = this.db.exec('SELECT * FROM posts ORDER BY COALESCE(scheduled_at, updated_at) ASC')
     if (!result[0]) return []
     return result[0].values.map((values) => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
+  }
+
+  savePreferences(entries: Record<string, string>) {
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const [key, value] of Object.entries(entries)) this.db.run('INSERT OR REPLACE INTO app_preferences (key,value,updated_at) VALUES (?,?,?)', [key, value, now])
+      this.db.run('COMMIT'); if (Object.keys(entries).length) this.persist()
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  removePreference(key: string) {
+    this.db.run('DELETE FROM app_preferences WHERE key = ?', [key])
+    this.persist()
+  }
+
+  listPreferences() {
+    return Object.fromEntries(this.rows('SELECT key,value FROM app_preferences').map(row => [String(row.key), String(row.value)]))
   }
 
   projectForPost(id: string): string | undefined {

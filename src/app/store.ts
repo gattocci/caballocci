@@ -187,10 +187,10 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     set({ customSpaces, hiddenSpaces, activeSpace: get().activeSpace === space ? null : get().activeSpace })
   },
   saveSpaceNotes: (space, notes) => {
-    const key = get().spaceKey(space)
-    const spaceKeys = get().spaceKeys[key] ? get().spaceKeys : { ...get().spaceKeys, [space]: crypto.randomUUID() }
-    const stableKey = spaceKeys[space] || key
-    if (!get().spaceKeys[space]) { localStorage.setItem('caballocci.space-keys', JSON.stringify(spaceKeys)); set({ spaceKeys }) }
+    const existingKey = get().spaceKeys[space]
+    const stableKey = existingKey || crypto.randomUUID()
+    const spaceKeys = existingKey ? get().spaceKeys : { ...get().spaceKeys, [space]: stableKey }
+    if (!existingKey) { localStorage.setItem('caballocci.space-keys', JSON.stringify(spaceKeys)); set({ spaceKeys }) }
     const spaceNotes = { ...get().spaceNotes, [stableKey]: notes }
     localStorage.setItem('caballocci.space-notes', JSON.stringify(spaceNotes))
     set({ spaceNotes })

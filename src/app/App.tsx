@@ -12,7 +12,25 @@ import { postMatchesQuery, usePlanner } from './store'
 export default function App() {
   const { load, loading, loadError, view, posts, selectedId, select, query, activeSpace, setView } = usePlanner()
   const [creating, setCreating] = useState(false)
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    let active = true
+    const syncPreferences = async () => {
+      try {
+        const current: Record<string, string> = {}
+        for (let index = 0; index < localStorage.length; index += 1) {
+          const key = localStorage.key(index)
+          if (!key?.startsWith('caballocci.')) continue
+          const value = localStorage.getItem(key)
+          if (value !== null) current[key] = value
+        }
+        const merged = await window.planner.preferences.sync(current)
+        if (active) for (const [key, value] of Object.entries(merged)) localStorage.setItem(key, value)
+      } catch { /* Preferences are a recovery layer; loading the planner must continue. */ }
+      if (active) await load()
+    }
+    void syncPreferences()
+    return () => { active = false }
+  }, [load])
   const filtered = useMemo(() => {
     const inSpace = activeSpace ? posts.filter(post => post.project === activeSpace) : posts
     return inSpace.filter(post => postMatchesQuery(post, query))

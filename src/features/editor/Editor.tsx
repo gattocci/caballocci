@@ -187,7 +187,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
     if (changed && !window.confirm('Hay cambios sin guardar. ¿Quieres salir y conservar el borrador?')) return
     onClose()
   }
-  const submitAndClear = async () => { await submit(); localStorage.removeItem(draftKey) }
+  const submitAndClear = async () => { await submit(); localStorage.removeItem(draftKey); await window.planner.preferences.remove(draftKey) }
   const attach = async () => update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id)])
   const applyAssistant = () => {
     const titles = parseTitleCandidates(assistantTitles)

@@ -18,6 +18,13 @@
 .board-bulk-actions button { border: 1px solid #6b5840; background: transparent; color: #e8d2b6; border-radius: 3px; padding: 5px 8px; font-size: 9px; cursor: pointer; }
 .board-stack article.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .board-select { width: 13px!important; height: 13px!important; margin-right: 6px; accent-color: var(--accent); cursor: pointer; }
+.board-select-hit { display: grid; place-items: center; width: 28px; height: 28px; margin: -6px 2px -6px -8px; cursor: pointer; }
+.board-select-hit input { width: 15px; height: 15px; accent-color: var(--accent); }
+.board-stack article:not(:hover) .board-select-hit input:not(:checked) { opacity: .35; }
+.board.selecting .board-select-hit input { opacity: 1; }
+.board-grip { display: inline-flex; align-items: center; cursor: grab; opacity: .4; margin-right: 3px; }
+.board-stack article:hover .board-grip { opacity: 1; }
+.board-bulk-actions { position: sticky; top: 0; z-index: 5; }
 .idea-card { min-height: 195px; padding: 13px; border: 1px solid var(--line); border-top: 3px solid #d0a64b; background: #181d1a; display: flex; flex-direction: column; }
 .idea-card header, .idea-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .idea-card header div { display: flex; gap: 4px; }

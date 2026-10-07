@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format,
   isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths,
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FileImage, FolderOpen, MoreHorizontal, Plus } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FileImage, FolderOpen, GripVertical, MoreHorizontal, Plus } from 'lucide-react'
 import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { PlatformMark, ViewHeading } from '../../components/layout/AppShell'
 import { postMatchesQuery, usePlanner } from '../../app/store'
+import { useSelection } from '../../app/useSelection'
 import type { MediaAsset, Post } from '../../shared/types'
 
 function PostCard({ post, onSelect, onDrag }: { post: Post; onSelect(): void; onDrag(): void }) {
@@ -72,18 +73,21 @@ export function CalendarView() {
 export function Board() {
   const { posts: allPosts, move, select, activeSpace, query } = usePlanner()
   const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
-  const [drag, setDrag] = useState<string | null>(null)
   const [visiblePerColumn, setVisiblePerColumn] = useState(30)
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const { selected, toggle, set, clear } = useSelection()
+  const dragIds = useRef<string[]>([])
+  const [armed, setArmed] = useState<string | null>(null)
   const visibleBoardPosts = posts.filter(post => post.status !== 'archived')
-  const toggleSelected = (id: string) => setSelectedIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+  useEffect(() => { clear() }, [query, activeSpace, clear])
+  useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clear() }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [clear])
   const bulkMove = async (status: Post['status']) => {
-    for (const id of selectedIds) { const post = allPosts.find(item => item.id === id); if (post) await move(id, status) }
-    setSelectedIds([])
+    for (const id of selected) if (allPosts.some(item => item.id === id)) await move(id, status)
+    clear()
   }
+  const moveDragged = async (status: Post['status']) => { const ids = dragIds.current; dragIds.current = []; for (const id of ids) await move(id, status); clear() }
   return <section className="workspace"><ViewHeading title="Tablero de contenido" subtitle="Mueve cada idea hasta convertirla en una publicación."><button className="settings-button" type="button" onClick={() => setVisiblePerColumn(current => current === 30 ? Number.MAX_SAFE_INTEGER : 30)}>{visiblePerColumn === 30 ? 'Ver más tarjetas' : 'Compactar columnas'}</button></ViewHeading>
-    {selectedIds.length > 0 && <div className="board-bulk-actions"><strong>{selectedIds.length} seleccionadas</strong><button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button><button type="button" onClick={() => setSelectedIds([])}>Cancelar</button></div>}
-    <div className="board">{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); return <div className="board-column" key={status} onDragOver={e => e.preventDefault()} onDrop={() => { if (drag) move(drag, status); setDrag(null) }}><header><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em></header><div className="board-stack">{visiblePosts.map(post => <article className={selectedIds.includes(post.id) ? 'selected' : ''} draggable onDragStart={() => setDrag(post.id)} key={post.id} onClick={() => select(post.id)}><div><input className="board-select" type="checkbox" checked={selectedIds.includes(post.id)} onClick={event => event.stopPropagation()} onChange={() => toggleSelected(post.id)} aria-label={`Seleccionar ${post.title || 'publicación'}`} />{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title}</h3><p>{post.caption}</p>{post.distribution?.length ? <small>{post.distribution.filter(target => target.status === 'published').length}/{post.distribution.length} destinos publicados</small> : null}{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} tarjetas ocultas</small>}</div></div> })}</div>
+    {selected.size > 0 && <div className="board-bulk-actions"><strong>{selected.size} seleccionadas</strong><button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button><button type="button" onClick={clear}>Cancelar</button></div>}
+    <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = visiblePosts.map(post => post.id); return <div className="board-column" key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em></header><div className="board-stack">{visiblePosts.map(post => <article className={selected.has(post.id) ? 'selected' : ''} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title}</h3><p>{post.caption}</p>{post.distribution?.length ? <small>{post.distribution.filter(target => target.status === 'published').length}/{post.distribution.length} destinos publicados</small> : null}{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} tarjetas ocultas</small>}</div></div> })}</div>
   </section>
 }
 

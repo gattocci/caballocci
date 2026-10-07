@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('planner', {
   },
   files: { readText: () => ipcRenderer.invoke('files:read-text') },
   clipboard: { write: (text: string) => ipcRenderer.invoke('clipboard:write', text) },
+  preferences: { sync: (entries: Record<string, string>) => ipcRenderer.invoke('preferences:sync', entries), remove: (key: string) => ipcRenderer.invoke('preferences:remove', key) },
   system: {
     info: () => ipcRenderer.invoke('system:info'),
     openWorkspace: () => ipcRenderer.invoke('system:open-workspace'),

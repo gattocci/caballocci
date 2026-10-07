@@ -656,6 +656,25 @@ app.whenReady().then(async () => {
     validateArgumentCount(args, 1)
     clipboard.writeText(validateClipboardText(args[0]))
   })
+  handle('preferences:sync', args => {
+    validateArgumentCount(args, 1)
+    const incoming = args[0]
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) throw new TypeError('Preferencias invalidas')
+    const entries: Record<string, string> = {}
+    for (const [key, value] of Object.entries(incoming as Record<string, unknown>)) {
+      if (!/^caballocci\.[a-z0-9._-]+$/i.test(key) || typeof value !== 'string' || value.length > 2_000_000) continue
+      entries[key] = value
+    }
+    const stored = database.listPreferences()
+    database.savePreferences(entries)
+    return { ...stored, ...entries }
+  })
+  handle('preferences:remove', args => {
+    validateArgumentCount(args, 1)
+    const key = String(args[0])
+    if (!/^caballocci\.[a-z0-9._-]+$/i.test(key)) throw new TypeError('Preferencia invalida')
+    database.removePreference(key)
+  })
   handle('files:read-text', async args => {
     if (args.length !== 0) throw new TypeError('Argumento IPC no valido: files.readText')
     if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
