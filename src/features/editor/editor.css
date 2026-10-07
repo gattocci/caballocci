@@ -102,6 +102,159 @@
   min-height: 104px;
 }
 
+.title-format-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: -5px;
+}
+
+.title-format-actions span {
+  margin-right: 3px;
+  color: #727d76;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+.title-format-actions button {
+  border: 1px solid #303833;
+  background: #191e1b;
+  color: #aeb8b1;
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.title-format-actions button:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.post-title-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 24px 8px;
+}
+
+.post-title-toolbar span,
+.notes-quick > header > span {
+  color: #727d76;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+}
+
+.post-title-toolbar button,
+.notes-quick button {
+  border: 1px solid #303833;
+  background: #191e1b;
+  color: #aeb8b1;
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.post-title-toolbar button:hover,
+.notes-quick button:hover {
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.notes-quick,
+.notes-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.notes-quick {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.notes-quick > header,
+.notes-editor > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.notes-quick > header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.notes-quick p {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid #46534a;
+  background: #191e1b;
+  color: #9da8a0;
+  font-size: 10px;
+  line-height: 15px;
+  white-space: pre-wrap;
+}
+
+.notes-quick p strong {
+  display: block;
+  color: #d6ddd8;
+  font-size: 9px;
+  margin-bottom: 2px;
+}
+
+.notes-quick small {
+  color: #727d76;
+  font-size: 9px;
+}
+
+.note-item {
+  display: grid;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid #303833;
+  background: #181d1a;
+}
+
+.note-item-heading {
+  display: flex;
+  justify-content: space-between;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.note-item-heading button {
+  border: 0;
+  background: transparent;
+  color: #7d8881;
+  cursor: pointer;
+}
+
+.note-item textarea {
+  min-height: 110px;
+}
+
+.field-hint {
+  color: #727d76;
+  font-size: 8px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.notes-editor + .notes-area,
+.notes-area {
+  display: none;
+}
+
 .ai-assistant {
   display: grid;
   gap: 12px;

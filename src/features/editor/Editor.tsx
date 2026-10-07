@@ -9,7 +9,7 @@ import './editor.css'
 const blankPost = (project: string): PostInput => ({
   id: crypto.randomUUID(),
   title: '', caption: '', notes: '', hashtags: [], mentions: [], platforms: ['instagram'],
-  contentType: 'reel', status: 'idea', scheduledAt: new Date().toISOString(), durationMinutes: 60,
+  contentType: 'reel', status: 'idea', scheduledAt: null, durationMinutes: 60,
   project, color: '#e76042', ideaBlocks: [],
 })
 
@@ -22,14 +22,15 @@ function parseTitleCandidates(value: string) {
 
 function parseMasterSlides(value: string): IdeaBlock[] {
   const lines = value.replace(/\r/g, '').split('\n')
-  const blocks: { label: string; lines: string[] }[] = []
-  let current: { label: string; lines: string[] } | null = null
+  const blocks: { label: string; heading: string; lines: string[] }[] = []
+  let current: { label: string; heading: string; lines: string[] } | null = null
   for (const line of lines) {
     const match = line.match(/^\s*(?:#{1,4}\s*)?(?:slide|diapositiva)\s*([0-9]+|final|cierre)\s*[:.)\-]?\s*(.*)$/i)
       || line.match(/^\s*([0-9]+|final|cierre)\s*[:.)\-]?\s+(.*)$/i)
     if (match) {
       if (current) blocks.push(current)
-      current = { label: match[1], lines: match[2] ? [match[2].trim()] : [] }
+      const heading = (match[2] || '').replace(/^[\s:.)\-–—]+/, '').trim()
+      current = { label: match[1], heading: /^\([^)]*\)$/.test(heading) ? '' : heading, lines: [] }
     } else if (current) current.lines.push(line)
   }
   if (current) blocks.push(current)
@@ -37,10 +38,33 @@ function parseMasterSlides(value: string): IdeaBlock[] {
     const content = block.lines.join('\n').trim()
     const labeled = content.match(/\*\*(?:TITULO|TÍTULO):\*\*\s*(.+?)(?=\s+\*\*(?:BAJADA|SUBT[IÍ]TULO):|$)/i)
     const bold = content.match(/\*\*([^*]+)\*\*/)
-    const title = labeled?.[1].trim() || (bold && !/^(?:TITULO|TÍTULO|BAJADA|SUBT[IÍ]TULO):?$/i.test(bold[1]) ? bold[1].trim() : '') || block.lines.shift()?.replace(/^\*\*|\*\*$/g, '').replace(/^\([^)]*\)\s*/, '').trim() || `Slide ${index + 1}`
-    const text = content.replace(/^\([^)]*\)\s*/, '').replace(labeled?.[0] || (bold?.[0] || ''), '').replace(/^\s*\n/, '').trim()
+    const title = block.heading || labeled?.[1].trim() || (bold && !/^(?:TITULO|TÍTULO|BAJADA|SUBT[IÍ]TULO):?$/i.test(bold[1]) ? bold[1].trim() : '') || `Slide ${index + 1}`
+    const text = content.replace(/^\([^)]*\)\s*/, '').replace(labeled?.[0] || (block.heading ? '' : (bold?.[0] || '')), '').replace(/^\s*\n/, '').trim()
     return { id: crypto.randomUUID(), title, text }
   }).filter(block => block.title || block.text)
+}
+
+function formatTitle(value: string, mode: 'upper' | 'lower' | 'title' | 'sentence') {
+  const text = value.trim()
+  if (mode === 'upper') return text.toLocaleUpperCase()
+  if (mode === 'lower') return text.toLocaleLowerCase()
+  if (mode === 'sentence') return text ? text.charAt(0).toLocaleUpperCase() + text.slice(1).toLocaleLowerCase() : text
+  return text.toLocaleLowerCase().replace(/(^|[\s¡¿])([\p{L}\d])/gu, (_, prefix: string, character: string) => prefix + character.toLocaleUpperCase())
+}
+
+type NoteItem = { id: string; title: string; text: string }
+
+function notesToItems(value: string): NoteItem[] {
+  if (!value.trim()) return [{ id: crypto.randomUUID(), title: '', text: '' }]
+  return value.split(/\n\s*---\s*\n/).map(part => {
+    const lines = part.split('\n')
+    const title = lines[0]?.match(/^\[(.*)\]$/)?.[1] || ''
+    return { id: crypto.randomUUID(), title, text: (title ? lines.slice(1) : lines).join('\n').trim() }
+  })
+}
+
+function itemsToNotes(items: NoteItem[]) {
+  return items.filter(item => item.title.trim() || item.text.trim()).map(item => `${item.title.trim() ? `[${item.title.trim()}]\n` : ''}${item.text.trim()}`).join('\n\n---\n\n')
 }
 
 function Preview({ draft }: { draft: PostInput }) {
@@ -68,6 +92,10 @@ function Preview({ draft }: { draft: PostInput }) {
 function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks: IdeaBlock[]): void }) {
   const add = () => onChange([...blocks, { id: crypto.randomUUID(), title: '', text: '' }])
   const update = (id: string, patch: Partial<IdeaBlock>) => onChange(blocks.map(block => block.id === id ? { ...block, ...patch } : block))
+  const format = (id: string, mode: 'upper' | 'lower' | 'title' | 'sentence') => {
+    const block = blocks.find(item => item.id === id)
+    if (block) update(id, { title: formatTitle(block.title, mode) })
+  }
   const remove = (id: string) => onChange(blocks.filter(block => block.id !== id))
   const move = (index: number, offset: -1 | 1) => {
     const target = index + offset
@@ -88,6 +116,7 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
         <button type="button" title="Eliminar idea" aria-label="Eliminar idea" onClick={() => remove(block.id)}><Trash2 size={14} /></button>
       </div></header>
       <label>Título<input value={block.title} maxLength={160} onChange={event => update(block.id, { title: event.target.value })} placeholder="Ej. Apertura, argumento, cierre" /></label>
+      <div className="title-format-actions"><span>Formato rápido</span><button type="button" onClick={() => format(block.id, 'upper')}>MAYÚS</button><button type="button" onClick={() => format(block.id, 'lower')}>minús</button><button type="button" onClick={() => format(block.id, 'title')}>Título</button><button type="button" onClick={() => format(block.id, 'sentence')}>Oración</button></div>
       <label>Texto<textarea value={block.text} maxLength={10_000} onChange={event => update(block.id, { text: event.target.value })} placeholder="Texto que luego irá en la imagen" /></label>
     </article>)}
   </section>
@@ -106,6 +135,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   const [assistantTitles, setAssistantTitles] = useState('')
   const [assistantMaster, setAssistantMaster] = useState('')
   const [assistantMessage, setAssistantMessage] = useState('')
+  const [noteItems, setNoteItems] = useState<NoteItem[]>(() => notesToItems(initial?.notes || ''))
   const [saving, setSaving] = useState(false)
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
   const [catalogConfig, setCatalogConfig] = useState<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite' }>({ configured: false, endpoint: '', createdBy: '', defaultKind: 'resource' })
@@ -135,6 +165,8 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
     else setCatalogSync(null)
   }, [initial?.id])
   const update = <K extends keyof PostInput>(key: K, value: PostInput[K]) => setDraft(d => ({ ...d, [key]: value }))
+  const updateNotes = (items: NoteItem[]) => { setNoteItems(items); update('notes', itemsToNotes(items)) }
+  const formatPostTitle = (mode: 'upper' | 'lower' | 'title' | 'sentence') => update('title', formatTitle(draft.title, mode))
   const togglePlatform = (platform: Platform) => {
     const enabled = draft.platforms.includes(platform)
     const platforms = enabled ? draft.platforms.filter(p => p !== platform) : [...draft.platforms, platform]
@@ -176,6 +208,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor">
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header>
     <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
+    <div className="post-title-toolbar"><span>TÃ­tulo rÃ¡pido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÃšS</button><button type="button" onClick={() => formatPostTitle('lower')}>minÃºs</button><button type="button" onClick={() => formatPostTitle('title')}>TÃ­tulo</button><button type="button" onClick={() => formatPostTitle('sentence')}>OraciÃ³n</button></div>
     <div className="editor-tabs editor-tabs-assistant"><button className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button></div>
     <div className="editor-body">
       {tab === 'content' && <>
@@ -185,12 +218,14 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
         <section className="distribution-panel"><header><strong>Estado por destino</strong><small>Marca dónde está publicada cada versión.</small></header>{(draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const }))).map((target, index) => <div className="distribution-row" key={target.id}><span>{target.name}</span><select value={target.status} onChange={event => { const current = draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const })); update('distribution', current.map((item, i) => i === index ? { ...item, status: event.target.value as any } : item)) }}><option value="pending">Pendiente</option><option value="preparing">En preparación</option><option value="scheduled">Programado</option><option value="published">Publicado</option><option value="not_applicable">No aplica</option><option value="failed">Requiere atención</option></select></div>)}</section>
         <label>Texto de la publicación<div className="caption-box"><textarea value={draft.caption} onChange={e => update('caption', e.target.value)} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean))} placeholder="#contenido #campaña" /></label>
-        <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={draft.scheduledAt?.slice(0, 16) || ''} onChange={e => update('scheduledAt', e.target.value ? new Date(e.target.value).toISOString() : null)} /></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
+        <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={draft.scheduledAt?.slice(0, 16) || ''} onChange={e => update('scheduledAt', e.target.value ? new Date(e.target.value).toISOString() : null)} /><small className="field-hint">Sin fecha programada hasta que la elijas.</small></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir material</strong><small>Se guardará en la carpeta de esta publicación</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
+      {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}
       {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={blocks => update('ideaBlocks', blocks)} />}
-      {tab === 'assistant' && <section className="ai-assistant"><header><div><span>INGESTA DE RESPUESTAS</span><strong>Convierte tus prompts en una publicación</strong></div><Sparkles size={19} /></header><p className="assistant-hint">Pega los resultados tal como salen del LLM. Se detectan títulos y slides numeradas; las secciones “final” o “cierre” se descartan.</p><label>Idea-párrafo original<textarea value={assistantIdea} onChange={event => setAssistantIdea(event.target.value)} placeholder="Pega aquí el texto seleccionado en Obsidian" /></label><label>Títulos del prompt auxiliar<textarea value={assistantTitles} onChange={event => setAssistantTitles(event.target.value)} placeholder="Un título por línea" /></label>{parseTitleCandidates(assistantTitles).length > 0 && <div className="assistant-candidates"><span>Elegir título</span>{parseTitleCandidates(assistantTitles).map(title => <button type="button" key={title} onClick={() => update('title', title)}>{title}</button>)}</div>}<label>Respuesta del prompt maestro<textarea value={assistantMaster} onChange={event => setAssistantMaster(event.target.value)} placeholder={'Slide 0: ...\nSlide 1: ...\nFinal: ...'} /></label><div className="assistant-actions"><button type="button" className="save-button" onClick={applyAssistant}><Sparkles size={15} /> Aplicar a la publicación</button><button type="button" className="ghost-button" onClick={() => void copyObsidianMark()}><Clipboard size={15} /> Copiar marca para Obsidian</button></div>{assistantMessage && <p className="assistant-message">{assistantMessage}</p>}</section>}
+      {tab === 'notes' && <section className="notes-editor"><header><div><span>APUNTES INTERNOS</span><strong>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'}</strong></div><button type="button" className="new-button" onClick={() => updateNotes([...noteItems, { id: crypto.randomUUID(), title: '', text: '' }])}><Plus size={15} /> Nueva nota</button></header>{noteItems.map((note, index) => <article className="note-item" key={note.id}><div className="note-item-heading"><span>NOTA {String(index + 1).padStart(2, '0')}</span>{noteItems.length > 1 && <button type="button" onClick={() => updateNotes(noteItems.filter(item => item.id !== note.id))}><Trash2 size={14} /></button>}</div><input value={note.title} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, title: event.target.value } : item))} placeholder="Nombre opcional" /><textarea value={note.text} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, text: event.target.value } : item))} placeholder="Dato, referencia, pendiente o contexto..." /></article>)}</section>}
+      {tab === 'assistant' && <section className="ai-assistant"><header><div><span>INGESTA DE RESPUESTAS</span><strong>Convierte tus textos en una publicación</strong></div><Sparkles size={19} /></header><p className="assistant-hint">Se detectan títulos y slides numeradas; las secciones “final” o “cierre” se descartan.</p><label>Original<textarea value={assistantIdea} onChange={event => setAssistantIdea(event.target.value)} placeholder="Pega aquí el texto seleccionado" /></label><label>Títulos<textarea value={assistantTitles} onChange={event => setAssistantTitles(event.target.value)} placeholder="Un título por línea" /></label>{parseTitleCandidates(assistantTitles).length > 0 && <div className="assistant-candidates"><span>Elegir título</span>{parseTitleCandidates(assistantTitles).map(title => <button type="button" key={title} onClick={() => update('title', title)}>{title}</button>)}</div>}<label>Respuesta del prompt maestro<textarea value={assistantMaster} onChange={event => setAssistantMaster(event.target.value)} placeholder={'Slide 0: ...\nSlide 1: ...\nFinal: ...'} /></label><div className="assistant-actions"><button type="button" className="save-button" onClick={applyAssistant}><Sparkles size={15} /> Aplicar a la publicación</button><button type="button" className="ghost-button" onClick={() => void copyObsidianMark()}><Clipboard size={15} /> Copiar marca</button></div>{assistantMessage && <p className="assistant-message">{assistantMessage}</p>}</section>}
       {tab === 'preview' && <Preview draft={draft} />}
       {tab === 'notes' && <label>Notas internas<textarea className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value)} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}
