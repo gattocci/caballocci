@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronUp, Clipboard, Database, FileImage, FolderOpen, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Trash2, X } from 'lucide-react'
+import { Archive, ChevronDown, ChevronUp, Clipboard, Database, FileImage, FolderOpen, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Sparkles, Trash2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { usePlanner } from '../../app/store'
@@ -12,6 +12,36 @@ const blankPost = (project: string): PostInput => ({
   contentType: 'reel', status: 'idea', scheduledAt: new Date().toISOString(), durationMinutes: 60,
   project, color: '#e76042', ideaBlocks: [],
 })
+
+function parseTitleCandidates(value: string) {
+  const candidateLines = value.split(/\r?\n/).filter(line => /^\s*(?:[-*]|\d+[.)])\s+/.test(line) || /\*\*[“\"]/.test(line))
+  const quoted = candidateLines.flatMap(line => [...line.matchAll(/[“\"]([^“\"]+)[”\"]/g)].map(match => match[1].trim())).filter(Boolean)
+  if (quoted.length) return Array.from(new Set(quoted))
+  return value.split(/\r?\n/).map(line => line.replace(/^\s*(?:[-*\d.)]+)\s*/, '').replace(/\*\*/g, '').trim()).filter(line => line.length > 8 && !/^\w+\s+(puede|suena|mantiene|ajustando)/i.test(line))
+}
+
+function parseMasterSlides(value: string): IdeaBlock[] {
+  const lines = value.replace(/\r/g, '').split('\n')
+  const blocks: { label: string; lines: string[] }[] = []
+  let current: { label: string; lines: string[] } | null = null
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:#{1,4}\s*)?(?:slide|diapositiva)\s*([0-9]+|final|cierre)\s*[:.)\-]?\s*(.*)$/i)
+      || line.match(/^\s*([0-9]+|final|cierre)\s*[:.)\-]?\s+(.*)$/i)
+    if (match) {
+      if (current) blocks.push(current)
+      current = { label: match[1], lines: match[2] ? [match[2].trim()] : [] }
+    } else if (current) current.lines.push(line)
+  }
+  if (current) blocks.push(current)
+  return blocks.filter(block => !/final|cierre/i.test(block.label)).map((block, index) => {
+    const content = block.lines.join('\n').trim()
+    const labeled = content.match(/\*\*(?:TITULO|TÍTULO):\*\*\s*(.+?)(?=\s+\*\*(?:BAJADA|SUBT[IÍ]TULO):|$)/i)
+    const bold = content.match(/\*\*([^*]+)\*\*/)
+    const title = labeled?.[1].trim() || (bold && !/^(?:TITULO|TÍTULO|BAJADA|SUBT[IÍ]TULO):?$/i.test(bold[1]) ? bold[1].trim() : '') || block.lines.shift()?.replace(/^\*\*|\*\*$/g, '').replace(/^\([^)]*\)\s*/, '').trim() || `Slide ${index + 1}`
+    const text = content.replace(/^\([^)]*\)\s*/, '').replace(labeled?.[0] || (bold?.[0] || ''), '').replace(/^\s*\n/, '').trim()
+    return { id: crypto.randomUUID(), title, text }
+  }).filter(block => block.title || block.text)
+}
 
 function Preview({ draft }: { draft: PostInput }) {
   const platform = draft.platforms[0] || 'instagram'
@@ -71,7 +101,11 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
     try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return saved } catch { /* Ignore invalid drafts. */ }
     return blankPost(activeSpace || 'Mi contenido')
   })
-  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'external' | 'catalog'>('content')
+  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'assistant' | 'external' | 'catalog'>('content')
+  const [assistantIdea, setAssistantIdea] = useState('')
+  const [assistantTitles, setAssistantTitles] = useState('')
+  const [assistantMaster, setAssistantMaster] = useState('')
+  const [assistantMessage, setAssistantMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
   const [catalogConfig, setCatalogConfig] = useState<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite' }>({ configured: false, endpoint: '', createdBy: '', defaultKind: 'resource' })
@@ -123,6 +157,18 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   }
   const submitAndClear = async () => { await submit(); localStorage.removeItem(draftKey) }
   const attach = async () => update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id)])
+  const applyAssistant = () => {
+    const titles = parseTitleCandidates(assistantTitles)
+    const blocks = parseMasterSlides(assistantMaster)
+    if (!assistantIdea.trim() && !titles.length && !blocks.length) { setAssistantMessage('Pega al menos un resultado de tus prompts.'); return }
+    setDraft(current => ({ ...current, caption: assistantIdea.trim() || current.caption, title: titles[0] || current.title, contentType: blocks.length ? 'carousel' : current.contentType, ideaBlocks: blocks.length ? blocks : current.ideaBlocks }))
+    setAssistantMessage(`${blocks.length} slides cargadas${titles.length ? ` · ${titles.length} títulos detectados` : ''}. El cierre fue omitido.`)
+  }
+  const copyObsidianMark = async () => {
+    if (!assistantIdea.trim()) { setAssistantMessage('Pega primero el idea-párrafo para generar su marca.'); return }
+    await window.planner.clipboard.write(`==${assistantIdea.trim()}==`)
+    setAssistantMessage('Marca copiada. Pégala en tu archivo de Obsidian.')
+  }
   const saveCatalog = async () => { setCatalogBusy(true); setCatalogMessage(''); try { const config = await window.planner.catalog.saveConfig({ endpoint: catalogEndpoint, createdBy: catalogCreatedBy, token: catalogToken, defaultKind: catalogKind, scope: draft.project || activeSpace || '' }); setCatalogConfig(config); setCatalogToken(''); if (initial) await window.planner.catalog.savePostFields({ postId: initial.id, summary: catalogSummary, content: catalogContent, useHashtags: catalogUseHashtags, categoryId: catalogCategoryId ? Number(catalogCategoryId) : null, categorySlug: catalogCategorySlug, kind: catalogKind }); setCatalogMessage('Configuracion guardada') } catch (error) { setCatalogMessage(error instanceof Error ? error.message : 'No se pudo guardar la configuracion') } finally { setCatalogBusy(false) } }
   const syncCatalog = async (dryRun: boolean, publishOverride = catalogPublish) => { if (!initial) { setCatalogMessage('Guarda la publicacion antes de sincronizar'); return }; let category = catalogCategoryId; let slug = catalogCategorySlug.trim(); if (catalogKind === 'resource' && !category && !slug) { const value = window.prompt('Escribe category_id numerico o category_slug:', '') || ''; if (/^\d+$/.test(value)) category = value; else slug = value.trim() } if (catalogKind === 'resource' && ((!category || !/^\d+$/.test(category) || Number(category) < 1) && !slug)) { setCatalogMessage('Resource requiere category_id o category_slug valido'); return }; if (category && slug) { setCatalogMessage('Usa category_id o category_slug, no ambos'); return }; setCatalogCategoryId(category); setCatalogCategorySlug(slug); setCatalogBusy(true); setCatalogMessage(dryRun ? 'Validando en la API...' : 'Sincronizando...'); try { await save(draft); await window.planner.catalog.savePostFields({ postId: initial.id, summary: catalogSummary, content: catalogContent, useHashtags: catalogUseHashtags, categoryId: category ? Number(category) : null, categorySlug: slug, kind: catalogKind }); const result = await window.planner.catalog.sync(initial.id, catalogKind, dryRun, publishOverride); setCatalogSync(result.sync); setCatalogMessage(dryRun ? `Simulacion: ${result.sync.action}` : `Catalogo: ${result.sync.action}`) } catch (error) { setCatalogMessage(error instanceof Error ? error.message : 'No se pudo sincronizar') } finally { setCatalogBusy(false) } }
   const catalogPreview = { source: 'caballocci', dry_run: true, publish: false, items: [{ kind: catalogKind, external_id: `post-${initial?.id || ''}`, title: draft.title, ...(catalogKind === 'resource' && catalogCategorySlug ? { category_slug: catalogCategorySlug } : catalogKind === 'resource' && catalogCategoryId ? { category_id: Number(catalogCategoryId) } : {}), summary: catalogSummary, content: catalogContent }] }
@@ -130,6 +176,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor">
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header>
     <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
+    <div className="editor-tabs editor-tabs-assistant"><button className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button></div>
     <div className="editor-body">
       {tab === 'content' && <>
         <label>Título<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Nombra esta pieza de contenido" /></label>
@@ -143,6 +190,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
       {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={blocks => update('ideaBlocks', blocks)} />}
+      {tab === 'assistant' && <section className="ai-assistant"><header><div><span>INGESTA DE RESPUESTAS</span><strong>Convierte tus prompts en una publicación</strong></div><Sparkles size={19} /></header><p className="assistant-hint">Pega los resultados tal como salen del LLM. Se detectan títulos y slides numeradas; las secciones “final” o “cierre” se descartan.</p><label>Idea-párrafo original<textarea value={assistantIdea} onChange={event => setAssistantIdea(event.target.value)} placeholder="Pega aquí el texto seleccionado en Obsidian" /></label><label>Títulos del prompt auxiliar<textarea value={assistantTitles} onChange={event => setAssistantTitles(event.target.value)} placeholder="Un título por línea" /></label>{parseTitleCandidates(assistantTitles).length > 0 && <div className="assistant-candidates"><span>Elegir título</span>{parseTitleCandidates(assistantTitles).map(title => <button type="button" key={title} onClick={() => update('title', title)}>{title}</button>)}</div>}<label>Respuesta del prompt maestro<textarea value={assistantMaster} onChange={event => setAssistantMaster(event.target.value)} placeholder={'Slide 0: ...\nSlide 1: ...\nFinal: ...'} /></label><div className="assistant-actions"><button type="button" className="save-button" onClick={applyAssistant}><Sparkles size={15} /> Aplicar a la publicación</button><button type="button" className="ghost-button" onClick={() => void copyObsidianMark()}><Clipboard size={15} /> Copiar marca para Obsidian</button></div>{assistantMessage && <p className="assistant-message">{assistantMessage}</p>}</section>}
       {tab === 'preview' && <Preview draft={draft} />}
       {tab === 'notes' && <label>Notas internas<textarea className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value)} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}

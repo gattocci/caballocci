@@ -102,6 +102,82 @@
   min-height: 104px;
 }
 
+.ai-assistant {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-assistant > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ai-assistant > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.ai-assistant > header span {
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.ai-assistant > header strong {
+  font-size: 13px;
+}
+
+.ai-assistant textarea {
+  min-height: 92px;
+}
+
+.assistant-hint {
+  margin: 0;
+  color: #89958d;
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.assistant-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assistant-candidates {
+  display: grid;
+  gap: 6px;
+}
+
+.assistant-candidates > span {
+  color: #89958d;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.assistant-candidates button {
+  padding: 8px 10px;
+  border: 1px solid #303833;
+  background: #181d1a;
+  color: #d7ded9;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assistant-candidates button:hover {
+  border-color: var(--accent);
+}
+
+.assistant-message {
+  margin: 0;
+  color: var(--accent);
+  font-size: 10px;
+}
+
 .preview-media {
   position: relative;
   aspect-ratio: 4 / 5;
