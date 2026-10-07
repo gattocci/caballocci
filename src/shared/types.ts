@@ -242,6 +242,7 @@ export interface ElectronAPI {
   }
   media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; openFolder(postId?: string): Promise<void>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
+  files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
   system: {
     info(): Promise<SystemInfo>
     openWorkspace(): Promise<string>

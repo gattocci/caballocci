@@ -1,4 +1,5 @@
 .ideas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.ideas-import-message { margin: -8px 0 14px; color: #73c99b; font-size: 10px; }
 .idea-card { min-height: 195px; padding: 13px; border: 1px solid var(--line); border-top: 3px solid #d0a64b; background: #181d1a; display: flex; flex-direction: column; }
 .idea-card header, .idea-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .idea-card header div { display: flex; gap: 4px; }

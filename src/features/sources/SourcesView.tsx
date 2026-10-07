@@ -133,7 +133,7 @@ export function SourcesView() {
       setConnectionSample(result.sample); setRequestDetails(result.requestDetails); setMappingSuggestion(result.suggestion)
       if (result.suggestion && !definition) setDefinitionDraft({ externalRef: result.suggestion.externalRef, title: result.suggestion.title, sourceKindField: result.suggestion.sourceKindField, hashFields: result.suggestion.hashFields.join(', '), contentTypeMapText: JSON.stringify(result.suggestion.contentTypeMap, null, 2), customDefaultsText: '{}' })
       setMessageTone(result.parseWarning ? 'error' : 'success')
-      setMessage(result.parseWarning ? `Conexion correcta, pero no se pudo interpretar la respuesta: ${result.parseWarning}` : `Conexion correcta Â· HTTP ${result.status} Â· ${result.recordCount} registros detectados`)
+      setMessage(result.parseWarning ? `Conexion correcta, pero no se pudo interpretar la respuesta: ${result.parseWarning}` : `Conexion correcta · HTTP ${result.status} · ${result.recordCount} registros detectados`)
       setMessageTone('success'); setMessage(`Conexion correcta · HTTP ${result.status} · ${result.bytes} bytes · ${result.contentType}`)
       if (result.parseWarning) { setMessageTone('error'); setMessage(`Conexion correcta, pero no se pudo interpretar la respuesta: ${result.parseWarning}`) }
       if (!result.parseWarning && result.recordCount > 0 && window.confirm('La conexion funciono. ¿Quieres guardar esta configuracion para reutilizarla en la proxima sincronizacion?')) {

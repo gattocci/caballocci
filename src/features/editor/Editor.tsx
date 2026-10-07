@@ -107,10 +107,10 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
   }
 
   return <section className="idea-blocks">
-    <header><div><span>IDEAS AGRUPADAS</span><strong>{blocks.length} {blocks.length === 1 ? 'bloque' : 'bloques'}</strong></div><button type="button" className="new-button" onClick={add}><Plus size={15} /> Nueva idea</button></header>
+    <header><div><span>DIAPOSITIVAS</span><strong>{blocks.length} {blocks.length === 1 ? 'diapositiva' : 'diapositivas'}</strong></div><button type="button" className="new-button" onClick={add}><Plus size={15} /> Nueva diapositiva</button></header>
     {blocks.length === 0 && <button type="button" className="empty-ideas" onClick={add}><Lightbulb size={24} /><span>Añadir primera idea</span></button>}
     {blocks.map((block, index) => <article className="idea-block" key={block.id}>
-      <header><span>IDEA {String(index + 1).padStart(2, '0')}</span><div>
+      <header><span>DIAPOSITIVA {String(index + 1).padStart(2, '0')}</span><div>
         <button type="button" title="Subir idea" aria-label="Subir idea" disabled={index === 0} onClick={() => move(index, -1)}><ChevronUp size={15} /></button>
         <button type="button" title="Bajar idea" aria-label="Bajar idea" disabled={index === blocks.length - 1} onClick={() => move(index, 1)}><ChevronDown size={15} /></button>
         <button type="button" title="Eliminar idea" aria-label="Eliminar idea" onClick={() => remove(block.id)}><Trash2 size={14} /></button>
@@ -208,7 +208,8 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor">
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header>
     <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
-    <div className="post-title-toolbar"><span>TÃ­tulo rÃ¡pido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÃšS</button><button type="button" onClick={() => formatPostTitle('lower')}>minÃºs</button><button type="button" onClick={() => formatPostTitle('title')}>TÃ­tulo</button><button type="button" onClick={() => formatPostTitle('sentence')}>OraciÃ³n</button></div>
+    <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
+    <div className="editor-tabs editor-tabs-slides"><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button></div>
     <div className="editor-tabs editor-tabs-assistant"><button className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button></div>
     <div className="editor-body">
       {tab === 'content' && <>

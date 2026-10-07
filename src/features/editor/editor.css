@@ -140,6 +140,14 @@
   padding: 0 24px 8px;
 }
 
+.editor-tabs:not(.editor-tabs-slides):not(.editor-tabs-assistant) button:nth-child(2) {
+  display: none;
+}
+
+.editor-tabs-slides {
+  padding-top: 0;
+}
+
 .post-title-toolbar span,
 .notes-quick > header > span {
   color: #727d76;

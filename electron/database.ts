@@ -224,11 +224,23 @@ const migrations: Migration[] = [
     name: 'post_distribution_targets',
     up: `ALTER TABLE posts ADD COLUMN distribution_json TEXT NOT NULL DEFAULT '[]';`,
   },
+  {
+    version: 19,
+    name: 'post_board_calendar_indexes',
+    up: `
+      CREATE INDEX IF NOT EXISTS posts_status_idx ON posts(status);
+      CREATE INDEX IF NOT EXISTS posts_project_idx ON posts(project);
+      CREATE INDEX IF NOT EXISTS posts_scheduled_at_idx ON posts(scheduled_at);
+      CREATE INDEX IF NOT EXISTS posts_project_status_idx ON posts(project, status);
+    `,
+  },
 ]
 
 export class PlannerDatabase {
   private db!: Database
   private readonly existedAtStartup: boolean
+  private persistTimer: ReturnType<typeof setTimeout> | null = null
+  private persistQueued = false
 
   constructor(
     private readonly filePath: string,
@@ -245,6 +257,7 @@ export class PlannerDatabase {
     this.ensureCatalogColumns()
     if (!this.existedAtStartup && this.count() === 0) this.seed()
     this.persist()
+    this.flush()
   }
 
   private ensureCatalogColumns() {
@@ -261,7 +274,7 @@ export class PlannerDatabase {
   }
 
   createBackup(reason: 'before-migration' | 'before-update' | 'manual' = 'manual') {
-    this.persist()
+    this.flush()
     fs.mkdirSync(this.backupsDirectory, { recursive: true })
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const destination = path.join(this.backupsDirectory, `caballocci-${timestamp}-${reason}.sqlite`)
@@ -853,11 +866,20 @@ export class PlannerDatabase {
     }
   }
 
-  private persist() {
+  flush() {
+    if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null }
+    if (!this.persistQueued) return
+    this.persistQueued = false
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true })
     const temporaryPath = `${this.filePath}.tmp`
     fs.writeFileSync(temporaryPath, Buffer.from(this.db.export()))
     fs.renameSync(temporaryPath, this.filePath)
+  }
+
+  private persist() {
+    this.persistQueued = true
+    if (this.persistTimer) clearTimeout(this.persistTimer)
+    this.persistTimer = setTimeout(() => this.flush(), 1500)
   }
 
   private seed() {

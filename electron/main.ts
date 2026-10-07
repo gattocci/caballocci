@@ -648,6 +648,16 @@ app.whenReady().then(async () => {
     validateArgumentCount(args, 1)
     clipboard.writeText(validateClipboardText(args[0]))
   })
+  handle('files:read-text', async args => {
+    if (args.length !== 0) throw new TypeError('Argumento IPC no valido: files.readText')
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], filters: [{ name: 'Texto', extensions: ['md', 'markdown', 'txt'] }] })
+    if (result.canceled || !result.filePaths[0]) return null
+    const filePath = result.filePaths[0]
+    const stat = fs.statSync(filePath)
+    if (stat.size > 10 * 1024 * 1024) throw new Error('El archivo supera el limite de 10 MB')
+    return { name: path.basename(filePath), path: filePath, text: fs.readFileSync(filePath, 'utf8') }
+  })
   handle('system:info', withoutArguments(() => ({
     version: app.getVersion(),
     workspacePath: dataDirectory,
@@ -713,5 +723,6 @@ app.whenReady().then(async () => {
 })
 }
 
+app.on('before-quit', () => { database?.flush() })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

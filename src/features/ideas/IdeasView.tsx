@@ -12,9 +12,30 @@ const blankIdea = (space: string): IdeaInput => ({
 const priorityLabels: Record<IdeaPriority, string> = { low: 'Baja', normal: 'Normal', high: 'Alta' }
 const statusLabels: Record<IdeaStatus, string> = { inbox: 'Nueva', developing: 'En desarrollo', ready: 'Lista', converted: 'Convertida', archived: 'Archivada' }
 
+function parseTextFile(text: string, sourceName: string, space: string): IdeaInput[] {
+  const cleaned = text.replace(/^---[\s\S]*?---\s*/m, '').trim()
+  const marked = [...cleaned.matchAll(/==\s*([^=]+?)\s*==/g)]
+  const chunks = marked.length
+    ? marked.map((match, index) => cleaned.slice(match.index! + match[0].length, marked[index + 1]?.index ?? cleaned.length).trim()).map((body, index) => ({ title: marked[index][1].trim(), body }))
+    : cleaned.split(/\n\s*\n+/).map(chunk => chunk.trim()).filter(Boolean).map(chunk => {
+      const lines = chunk.split('\n'); const first = lines.shift()?.trim() || ''
+      const bold = first.match(/^(?:#{1,6}\s*)?\*\*\s*(?:\d+[.)]?\s*)?(.+?)\s*\*\*\s*(.*)$/)
+      if (bold) return { title: bold[1].replace(/^['“”\"]|['“”\"]$/g, '').trim(), body: [bold[2], ...lines].filter(Boolean).join('\n').trim() }
+      const heading = first.replace(/^#{1,6}\s*/, '').trim()
+      return { title: heading.length <= 180 ? heading : '', body: heading.length <= 180 ? lines.join('\n').trim() : [first, ...lines].join('\n').trim() }
+    })
+  return chunks.filter(item => item.body.trim()).map(item => ({ space, title: item.title || sourceName, body: item.body, tags: [sourceName], media: [], status: 'inbox' as const, priority: 'normal' as const, dueDate: null }))
+}
+
+function ideaKey(idea: Pick<IdeaInput, 'title' | 'body'>) {
+  return `${idea.title.trim().toLocaleLowerCase()}\n${idea.body.trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`
+}
+
 export function IdeasView() {
   const { ideas, activeSpace, saveIdea, removeIdea, convertIdea, select, setView, query } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importMessage, setImportMessage] = useState('')
   const ideasInSpace = useMemo(() => (activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas).filter(idea => ideaMatchesQuery(idea, query)), [activeSpace, ideas, query])
   const edit = (idea: Idea) => setDraft({ ...idea })
   const save = async () => {
@@ -27,11 +48,26 @@ export function IdeasView() {
     select(post.id)
     setView('board')
   }
+  const importFile = async () => {
+    setImporting(true)
+    try {
+      const file = await window.planner.files.readText()
+      if (!file) return
+      const parsed = parseTextFile(file.text, file.name, activeSpace || 'Mi contenido')
+      if (!parsed.length) { setImportMessage('No se encontraron bloques con contenido.'); return }
+      const known = new Set(ideas.map(ideaKey)); const unique = parsed.filter((idea, index, all) => { const key = ideaKey(idea); return !known.has(key) && all.findIndex(candidate => ideaKey(candidate) === key) === index })
+      const skipped = parsed.length - unique.length
+      if (!window.confirm(`Preview: ${parsed.length} bloques detectados.\n${unique.length} nuevos y ${skipped} duplicados omitidos.\n\n¿Importar los nuevos?`)) return
+      for (const idea of unique) await saveIdea(idea)
+      setImportMessage(`${unique.length} ideas importadas${skipped ? ` · ${skipped} duplicadas omitidas` : ''}.`)
+    } finally { setImporting(false) }
+  }
 
   return <section className="workspace ideas-workspace">
     <ViewHeading title="Ideas" subtitle="Captura, desarrolla y convierte tus ideas en contenido.">
-      <button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
+      <button className="settings-button" disabled={importing} onClick={() => void importFile()}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
     </ViewHeading>
+    {importMessage && <p className="ideas-import-message">{importMessage}</p>}
     {ideasInSpace.length ? <div className="ideas-grid">{ideasInSpace.map(idea => <article className="idea-card" key={idea.id}>
       <header><span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span><div><button title="Editar idea" onClick={() => edit(idea)}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={() => { if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
       <span className="idea-status">{statusLabels[idea.status]}</span><h2>{idea.title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>

@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('planner', {
     openFolder: (postId?: string) => ipcRenderer.invoke('media:open-folder', postId),
     imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
+  files: { readText: () => ipcRenderer.invoke('files:read-text') },
   clipboard: { write: (text: string) => ipcRenderer.invoke('clipboard:write', text) },
   system: {
     info: () => ipcRenderer.invoke('system:info'),
