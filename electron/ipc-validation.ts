@@ -137,6 +137,7 @@ export function validateIdeaInput(value: unknown): Record<string, unknown> {
     space: text(idea.space, 'idea.space', 200, false),
     title: text(idea.title, 'idea.title', 240),
     body: text(idea.body, 'idea.body', 20_000),
+    sourceName: idea.sourceName == null ? '' : text(idea.sourceName, 'idea.sourceName', 512),
     tags: stringList(tags, 'idea.tags', 30, 80),
     media: media.map(mediaAsset),
     status: enumValue(idea.status, 'idea.status', ideaStatuses),

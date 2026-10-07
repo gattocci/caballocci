@@ -1,5 +1,23 @@
 .ideas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.ideas-toolbar { display: flex; align-items: end; gap: 14px; margin-bottom: 14px; color: #7e8982; font-size: 10px; }
+.ideas-toolbar label { display: flex; align-items: center; gap: 7px; color: #9da69f; font-size: 9px; text-transform: uppercase; }
+.ideas-toolbar select { height: 32px; border: 1px solid #323a35; border-radius: 4px; background: #1a1f1c; color: #e6ebe8; padding: 0 8px; font-size: 10px; }
+.ideas-toolbar span { margin-right: auto; }
+.ideas-bulk-actions { display: flex; align-items: center; gap: 7px; padding: 9px 10px; margin-bottom: 12px; border: 1px solid #4c4130; background: #252018; color: #e4c7a2; font-size: 10px; }
+.ideas-bulk-actions strong { margin-right: auto; }
+.ideas-bulk-actions button { border: 1px solid #6b5840; background: transparent; color: #e8d2b6; border-radius: 3px; padding: 5px 8px; font-size: 9px; cursor: pointer; }
+.idea-select { display: flex!important; align-items: center; gap: 6px; }
+.idea-select input { width: 13px!important; height: 13px!important; accent-color: var(--accent); }
+.idea-card.selected { border-color: var(--accent); }
+.ideas-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 18px; color: #8c9690; font-size: 10px; }
+.ideas-pagination button { border: 1px solid #323a35; background: #1a1f1c; color: #d0d7d2; border-radius: 4px; padding: 7px 11px; cursor: pointer; }
+.ideas-pagination button:disabled { opacity: .4; cursor: default; }
 .ideas-import-message { margin: -8px 0 14px; color: #73c99b; font-size: 10px; }
+.board-bulk-actions { display: flex; align-items: center; gap: 7px; padding: 9px 10px; margin-bottom: 12px; border: 1px solid #4c4130; background: #252018; color: #e4c7a2; font-size: 10px; }
+.board-bulk-actions strong { margin-right: auto; }
+.board-bulk-actions button { border: 1px solid #6b5840; background: transparent; color: #e8d2b6; border-radius: 3px; padding: 5px 8px; font-size: 9px; cursor: pointer; }
+.board-stack article.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.board-select { width: 13px!important; height: 13px!important; margin-right: 6px; accent-color: var(--accent); cursor: pointer; }
 .idea-card { min-height: 195px; padding: 13px; border: 1px solid var(--line); border-top: 3px solid #d0a64b; background: #181d1a; display: flex; flex-direction: column; }
 .idea-card header, .idea-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .idea-card header div { display: flex; gap: 4px; }

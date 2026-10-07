@@ -36,6 +36,7 @@ interface PlannerState {
   remove(id: string): Promise<void>
   move(id: string, status: PostStatus): Promise<void>
   saveIdea(idea: IdeaInput): Promise<Idea>
+  saveIdeasMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number }>
   removeIdea(id: string): Promise<void>
   convertIdea(id: string): Promise<Post>
   setView(view: PlannerView): void
@@ -112,6 +113,11 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const saved = await window.planner.ideas.save(idea)
     set({ ideas: [...get().ideas.filter(item => item.id !== saved.id), saved] })
     return saved
+  },
+  saveIdeasMany: async (ideas) => {
+    const result = await window.planner.ideas.saveMany(ideas)
+    set({ ideas: [...get().ideas, ...result.created] })
+    return result
   },
   removeIdea: async (id) => {
     await window.planner.ideas.remove(id)

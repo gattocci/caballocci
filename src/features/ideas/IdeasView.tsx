@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CalendarDays, Lightbulb, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { ViewHeading } from '../../components/layout/AppShell'
 import { ideaMatchesQuery, usePlanner } from '../../app/store'
@@ -24,7 +24,7 @@ function parseTextFile(text: string, sourceName: string, space: string): IdeaInp
       const heading = first.replace(/^#{1,6}\s*/, '').trim()
       return { title: heading.length <= 180 ? heading : '', body: heading.length <= 180 ? lines.join('\n').trim() : [first, ...lines].join('\n').trim() }
     })
-  return chunks.filter(item => item.body.trim()).map(item => ({ space, title: item.title || sourceName, body: item.body, tags: [sourceName], media: [], status: 'inbox' as const, priority: 'normal' as const, dueDate: null }))
+  return chunks.filter(item => item.body.trim()).map(item => ({ space, title: item.title || sourceName, body: item.body, tags: [sourceName], sourceName, media: [], status: 'inbox' as const, priority: 'normal' as const, dueDate: null }))
 }
 
 function ideaKey(idea: Pick<IdeaInput, 'title' | 'body'>) {
@@ -32,11 +32,19 @@ function ideaKey(idea: Pick<IdeaInput, 'title' | 'body'>) {
 }
 
 export function IdeasView() {
-  const { ideas, activeSpace, saveIdea, removeIdea, convertIdea, select, setView, query } = usePlanner()
+  const { ideas, activeSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, select, setView, query } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
   const [importing, setImporting] = useState(false)
   const [importMessage, setImportMessage] = useState('')
-  const ideasInSpace = useMemo(() => (activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas).filter(idea => ideaMatchesQuery(idea, query)), [activeSpace, ideas, query])
+  const [statusFilter, setStatusFilter] = useState<'active' | IdeaStatus>('active')
+  const [page, setPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const ideasInSpace = useMemo(() => (activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas).filter(idea => statusFilter === 'active' ? idea.status === 'inbox' || idea.status === 'developing' || idea.status === 'ready' : idea.status === statusFilter).filter(idea => ideaMatchesQuery(idea, query)), [activeSpace, ideas, query, statusFilter])
+  const pageSize = 40
+  const pageCount = Math.max(1, Math.ceil(ideasInSpace.length / pageSize))
+  const visibleIdeas = ideasInSpace.slice((page - 1) * pageSize, page * pageSize)
+  useEffect(() => { setPage(1); setSelectedIds([]) }, [query, statusFilter, activeSpace])
+  useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
   const edit = (idea: Idea) => setDraft({ ...idea })
   const save = async () => {
     if (!draft?.title.trim()) return
@@ -58,9 +66,26 @@ export function IdeasView() {
       const known = new Set(ideas.map(ideaKey)); const unique = parsed.filter((idea, index, all) => { const key = ideaKey(idea); return !known.has(key) && all.findIndex(candidate => ideaKey(candidate) === key) === index })
       const skipped = parsed.length - unique.length
       if (!window.confirm(`Preview: ${parsed.length} bloques detectados.\n${unique.length} nuevos y ${skipped} duplicados omitidos.\n\n¿Importar los nuevos?`)) return
-      for (const idea of unique) await saveIdea(idea)
-      setImportMessage(`${unique.length} ideas importadas${skipped ? ` · ${skipped} duplicadas omitidas` : ''}.`)
+      const result = await saveIdeasMany(unique)
+      setImportMessage(`${result.created.length} ideas importadas${result.skipped + skipped ? ` · ${result.skipped + skipped} duplicadas omitidas` : ''}.`)
     } finally { setImporting(false) }
+  }
+  const toggleSelected = (id: string) => setSelectedIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+  const selectVisible = () => setSelectedIds(current => current.length === visibleIdeas.length ? [] : visibleIdeas.map(idea => idea.id))
+  const bulkStatus = async (status: IdeaStatus) => {
+    if (!selectedIds.length) return
+    for (const id of selectedIds) { const idea = ideas.find(item => item.id === id); if (idea) await saveIdea({ ...idea, status }) }
+    setSelectedIds([])
+  }
+  const bulkConvert = async () => {
+    if (!selectedIds.length) return
+    for (const id of selectedIds) await convertIdea(id)
+    setSelectedIds([])
+  }
+  const bulkRemove = async () => {
+    if (!selectedIds.length || !window.confirm(`¿Eliminar ${selectedIds.length} ideas seleccionadas?`)) return
+    for (const id of selectedIds) await removeIdea(id)
+    setSelectedIds([])
   }
 
   return <section className="workspace ideas-workspace">
@@ -68,11 +93,14 @@ export function IdeasView() {
       <button className="settings-button" disabled={importing} onClick={() => void importFile()}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
     </ViewHeading>
     {importMessage && <p className="ideas-import-message">{importMessage}</p>}
-    {ideasInSpace.length ? <div className="ideas-grid">{ideasInSpace.map(idea => <article className="idea-card" key={idea.id}>
-      <header><span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span><div><button title="Editar idea" onClick={() => edit(idea)}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={() => { if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
+    <div className="ideas-toolbar"><label>Estado<select value={statusFilter} onChange={event => setStatusFilter(event.target.value as 'active' | IdeaStatus)}><option value="active">Activas</option><option value="inbox">Nuevas</option><option value="developing">En desarrollo</option><option value="ready">Listas</option><option value="converted">Convertidas</option><option value="archived">Archivadas</option></select></label><span>{ideasInSpace.length} ideas · página {page} de {pageCount}</span><button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button></div>
+    {selectedIds.length > 0 && <div className="ideas-bulk-actions"><strong>{selectedIds.length} seleccionadas</strong><button type="button" onClick={() => void bulkStatus('developing')}>Desarrollar</button><button type="button" onClick={() => void bulkStatus('ready')}>Marcar listas</button><button type="button" onClick={() => void bulkConvert()}>Convertir</button><button type="button" onClick={() => void bulkStatus('archived')}>Archivar</button><button type="button" onClick={() => void bulkRemove()}>Eliminar</button></div>}
+    {ideasInSpace.length ? <div className="ideas-grid">{visibleIdeas.map(idea => <article className={'idea-card ' + (selectedIds.includes(idea.id) ? 'selected' : '')} key={idea.id}>
+      <header><label className="idea-select"><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span></label><div><button title="Editar idea" onClick={() => edit(idea)}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={() => { if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
       <span className="idea-status">{statusLabels[idea.status]}</span><h2>{idea.title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>
       <footer>{idea.dueDate && <span><CalendarDays size={13} />{new Date(idea.dueDate).toLocaleDateString()}</span>}<small>{idea.space}</small>{idea.status !== 'converted' && <button onClick={() => void convert(idea)}>Convertir <ArrowRight size={14} /></button>}</footer>
-    </article>)}</div> : <div className="ideas-empty"><Lightbulb size={34} /><strong>No hay ideas en este espacio</strong><span>Crea una idea o cambia de espacio para verla aqui.</span><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
+    </article>)}</div> : <div className="ideas-empty"><Lightbulb size={34} /><strong>No hay ideas en este filtro</strong><span>Importa un archivo o cambia el estado seleccionado.</span><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
+    {ideasInSpace.length > 0 && <div className="ideas-pagination"><button disabled={page <= 1} onClick={() => setPage(current => current - 1)}>Anterior</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage(current => current + 1)}>Siguiente</button></div>}
     {draft && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setDraft(null) }}><form className="space-dialog idea-dialog" onSubmit={event => { event.preventDefault(); void save() }}><header><div><span>{draft.id ? 'EDITAR IDEA' : 'NUEVA IDEA'}</span><h2>{draft.title || 'Idea sin titulo'}</h2></div><button type="button" className="icon-button" onClick={() => setDraft(null)}><X size={18} /></button></header><label>Titulo<input autoFocus value={draft.title} maxLength={240} onChange={event => setDraft(current => current ? { ...current, title: event.target.value } : current)} placeholder="Describe la idea" /></label><label>Desarrollo<textarea value={draft.body} maxLength={20_000} onChange={event => setDraft(current => current ? { ...current, body: event.target.value } : current)} placeholder="Anota el enfoque, datos o una primera version" /></label><div className="idea-dialog-row"><label>Estado<select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as IdeaStatus } : current)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Prioridad<select value={draft.priority} onChange={event => setDraft(current => current ? { ...current, priority: event.target.value as IdeaPriority } : current)}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><label>Espacio<input value={draft.space} maxLength={200} onChange={event => setDraft(current => current ? { ...current, space: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancelar</button><button className="save-button" disabled={!draft.title.trim()}>Guardar idea</button></footer></form></div>}
   </section>
 }

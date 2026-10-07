@@ -57,6 +57,8 @@ export interface Idea {
   postId: string | null
   createdAt: string
   updatedAt: string
+  contentHash?: string
+  sourceName?: string
 }
 
 export type IdeaInput = Omit<Idea, 'id' | 'createdAt' | 'updatedAt' | 'postId'> & { id?: string; postId?: string | null }
@@ -228,6 +230,7 @@ export interface ElectronAPI {
   ideas: {
     list(): Promise<Idea[]>
     save(idea: IdeaInput): Promise<Idea>
+    saveMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number }>
     remove(id: string): Promise<void>
     convert(id: string): Promise<{ idea: Idea; post: Post }>
   }

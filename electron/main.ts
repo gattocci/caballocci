@@ -141,6 +141,7 @@ function mapIdea(row: Record<string, unknown>) {
     id: row.id, space: row.space, title: row.title, body: row.body, tags,
     media: mapMediaAssets(row.media), status: row.status, priority: row.priority,
     dueDate: row.due_at || null, postId: row.post_id || null,
+    contentHash: row.content_hash || '', sourceName: row.source_name || '',
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
@@ -606,6 +607,13 @@ app.whenReady().then(async () => {
   handle('ideas:save', args => {
     validateArgumentCount(args, 1)
     return mapIdea(database.saveIdea(validateIdeaInput(args[0])))
+  })
+  handle('ideas:save-many', args => {
+    validateArgumentCount(args, 1)
+    if (!Array.isArray(args[0]) || args[0].length > 2_000) throw new TypeError('Lote de ideas no valido')
+    const inputs = (args[0] as unknown[]).map(validateIdeaInput)
+    const result = database.saveIdeasMany(inputs)
+    return { created: result.created.map(mapIdea), skipped: result.skipped }
   })
   handle('ideas:remove', args => {
     validateArgumentCount(args, 1)

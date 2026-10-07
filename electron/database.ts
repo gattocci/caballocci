@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import initSqlJs, { Database } from 'sql.js'
 
 type Row = Record<string, unknown>
@@ -234,6 +235,11 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS posts_project_status_idx ON posts(project, status);
     `,
   },
+  {
+    version: 20,
+    name: 'idea_import_identity',
+    up: `ALTER TABLE ideas ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''; ALTER TABLE ideas ADD COLUMN source_name TEXT NOT NULL DEFAULT ''; CREATE INDEX IF NOT EXISTS ideas_content_hash_idx ON ideas(content_hash);`,
+  },
 ]
 
 export class PlannerDatabase {
@@ -271,6 +277,22 @@ export class PlannerDatabase {
     const syncAdditions: Array<[string, string]> = [['request_url', 'TEXT'], ['response_status', 'INTEGER'], ['response_headers_json', 'TEXT'], ['response_body', 'TEXT']]
     for (const [name, definition] of syncAdditions) if (!syncs.has(name)) this.db.run(`ALTER TABLE catalog_syncs ADD COLUMN ${name} ${definition}`)
     this.persist()
+    this.ensureIdeaHashes()
+  }
+
+  private ideaHash(title: string, body: string) {
+    const normalized = `${title.trim().toLocaleLowerCase()}\n${body.trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`
+    return createHash('sha256').update(normalized).digest('hex')
+  }
+
+  private ensureIdeaHashes() {
+    const rows = this.rows("SELECT id,title,body,content_hash FROM ideas WHERE content_hash IS NULL OR content_hash = ''")
+    if (!rows.length) return
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const row of rows) this.db.run('UPDATE ideas SET content_hash = ? WHERE id = ?', [this.ideaHash(String(row.title || ''), String(row.body || '')), String(row.id)])
+      this.db.run('COMMIT'); this.persist()
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 
   createBackup(reason: 'before-migration' | 'before-update' | 'manual' = 'manual') {
@@ -618,13 +640,13 @@ export class PlannerDatabase {
     return result[0].values.map(values => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
   }
 
-  saveIdea(input: Row): Row {
+  saveIdea(input: Row, shouldPersist = true): Row {
     const now = new Date().toISOString()
     const id = String(input.id || crypto.randomUUID())
     const current = this.ideaOne(id)
     this.db.run(`INSERT OR REPLACE INTO ideas
-      (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at)
-      VALUES ($id,$space,$title,$body,$tags,$media,$status,$priority,$dueDate,$postId,$createdAt,$updatedAt)`, {
+      (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at,content_hash,source_name)
+      VALUES ($id,$space,$title,$body,$tags,$media,$status,$priority,$dueDate,$postId,$createdAt,$updatedAt,$contentHash,$sourceName)`, {
       $id: id,
       $space: String(input.space || 'Mi contenido'),
       $title: String(input.title || ''),
@@ -637,9 +659,28 @@ export class PlannerDatabase {
       $postId: current?.post_id ? String(current.post_id) : null,
       $createdAt: current?.created_at ? String(current.created_at) : now,
       $updatedAt: now,
+      $contentHash: this.ideaHash(String(input.title || ''), String(input.body || '')),
+      $sourceName: String(input.sourceName || current?.source_name || ''),
     })
-    this.persist()
+    if (shouldPersist) this.persist()
     return this.ideaOne(id)!
+  }
+
+  saveIdeasMany(inputs: Row[]) {
+    const seen = new Set(this.rows("SELECT content_hash FROM ideas WHERE content_hash <> ''").map(row => String(row.content_hash)))
+    const created: Row[] = []; let skipped = 0
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const input of inputs) {
+        const hash = this.ideaHash(String(input.title || ''), String(input.body || ''))
+        if (seen.has(hash)) { skipped += 1; continue }
+        const saved = this.saveIdea(input, false)
+        created.push(saved); seen.add(hash)
+      }
+      this.db.run('COMMIT')
+      if (created.length) this.persist()
+      return { created, skipped }
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 
   removeIdea(id: string) {
