@@ -613,7 +613,7 @@ app.whenReady().then(async () => {
     if (!Array.isArray(args[0]) || args[0].length > 2_000) throw new TypeError('Lote de ideas no valido')
     const inputs = (args[0] as unknown[]).map(validateIdeaInput)
     const result = database.saveIdeasMany(inputs)
-    return { created: result.created.map(mapIdea), skipped: result.skipped }
+    return { created: result.created.map(mapIdea), skipped: result.skipped, duplicates: result.duplicates }
   })
   handle('ideas:remove', args => {
     validateArgumentCount(args, 1)

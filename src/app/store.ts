@@ -36,7 +36,7 @@ interface PlannerState {
   remove(id: string): Promise<void>
   move(id: string, status: PostStatus): Promise<void>
   saveIdea(idea: IdeaInput): Promise<Idea>
-  saveIdeasMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number }>
+  saveIdeasMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number; duplicates: Array<{ title: string; sourceName: string; existingId: string; existingTitle: string; existingSourceName: string }> }>
   removeIdea(id: string): Promise<void>
   convertIdea(id: string): Promise<Post>
   setView(view: PlannerView): void

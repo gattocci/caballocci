@@ -13,6 +13,14 @@
 .ideas-pagination button { border: 1px solid #323a35; background: #1a1f1c; color: #d0d7d2; border-radius: 4px; padding: 7px 11px; cursor: pointer; }
 .ideas-pagination button:disabled { opacity: .4; cursor: default; }
 .ideas-import-message { margin: -8px 0 14px; color: #73c99b; font-size: 10px; }
+.ideas-import-result { margin: -8px 0 14px; padding: 9px 10px; border: 1px solid #35443a; background: #172019; }
+.ideas-import-result .ideas-import-message { margin: 0; }
+.ideas-import-result details { margin-top: 7px; color: #aab5ad; font-size: 9px; }
+.ideas-import-result summary { cursor: pointer; color: #d1dbd3; }
+.ideas-import-result ul { display: grid; gap: 5px; max-height: 180px; overflow: auto; margin: 8px 0 0; padding-left: 17px; }
+.ideas-import-result li { display: grid; gap: 2px; }
+.ideas-import-result li strong { color: #dfe7e1; font-size: 9px; }
+.ideas-import-result li span { color: #7f8b83; font-size: 8px; }
 .board-bulk-actions { display: flex; align-items: center; gap: 7px; padding: 9px 10px; margin-bottom: 12px; border: 1px solid #4c4130; background: #252018; color: #e4c7a2; font-size: 10px; }
 .board-bulk-actions strong { margin-right: auto; }
 .board-bulk-actions button { border: 1px solid #6b5840; background: transparent; color: #e8d2b6; border-radius: 3px; padding: 5px 8px; font-size: 9px; cursor: pointer; }

@@ -230,7 +230,7 @@ export interface ElectronAPI {
   ideas: {
     list(): Promise<Idea[]>
     save(idea: IdeaInput): Promise<Idea>
-    saveMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number }>
+    saveMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number; duplicates: Array<{ title: string; sourceName: string; existingId: string; existingTitle: string; existingSourceName: string }> }>
     remove(id: string): Promise<void>
     convert(id: string): Promise<{ idea: Idea; post: Post }>
   }

@@ -13,9 +13,20 @@ const priorityLabels: Record<IdeaPriority, string> = { low: 'Baja', normal: 'Nor
 const statusLabels: Record<IdeaStatus, string> = { inbox: 'Nueva', developing: 'En desarrollo', ready: 'Lista', converted: 'Convertida', archived: 'Archivada' }
 
 function parseTextFile(text: string, sourceName: string, space: string): IdeaInput[] {
-  const cleaned = text.replace(/^---[\s\S]*?---\s*/m, '').trim()
+  const normalizedText = text.replace(/^\uFEFF/, '').replace(/\r/g, '')
+  const frontmatter = normalizedText.match(/^---\n([\s\S]*?)\n---(?:\n|$)/)
+  const hasYamlFrontmatter = Boolean(frontmatter && frontmatter[1].split('\n').some(line => /^[A-Za-z0-9_-]+\s*:\s*/.test(line.trim())))
+  const cleaned = (hasYamlFrontmatter ? normalizedText.slice(frontmatter![0].length) : normalizedText).trim()
   const marked = [...cleaned.matchAll(/==\s*([^=]+?)\s*==/g)]
-  const chunks = marked.length
+  const numbered = [...cleaned.matchAll(/(?:^|\n)\s*(?:#{1,6}\s*)?\*\*\s*(\d+[.)]?\s*[^*\n]+?)\s*\*\*/gm)]
+  const chunks = numbered.length
+    ? numbered.map((match, index) => {
+      const start = (match.index ?? 0) + match[0].length
+      const end = numbered[index + 1]?.index ?? cleaned.length
+      const title = match[1].replace(/^\d+[.)]?\s*/, '').replace(/^['“”\"]|['“”\"]$/g, '').trim()
+      return { title, body: cleaned.slice(start, end).trim() }
+    })
+    : marked.length
     ? marked.map((match, index) => cleaned.slice(match.index! + match[0].length, marked[index + 1]?.index ?? cleaned.length).trim()).map((body, index) => ({ title: marked[index][1].trim(), body }))
     : cleaned.split(/\n\s*\n+/).map(chunk => chunk.trim()).filter(Boolean).map(chunk => {
       const lines = chunk.split('\n'); const first = lines.shift()?.trim() || ''
@@ -37,6 +48,7 @@ export function IdeasView() {
   const [draft, setDraft] = useState<IdeaInput | null>(null)
   const [importing, setImporting] = useState(false)
   const [importMessage, setImportMessage] = useState('')
+  const [importDuplicates, setImportDuplicates] = useState<Array<{ title: string; existingTitle: string; existingSourceName: string }>>([])
   const [statusFilter, setStatusFilter] = useState<'active' | IdeaStatus>('active')
   const [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -64,11 +76,12 @@ export function IdeasView() {
       if (!file) return
       const parsed = parseTextFile(file.text, file.name, activeSpace || 'Mi contenido')
       if (!parsed.length) { setImportMessage('No se encontraron bloques con contenido.'); return }
-      const known = new Set(ideas.map(ideaKey)); const unique = parsed.filter((idea, index, all) => { const key = ideaKey(idea); return !known.has(key) && all.findIndex(candidate => ideaKey(candidate) === key) === index })
-      const skipped = parsed.length - unique.length
-      if (!window.confirm(`Preview: ${parsed.length} bloques detectados.\n${unique.length} nuevos y ${skipped} duplicados omitidos.\n\n¿Importar los nuevos?`)) return
-      const result = await saveIdeasMany(unique)
-      setImportMessage(`${result.created.length} ideas importadas${result.skipped + skipped ? ` · ${result.skipped + skipped} duplicadas omitidas` : ''}.`)
+      const sourceHeaders = [...file.text.matchAll(/(?:^|\n)\s*(?:#{1,6}\s*)?\*\*\s*(\d+[.)]?\s*[^*\n]+?)\s*\*\*/gm)].length
+      if (sourceHeaders !== parsed.length) setImportMessage(`Aviso: el archivo contiene ${sourceHeaders} encabezados numerados y se pudieron preparar ${parsed.length} Ideas.`)
+      if (!window.confirm(`Preview: ${parsed.length} bloques detectados.\nLa base verificará duplicados contra todas las Ideas existentes.\n\n¿Importar este lote?`)) return
+      const result = await saveIdeasMany(parsed)
+      setImportMessage(`${result.created.length} de ${parsed.length} ideas importadas${result.skipped ? ` · ${result.skipped} duplicadas omitidas` : ''}.`)
+      setImportDuplicates(result.duplicates)
     } finally { setImporting(false) }
   }
   const toggleSelected = (id: string) => setSelectedIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
@@ -93,7 +106,7 @@ export function IdeasView() {
     <ViewHeading title="Ideas" subtitle="Captura, desarrolla y convierte tus ideas en contenido.">
       <button className="settings-button" disabled={importing} onClick={() => void importFile()}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
     </ViewHeading>
-    {importMessage && <p className="ideas-import-message">{importMessage}</p>}
+    {importMessage && <div className="ideas-import-result"><p className="ideas-import-message">{importMessage}</p>{importDuplicates.length > 0 && <details><summary>Ver {importDuplicates.length} coincidencias existentes</summary><ul>{importDuplicates.map((duplicate, index) => <li key={`${duplicate.title}-${index}`}><strong>{duplicate.title}</strong><span>ya existe como “{duplicate.existingTitle}”{duplicate.existingSourceName ? ` · ${duplicate.existingSourceName}` : ''}</span></li>)}</ul></details>}</div>}
     <div className="ideas-toolbar"><label>Estado<select value={statusFilter} onChange={event => setStatusFilter(event.target.value as 'active' | IdeaStatus)}><option value="active">Activas</option><option value="inbox">Nuevas</option><option value="developing">En desarrollo</option><option value="ready">Listas</option><option value="converted">Convertidas</option><option value="archived">Archivadas</option></select></label><span>{ideasInSpace.length} ideas · página {page} de {pageCount}</span><button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button></div>
     {selectedIds.length > 0 && <div className="ideas-bulk-actions"><strong>{selectedIds.length} seleccionadas</strong><button type="button" onClick={() => void bulkStatus('developing')}>Desarrollar</button><button type="button" onClick={() => void bulkStatus('ready')}>Marcar listas</button><button type="button" onClick={() => void bulkConvert()}>Convertir</button><button type="button" onClick={() => void bulkStatus('archived')}>Archivar</button><button type="button" onClick={() => void bulkRemove()}>Eliminar</button></div>}
     {ideasInSpace.length ? <div className="ideas-grid">{visibleIdeas.map(idea => <article className={'idea-card ' + (selectedIds.includes(idea.id) ? 'selected' : '')} key={idea.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selectedIds.length > 0) toggleSelected(idea.id) }}>

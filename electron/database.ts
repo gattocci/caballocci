@@ -695,19 +695,20 @@ export class PlannerDatabase {
   }
 
   saveIdeasMany(inputs: Row[]) {
-    const seen = new Set(this.rows("SELECT content_hash FROM ideas WHERE content_hash <> ''").map(row => String(row.content_hash)))
-    const created: Row[] = []; let skipped = 0
+    const existing = this.rows("SELECT id,title,source_name,content_hash FROM ideas WHERE content_hash <> ''")
+    const seen = new Set(existing.map(row => String(row.content_hash)))
+    const created: Row[] = []; const duplicates: Row[] = []; let skipped = 0
     this.db.run('BEGIN TRANSACTION')
     try {
       for (const input of inputs) {
         const hash = this.ideaHash(String(input.title || ''), String(input.body || ''))
-        if (seen.has(hash)) { skipped += 1; continue }
+        if (seen.has(hash)) { skipped += 1; const match = existing.find(row => String(row.content_hash) === hash); duplicates.push({ title: String(input.title || ''), sourceName: String(input.sourceName || ''), existingId: String(match?.id || ''), existingTitle: String(match?.title || ''), existingSourceName: String(match?.source_name || '') }); continue }
         const saved = this.saveIdea(input, false)
         created.push(saved); seen.add(hash)
       }
       this.db.run('COMMIT')
       if (created.length) this.persist()
-      return { created, skipped }
+      return { created, skipped, duplicates }
     } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 
