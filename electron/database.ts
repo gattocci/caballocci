@@ -286,17 +286,22 @@ export class PlannerDatabase {
   }
 
   private ideaHash(title: string, body: string) {
-    const normalized = `${title.trim().toLocaleLowerCase()}\n${body.trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`
+    void title
+    const normalized = body.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
     return createHash('sha256').update(normalized).digest('hex')
   }
 
   private ensureIdeaHashes() {
-    const rows = this.rows("SELECT id,title,body,content_hash FROM ideas WHERE content_hash IS NULL OR content_hash = ''")
+    const rows = this.rows('SELECT id,title,body,content_hash FROM ideas')
     if (!rows.length) return
     this.db.run('BEGIN TRANSACTION')
     try {
-      for (const row of rows) this.db.run('UPDATE ideas SET content_hash = ? WHERE id = ?', [this.ideaHash(String(row.title || ''), String(row.body || '')), String(row.id)])
-      this.db.run('COMMIT'); this.persist()
+      let changed = false
+      for (const row of rows) {
+        const hash = this.ideaHash(String(row.title || ''), String(row.body || ''))
+        if (String(row.content_hash || '') !== hash) { this.db.run('UPDATE ideas SET content_hash = ? WHERE id = ?', [hash, String(row.id)]); changed = true }
+      }
+      this.db.run('COMMIT'); if (changed) this.persist()
     } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 

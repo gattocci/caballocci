@@ -28,7 +28,8 @@ function parseTextFile(text: string, sourceName: string, space: string): IdeaInp
 }
 
 function ideaKey(idea: Pick<IdeaInput, 'title' | 'body'>) {
-  return `${idea.title.trim().toLocaleLowerCase()}\n${idea.body.trim().replace(/\s+/g, ' ').toLocaleLowerCase()}`
+  void idea.title
+  return idea.body.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
 }
 
 export function IdeasView() {
