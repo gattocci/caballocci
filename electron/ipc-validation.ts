@@ -149,6 +149,59 @@ export function validateIdeaInput(value: unknown): Record<string, unknown> {
   return validated
 }
 
+export function validateIdeaIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 50) invalid('ideaIds')
+  const ids = value.map((item, index) => text(item, `ideaIds[${index}]`, 128, false))
+  if (new Set(ids).size !== ids.length) invalid('ideaIds')
+  return ids
+}
+
+export function validateOptionalIdeaIds(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2_000) invalid('ideaIds')
+  const ids = value.map((item, index) => text(item, `ideaIds[${index}]`, 128, false))
+  if (new Set(ids).size !== ids.length) invalid('ideaIds')
+  return ids
+}
+
+export function validateLimit(value: unknown): number {
+  if (value === undefined) return 8
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 30) invalid('limit')
+  return value
+}
+
+export function validateThreshold(value: unknown): number {
+  if (value === undefined) return 0.14
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) invalid('threshold')
+  return value
+}
+
+export function validateAnalysisTerms(value: unknown): string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 100) invalid('analysisTerms')
+  return value.map((term, index) => text(term, `analysisTerms[${index}]`, 80, false).trim()).filter(Boolean)
+}
+
+export function validateIdeaAnalysisOptions(value: unknown) {
+  if (value === undefined) return { editorialPrefixes: [], stripColonPrefixes: true, stripBracketedText: true, stripNumbers: true, ignoreTitleNumbersInClusterNames: true, minTokenLength: 3, genericTermThreshold: 0.08 }
+  const options = record(value, 'ideaAnalysisOptions')
+  if (!Array.isArray(options.editorialPrefixes) || options.editorialPrefixes.length > 50) invalid('ideaAnalysisOptions.editorialPrefixes')
+  const minTokenLength = options.minTokenLength
+  const genericTermThreshold = options.genericTermThreshold
+  if (typeof minTokenLength !== 'number' || !Number.isInteger(minTokenLength) || minTokenLength < 1 || minTokenLength > 10) invalid('ideaAnalysisOptions.minTokenLength')
+  if (typeof genericTermThreshold !== 'number' || !Number.isFinite(genericTermThreshold) || genericTermThreshold < 0.01 || genericTermThreshold > 1) invalid('ideaAnalysisOptions.genericTermThreshold')
+  for (const key of ['stripColonPrefixes', 'stripBracketedText', 'stripNumbers', 'ignoreTitleNumbersInClusterNames']) if (typeof options[key] !== 'boolean') invalid(`ideaAnalysisOptions.${key}`)
+  return {
+    editorialPrefixes: options.editorialPrefixes.map((item, index) => text(item, `ideaAnalysisOptions.editorialPrefixes[${index}]`, 80).trim()).filter(Boolean),
+    stripColonPrefixes: options.stripColonPrefixes as boolean,
+    stripBracketedText: options.stripBracketedText as boolean,
+    stripNumbers: options.stripNumbers as boolean,
+    ignoreTitleNumbersInClusterNames: options.ignoreTitleNumbersInClusterNames as boolean,
+    minTokenLength,
+    genericTermThreshold,
+  }
+}
+
 function stringRecord(value: unknown, field: string, maxItems: number, maxLength: number): Record<string, string> {
   const object = record(value, field)
   const entries = Object.entries(object)

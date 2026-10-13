@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('planner', {
     save: (post: unknown) => ipcRenderer.invoke('posts:save', post),
     remove: (id: string) => ipcRenderer.invoke('posts:remove', id),
     reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
+    uncombine: (id: string) => ipcRenderer.invoke('posts:uncombine', id),
   },
   catalog: {
     config: (scope?: string) => ipcRenderer.invoke('catalog:config', scope),
@@ -52,6 +53,12 @@ contextBridge.exposeInMainWorld('planner', {
     saveMany: (ideas: unknown[]) => ipcRenderer.invoke('ideas:save-many', ideas),
     remove: (id: string) => ipcRenderer.invoke('ideas:remove', id),
     convert: (id: string) => ipcRenderer.invoke('ideas:convert', id),
+    combine: (ids: string[]) => ipcRenderer.invoke('ideas:combine', ids),
+    neighbors: (id: string, limit?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:neighbors', id, limit, ignoredTerms, options),
+    refreshEmbeddings: (ids?: string[], ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:embeddings-refresh', ids, ignoredTerms, options),
+    clusters: (threshold?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options),
+    analysisPreview: (ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:analysis-preview', ignoredTerms, options),
+    clustersList: () => ipcRenderer.invoke('ideas:clusters-list'),
   },
   conceptMap: {
     list: () => ipcRenderer.invoke('concept-map:list'),

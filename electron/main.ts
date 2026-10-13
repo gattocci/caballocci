@@ -12,6 +12,12 @@ import {
   validateContentTypeTemplateInput,
   validateId,
   validateIdeaInput,
+  validateIdeaIds,
+  validateOptionalIdeaIds,
+  validateLimit,
+  validateThreshold,
+  validateAnalysisTerms,
+  validateIdeaAnalysisOptions,
   validateEnrichedInput,
   validateExportProfileInput,
   validateMediaMode,
@@ -125,6 +131,8 @@ function mapPost(row: Record<string, unknown>) {
     platforms, distribution, contentType: row.content_type, status: row.status,
     scheduledAt: row.scheduled_at, durationMinutes: row.duration_minutes, project: row.project, color: row.color,
     media: mapMediaAssets(row.media), ideaBlocks: mapIdeaBlocks(row.idea_blocks), sourceIdeaId: row.source_idea_id || null,
+    isCombined: Number(row.combined_idea_count || 0) > 0,
+    combinedIdeaIds: parseJsonStringArray(row.combined_idea_ids),
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
 }
@@ -137,13 +145,25 @@ function mapIdea(row: Record<string, unknown>) {
   } catch {
     tags = []
   }
+  const combinedPostIds = parseJsonStringArray(row.combined_post_ids)
   return {
     id: row.id, space: row.space, title: row.title, body: row.body, tags,
     media: mapMediaAssets(row.media), status: row.status, priority: row.priority,
-    dueDate: row.due_at || null, postId: row.post_id || null,
+    dueDate: row.due_at || null, postId: row.post_id || null, combinedPostId: combinedPostIds[0] || null, combinedPostIds,
     contentHash: row.content_hash || '', sourceName: row.source_name || '',
     createdAt: row.created_at, updatedAt: row.updated_at,
   }
+}
+
+function parseJsonStringArray(value: unknown): string[] {
+  try {
+    const parsed = JSON.parse(String(value || '[]')) as unknown
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch { return [] }
+}
+
+function mapIdeaNeighbor(row: Record<string, unknown>) {
+  return { ...mapIdea(row), similarity: Number(row.similarity || 0) }
 }
 
 function jsonObject(value: unknown): Record<string, unknown> {
@@ -409,6 +429,11 @@ app.whenReady().then(async () => {
     validateArgumentCount(args, 2)
     return database.reassignProject(validateProject(args[0], 'fromProject'), validateProject(args[1], 'toProject'))
   })
+  handle('posts:uncombine', args => {
+    validateArgumentCount(args, 1)
+    const result = database.uncombinePost(validateId(args[0], 'post.id'))
+    return { ideas: result.ideas.map(mapIdea), post: mapPost(result.post) }
+  })
   handle('catalog:config', args => {
     if (args.length > 1) throw new TypeError('Argumento IPC no valido: catalog.config')
     const scope = args[0] === undefined ? '' : String(args[0])
@@ -624,6 +649,28 @@ app.whenReady().then(async () => {
     const converted = database.convertIdea(validateId(args[0], 'idea.id'))
     return { idea: mapIdea(converted.idea), post: mapPost(converted.post) }
   })
+  handle('ideas:combine', args => {
+    validateArgumentCount(args, 1)
+    const combined = database.combineIdeas(validateIdeaIds(args[0]))
+    return { ideas: combined.ideas.map(mapIdea), post: mapPost(combined.post) }
+  })
+  handle('ideas:neighbors', args => {
+    if (args.length < 1 || args.length > 4) throw new TypeError('Numero de argumentos no valido')
+    return database.listIdeaNeighbors(validateId(args[0], 'idea.id'), validateLimit(args[1]), validateAnalysisTerms(args[2]), validateIdeaAnalysisOptions(args[3])).then(rows => rows.map(mapIdeaNeighbor))
+  })
+  handle('ideas:embeddings-refresh', args => {
+    if (args.length > 3) throw new TypeError('Numero de argumentos no valido')
+    return database.refreshIdeaEmbeddings(validateOptionalIdeaIds(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2]))
+  })
+  handle('ideas:clusters', args => {
+    if (args.length > 3) throw new TypeError('Numero de argumentos no valido')
+    return database.proposeIdeaClusters(validateThreshold(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2])).then(clusters => clusters.map(cluster => ({ id: cluster.id, name: cluster.name, ideaIds: cluster.ideaIds })))
+  })
+  handle('ideas:analysis-preview', args => {
+    if (args.length > 2) throw new TypeError('Numero de argumentos no valido')
+    return database.previewIdeaAnalysis(validateAnalysisTerms(args[0]), validateIdeaAnalysisOptions(args[1]))
+  })
+  handle('ideas:clusters-list', withoutArguments(() => database.listIdeaClusters().map(cluster => ({ id: cluster.id, name: cluster.name, ideaIds: cluster.ideaIds, algorithm: cluster.algorithm, calculatedAt: cluster.calculated_at }))))
   handle('concept-map:list', withoutArguments(() => {
     const conceptMap = database.listConceptMap()
     return { nodes: conceptMap.nodes.map(mapConceptNode), links: conceptMap.links.map(mapConceptLink), folders: conceptMap.folders.map(mapConceptFolder) }

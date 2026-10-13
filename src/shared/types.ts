@@ -26,6 +26,8 @@ export interface Post {
   media: MediaAsset[]
   ideaBlocks: IdeaBlock[]
   sourceIdeaId: string | null
+  isCombined?: boolean
+  combinedIdeaIds?: string[]
   createdAt: string
   updatedAt: string
 }
@@ -55,13 +57,27 @@ export interface Idea {
   priority: IdeaPriority
   dueDate: string | null
   postId: string | null
+  combinedPostId: string | null
+  combinedPostIds: string[]
   createdAt: string
   updatedAt: string
   contentHash?: string
   sourceName?: string
 }
 
-export type IdeaInput = Omit<Idea, 'id' | 'createdAt' | 'updatedAt' | 'postId'> & { id?: string; postId?: string | null }
+export interface IdeaNeighbor extends Idea { similarity: number }
+export interface IdeaAnalysisOptions {
+  editorialPrefixes: string[]
+  stripColonPrefixes: boolean
+  stripBracketedText: boolean
+  stripNumbers: boolean
+  ignoreTitleNumbersInClusterNames: boolean
+  minTokenLength: number
+  genericTermThreshold: number
+}
+export interface IdeaCluster { id: string; name: string; ideaIds: string[]; algorithm?: string; calculatedAt?: string }
+
+export type IdeaInput = Omit<Idea, 'id' | 'createdAt' | 'updatedAt' | 'postId' | 'combinedPostId' | 'combinedPostIds'> & { id?: string; postId?: string | null; combinedPostId?: string | null; combinedPostIds?: string[] }
 
 export type PostInput = Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'media' | 'ideaBlocks' | 'sourceIdeaId'> & { id?: string; media?: MediaAsset[]; ideaBlocks?: IdeaBlock[]; sourceIdeaId?: string | null }
 
@@ -187,6 +203,7 @@ export interface ElectronAPI {
     save(post: PostInput): Promise<Post>
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
+    uncombine(id: string): Promise<{ ideas: Idea[]; post: Post }>
   }
   catalog: {
     config(scope?: string): Promise<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }>
@@ -233,6 +250,12 @@ export interface ElectronAPI {
     saveMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number; duplicates: Array<{ title: string; sourceName: string; existingId: string; existingTitle: string; existingSourceName: string }> }>
     remove(id: string): Promise<void>
     convert(id: string): Promise<{ idea: Idea; post: Post }>
+    combine(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>
+    neighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
+    refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
+    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaCluster[]>
+    analysisPreview(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
+    clustersList(): Promise<IdeaCluster[]>
   }
   conceptMap: {
     list(): Promise<{ nodes: ConceptMapNode[]; links: ConceptMapLink[]; folders: ConceptMapFolder[] }>

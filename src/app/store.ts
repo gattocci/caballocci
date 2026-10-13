@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Idea, IdeaInput, Post, PostInput, PostStatus } from '../shared/types'
+import type { Idea, IdeaAnalysisOptions, IdeaCluster, IdeaInput, IdeaNeighbor, Post, PostInput, PostStatus } from '../shared/types'
 
 export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'sources' | 'about'
 
@@ -39,6 +39,13 @@ interface PlannerState {
   saveIdeasMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number; duplicates: Array<{ title: string; sourceName: string; existingId: string; existingTitle: string; existingSourceName: string }> }>
   removeIdea(id: string): Promise<void>
   convertIdea(id: string): Promise<Post>
+  combineIdeas(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>
+  uncombinePost(id: string): Promise<{ ideas: Idea[]; post: Post }>
+  ideaNeighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
+  refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
+  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaCluster[]>
+  previewIdeaAnalysis(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
+  listIdeaClusters(): Promise<IdeaCluster[]>
   setView(view: PlannerView): void
   select(id: string | null): void
   selectIdea(id: string | null): void
@@ -101,7 +108,14 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     await window.planner.posts.remove(id)
     set({
       posts: get().posts.filter((post) => post.id !== id),
-      ideas: get().ideas.map(idea => idea.postId === id ? { ...idea, postId: null, status: 'ready' } : idea),
+      ideas: get().ideas.map(idea => {
+        if (idea.postId === id) return { ...idea, postId: null, status: 'ready' }
+        if (idea.combinedPostIds.includes(id) || idea.combinedPostId === id) {
+          const combinedPostIds = idea.combinedPostIds.filter(postId => postId !== id)
+          return { ...idea, combinedPostId: combinedPostIds[0] || null, combinedPostIds, tags: combinedPostIds.length ? idea.tags : idea.tags.filter(tag => tag.toLocaleLowerCase() !== 'combinada') }
+        }
+        return idea
+      }),
       selectedId: null,
     })
   },
@@ -135,6 +149,27 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     })
     return converted.post
   },
+  combineIdeas: async (ids) => {
+    const combined = await window.planner.ideas.combine(ids)
+    set({
+      ideas: [...get().ideas.filter(idea => !ids.includes(idea.id)), ...combined.ideas],
+      posts: [...get().posts.filter(post => post.id !== combined.post.id), combined.post],
+    })
+    return combined
+  },
+  uncombinePost: async (id) => {
+    const result = await window.planner.posts.uncombine(id)
+    set({
+      ideas: [...get().ideas.filter(idea => !result.ideas.some(item => item.id === idea.id)), ...result.ideas],
+      posts: [...get().posts.filter(post => post.id !== result.post.id), result.post],
+    })
+    return result
+  },
+  ideaNeighbors: (id, limit, ignoredTerms, options) => window.planner.ideas.neighbors(id, limit, ignoredTerms, options),
+  refreshEmbeddings: (ids, ignoredTerms, options) => window.planner.ideas.refreshEmbeddings(ids, ignoredTerms, options),
+  proposeClusters: async (threshold, ignoredTerms, options) => window.planner.ideas.clusters(threshold, ignoredTerms, options),
+  previewIdeaAnalysis: (ignoredTerms, options) => window.planner.ideas.analysisPreview(ignoredTerms, options),
+  listIdeaClusters: () => window.planner.ideas.clustersList(),
   setView: (view) => set({ view }),
   select: (selectedId) => set({ selectedId }),
   selectIdea: (selectedIdeaId) => set({ selectedIdeaId }),

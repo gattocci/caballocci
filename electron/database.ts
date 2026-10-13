@@ -2,8 +2,27 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import initSqlJs, { Database } from 'sql.js'
+import { env, pipeline } from '@huggingface/transformers'
 
 type Row = Record<string, unknown>
+type IdeaAnalysisOptions = {
+  editorialPrefixes: string[]
+  stripColonPrefixes: boolean
+  stripBracketedText: boolean
+  stripNumbers: boolean
+  ignoreTitleNumbersInClusterNames: boolean
+  minTokenLength: number
+  genericTermThreshold: number
+}
+const defaultIdeaAnalysisOptions: IdeaAnalysisOptions = {
+  editorialPrefixes: [],
+  stripColonPrefixes: true,
+  stripBracketedText: true,
+  stripNumbers: true,
+  ignoreTitleNumbersInClusterNames: true,
+  minTokenLength: 3,
+  genericTermThreshold: 0.08,
+}
 
 interface Migration {
   version: number
@@ -245,6 +264,43 @@ const migrations: Migration[] = [
     name: 'renderer_preferences_backup',
     up: `CREATE TABLE IF NOT EXISTS app_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);`,
   },
+  {
+    version: 22,
+    name: 'idea_combined_post_link',
+    up: `ALTER TABLE ideas ADD COLUMN combined_post_id TEXT; CREATE INDEX IF NOT EXISTS ideas_combined_post_idx ON ideas(combined_post_id);`,
+  },
+  {
+    version: 23,
+    name: 'idea_relations_ai_foundation',
+    up: `
+      CREATE TABLE IF NOT EXISTS post_ideas (
+        post_id TEXT NOT NULL, idea_id TEXT NOT NULL, relation TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+        PRIMARY KEY (post_id, idea_id, relation)
+      );
+      CREATE INDEX IF NOT EXISTS post_ideas_idea_idx ON post_ideas(idea_id);
+      CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY, type TEXT NOT NULL, entity TEXT NOT NULL,
+        entity_id TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS events_entity_idx ON events(entity, entity_id, created_at);
+      CREATE TABLE IF NOT EXISTS embeddings (
+        idea_id TEXT NOT NULL, model TEXT NOT NULL, model_version TEXT NOT NULL,
+        content_hash TEXT NOT NULL, vector BLOB NOT NULL, created_at TEXT NOT NULL,
+        PRIMARY KEY (idea_id, model, model_version)
+      );
+      CREATE TABLE IF NOT EXISTS idea_clusters (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, algorithm TEXT NOT NULL,
+        model TEXT NOT NULL, model_version TEXT NOT NULL, calculated_at TEXT NOT NULL,
+        name_manually_edited INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS idea_cluster_members (
+        cluster_id TEXT NOT NULL, idea_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+        score REAL, PRIMARY KEY (cluster_id, idea_id)
+      );
+      CREATE INDEX IF NOT EXISTS idea_cluster_members_idea_idx ON idea_cluster_members(idea_id);
+    `,
+  },
 ]
 
 export class PlannerDatabase {
@@ -252,6 +308,7 @@ export class PlannerDatabase {
   private readonly existedAtStartup: boolean
   private persistTimer: ReturnType<typeof setTimeout> | null = null
   private persistQueued = false
+  private semanticExtractor: Promise<any> | null = null
 
   constructor(
     private readonly filePath: string,
@@ -283,6 +340,7 @@ export class PlannerDatabase {
     for (const [name, definition] of syncAdditions) if (!syncs.has(name)) this.db.run(`ALTER TABLE catalog_syncs ADD COLUMN ${name} ${definition}`)
     this.persist()
     this.ensureIdeaHashes()
+    this.ensurePostIdeaLinks()
   }
 
   private ideaHash(title: string, body: string) {
@@ -305,6 +363,31 @@ export class PlannerDatabase {
     } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 
+  private ensurePostIdeaLinks() {
+    const posts = this.rows('SELECT id,idea_blocks FROM posts')
+    if (!posts.length) return
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      let changed = false
+      for (const post of posts) {
+        const existing = this.rows(`SELECT 1 FROM post_ideas WHERE post_id = ${this.sqlString(String(post.id))} LIMIT 1`)
+        if (existing.length) continue
+        let blocks: unknown[] = []
+        try { const parsed = JSON.parse(String(post.idea_blocks || '[]')) as unknown; if (Array.isArray(parsed)) blocks = parsed } catch { blocks = [] }
+        blocks.forEach((block, position) => {
+          if (typeof block !== 'object' || block === null) return
+          const ideaId = String((block as Record<string, unknown>).id || '')
+          if (!ideaId || !this.ideaOne(ideaId)) return
+          this.db.run('INSERT OR IGNORE INTO post_ideas (post_id,idea_id,relation,position,created_at) VALUES (?,?,?,?,?)', [String(post.id), ideaId, 'combined', position, now])
+          this.db.run('UPDATE ideas SET combined_post_id = COALESCE(combined_post_id, ?), updated_at = ? WHERE id = ?', [String(post.id), now, ideaId])
+          changed = true
+        })
+      }
+      this.db.run('COMMIT'); if (changed) this.persist()
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
   createBackup(reason: 'before-migration' | 'before-update' | 'manual' = 'manual') {
     this.flush()
     fs.mkdirSync(this.backupsDirectory, { recursive: true })
@@ -317,7 +400,11 @@ export class PlannerDatabase {
   list(): Row[] {
     const result = this.db.exec('SELECT * FROM posts ORDER BY COALESCE(scheduled_at, updated_at) ASC')
     if (!result[0]) return []
-    return result[0].values.map((values) => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
+    return result[0].values.map((values) => {
+      const row = Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]]))
+      const links = this.rows(`SELECT idea_id FROM post_ideas WHERE post_id = ${this.sqlString(String(row.id))} AND relation = 'combined' ORDER BY position`)
+      return { ...row, combined_idea_ids: JSON.stringify(links.map(link => String(link.idea_id))), combined_idea_count: links.length }
+    })
   }
 
   savePreferences(entries: Record<string, string>) {
@@ -368,6 +455,8 @@ export class PlannerDatabase {
       this.db.run('INSERT INTO status_history (post_id,from_status,to_status,changed_at) VALUES (?,?,?,?)', [id, previousStatus, nextStatus, now])
     }
     if (titleManuallyEdited) this.db.run('UPDATE content_records SET title_manually_edited = 1, updated_at = ? WHERE post_id = ?', [now, id])
+    this.syncPostIdeas(id, input.ideaBlocks, now)
+    this.recordEvent(current ? 'post_edited' : 'post_created', 'post', id, { title: String(input.title || '') }, now)
     this.persist()
     return this.one(id)!
   }
@@ -639,7 +728,16 @@ export class PlannerDatabase {
     this.db.run('BEGIN TRANSACTION')
     try {
       this.db.run("UPDATE ideas SET post_id = NULL, status = CASE WHEN status = 'converted' THEN 'ready' ELSE status END, updated_at = ? WHERE post_id = ?", [new Date().toISOString(), id])
+      const combinedIdeas = this.rows(`SELECT ideas.id,ideas.tags FROM ideas INNER JOIN post_ideas ON post_ideas.idea_id = ideas.id WHERE post_ideas.post_id = ${this.sqlString(id)} AND post_ideas.relation = 'combined'`)
+      for (const idea of combinedIdeas) {
+        const remaining = this.rows(`SELECT post_id FROM post_ideas WHERE idea_id = ${this.sqlString(String(idea.id))} AND relation = 'combined' AND post_id <> ${this.sqlString(id)} ORDER BY created_at DESC`).at(0)
+        const tags = this.parseStringArray(idea.tags).filter(tag => tag.toLocaleLowerCase() !== 'combinada')
+        if (remaining) tags.push('combinada')
+        this.db.run('UPDATE ideas SET combined_post_id = ?, tags = ?, updated_at = ? WHERE id = ?', [remaining?.post_id ? String(remaining.post_id) : null, JSON.stringify(tags), new Date().toISOString(), String(idea.id)])
+      }
       this.db.run('DELETE FROM posts WHERE id = ?', [id])
+      this.db.run('DELETE FROM post_ideas WHERE post_id = ?', [id])
+      this.recordEvent('post_deleted', 'post', id, {}, new Date().toISOString())
       this.db.run('COMMIT')
       this.persist()
     } catch (error) {
@@ -665,7 +763,11 @@ export class PlannerDatabase {
   listIdeas(): Row[] {
     const result = this.db.exec(`SELECT * FROM ideas ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, updated_at DESC`)
     if (!result[0]) return []
-    return result[0].values.map(values => Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]])))
+    return result[0].values.map(values => {
+      const row = Object.fromEntries(result[0].columns.map((key, index) => [key, values[index]]))
+      const links = this.rows(`SELECT post_id FROM post_ideas WHERE idea_id = ${this.sqlString(String(row.id))} AND relation = 'combined' ORDER BY created_at DESC`)
+      return { ...row, combined_post_ids: JSON.stringify(links.map(link => String(link.post_id))) }
+    })
   }
 
   saveIdea(input: Row, shouldPersist = true): Row {
@@ -673,8 +775,8 @@ export class PlannerDatabase {
     const id = String(input.id || crypto.randomUUID())
     const current = this.ideaOne(id)
     this.db.run(`INSERT OR REPLACE INTO ideas
-      (id,space,title,body,tags,media,status,priority,due_at,post_id,created_at,updated_at,content_hash,source_name)
-      VALUES ($id,$space,$title,$body,$tags,$media,$status,$priority,$dueDate,$postId,$createdAt,$updatedAt,$contentHash,$sourceName)`, {
+      (id,space,title,body,tags,media,status,priority,due_at,post_id,combined_post_id,created_at,updated_at,content_hash,source_name)
+      VALUES ($id,$space,$title,$body,$tags,$media,$status,$priority,$dueDate,$postId,$combinedPostId,$createdAt,$updatedAt,$contentHash,$sourceName)`, {
       $id: id,
       $space: String(input.space || 'Mi contenido'),
       $title: String(input.title || ''),
@@ -685,11 +787,13 @@ export class PlannerDatabase {
       $priority: String(input.priority || 'normal'),
       $dueDate: input.dueDate ? String(input.dueDate) : null,
       $postId: current?.post_id ? String(current.post_id) : null,
+      $combinedPostId: current?.combined_post_id ? String(current.combined_post_id) : null,
       $createdAt: current?.created_at ? String(current.created_at) : now,
       $updatedAt: now,
       $contentHash: this.ideaHash(String(input.title || ''), String(input.body || '')),
       $sourceName: String(input.sourceName || current?.source_name || ''),
     })
+    this.recordEvent(current ? 'idea_edited' : 'idea_created', 'idea', id, { title: String(input.title || '') }, now)
     if (shouldPersist) this.persist()
     return this.ideaOne(id)!
   }
@@ -717,6 +821,10 @@ export class PlannerDatabase {
     try {
       this.db.run('UPDATE posts SET source_idea_id = NULL WHERE source_idea_id = ?', [id])
       this.db.run('DELETE FROM ideas WHERE id = ?', [id])
+      this.db.run('DELETE FROM post_ideas WHERE idea_id = ?', [id])
+      this.db.run('DELETE FROM embeddings WHERE idea_id = ?', [id])
+      this.db.run('DELETE FROM idea_cluster_members WHERE idea_id = ?', [id])
+      this.recordEvent('idea_deleted', 'idea', id, {}, new Date().toISOString())
       this.db.run('COMMIT')
       this.persist()
     } catch (error) {
@@ -730,7 +838,14 @@ export class PlannerDatabase {
     if (!idea) throw new Error('Idea no encontrada')
     if (idea.post_id) {
       const existingPost = this.one(String(idea.post_id))
-      if (existingPost) return { idea, post: existingPost }
+      if (existingPost) {
+        let blocks: unknown[] = []
+        try { const parsed = JSON.parse(String(existingPost.idea_blocks || '[]')) as unknown; if (Array.isArray(parsed)) blocks = parsed } catch { /* Treat malformed blocks as a normal post link. */ }
+        const isCombined = blocks.length > 1 && blocks.some(block => typeof block === 'object' && block !== null && String((block as Record<string, unknown>).id || '') === id)
+        if (!isCombined) return { idea, post: existingPost }
+        const tags = Array.from(new Set([...this.parseStringArray(idea.tags), 'combinada']))
+        this.db.run("UPDATE ideas SET post_id = NULL, combined_post_id = ?, status = 'ready', tags = ?, updated_at = ? WHERE id = ?", [String(existingPost.id), JSON.stringify(tags), new Date().toISOString(), id])
+      }
     }
 
     const now = new Date().toISOString()
@@ -748,6 +863,8 @@ export class PlannerDatabase {
       ])
       this.db.run('INSERT INTO status_history (post_id,from_status,to_status,changed_at) VALUES (?,?,?,?)', [postId, null, 'idea', now])
       this.db.run("UPDATE ideas SET post_id = ?, status = 'converted', updated_at = ? WHERE id = ?", [postId, now, id])
+      this.db.run('INSERT OR REPLACE INTO post_ideas (post_id,idea_id,relation,position,created_at) VALUES (?,?,?,?,?)', [postId, id, 'individual', 0, now])
+      this.recordEvent('converted', 'idea', id, { postId }, now)
       this.db.run('COMMIT')
       this.persist()
       return { idea: this.ideaOne(id)!, post: this.one(postId)! }
@@ -755,6 +872,299 @@ export class PlannerDatabase {
       this.db.run('ROLLBACK')
       throw error
     }
+  }
+
+  combineIdeas(ids: string[]): { ideas: Row[]; post: Row } {
+    const ideas = ids.map(id => this.ideaOne(id))
+    if (ideas.some(idea => !idea)) throw new Error('Una de las ideas seleccionadas no existe')
+    const selected = ideas as Row[]
+    if (selected.some(idea => idea.post_id)) throw new Error('Las ideas seleccionadas ya tienen una publicacion')
+    const first = selected[0]
+    const now = new Date().toISOString()
+    const postId = crypto.randomUUID()
+    const blocks = selected.map(idea => ({ id: String(idea.id), title: String(idea.title || ''), text: String(idea.body || '') }))
+    const tags = Array.from(new Set([...selected.flatMap(idea => this.parseStringArray(idea.tags)), 'combinada']))
+    const hashtags = tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.db.run(`INSERT INTO posts
+        (id,title,caption,notes,hashtags,mentions,platforms,distribution_json,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+        postId, String(first.title || 'Nueva publicacion'), '', '', JSON.stringify(hashtags), '[]', '["instagram"]',
+        JSON.stringify([{ id: 'instagram', name: 'instagram', status: 'pending' }]), 'carousel', 'idea', null, 60,
+        String(first.space || 'Mi contenido'), '#e76042', '[]', JSON.stringify(blocks), String(first.id), 0, now, now,
+      ])
+      this.db.run('INSERT INTO status_history (post_id,from_status,to_status,changed_at) VALUES (?,?,?,?)', [postId, null, 'idea', now])
+      selected.forEach((idea, position) => {
+        this.db.run("UPDATE ideas SET post_id = NULL, combined_post_id = COALESCE(combined_post_id, ?), status = 'ready', tags = ?, updated_at = ? WHERE id = ?", [postId, JSON.stringify(Array.from(new Set([...this.parseStringArray(idea.tags), 'combinada']))), now, String(idea.id)])
+        this.db.run('INSERT INTO post_ideas (post_id,idea_id,relation,position,created_at) VALUES (?,?,?,?,?)', [postId, String(idea.id), 'combined', position, now])
+      })
+      this.recordEvent('combined', 'post', postId, { ideaIds: ids }, now)
+      this.db.run('COMMIT')
+      this.persist()
+      return { ideas: ids.map(id => this.ideaOne(id)!), post: this.one(postId)! }
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  uncombinePost(postId: string): { ideas: Row[]; post: Row } {
+    const post = this.one(postId)
+    if (!post) throw new Error('Publicacion no encontrada')
+    let links = this.rows(`SELECT idea_id FROM post_ideas WHERE post_id = ${this.sqlString(postId)} AND relation = 'combined' ORDER BY position ASC`)
+    if (!links.length) {
+      try {
+        const blocks = JSON.parse(String(post.idea_blocks || '[]')) as unknown
+        if (Array.isArray(blocks)) links = blocks.filter(block => typeof block === 'object' && block !== null).map(block => ({ idea_id: (block as Record<string, unknown>).id })).filter(link => typeof link.idea_id === 'string' && Boolean(this.ideaOne(String(link.idea_id))))
+      } catch { links = [] }
+    }
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const link of links) {
+        const idea = this.ideaOne(String(link.idea_id))
+        if (!idea) continue
+        const remaining = this.rows(`SELECT post_id FROM post_ideas WHERE idea_id = ${this.sqlString(String(link.idea_id))} AND relation = 'combined' AND post_id <> ${this.sqlString(postId)} ORDER BY created_at DESC`).at(0)
+        const tags = this.parseStringArray(idea.tags).filter(tag => tag.toLocaleLowerCase() !== 'combinada')
+        if (remaining) tags.push('combinada')
+        this.db.run("UPDATE ideas SET combined_post_id = ?, tags = ?, updated_at = ? WHERE id = ?", [remaining?.post_id ? String(remaining.post_id) : null, JSON.stringify(tags), now, String(link.idea_id)])
+      }
+      this.db.run("DELETE FROM post_ideas WHERE post_id = ? AND relation = 'combined'", [postId])
+      this.recordEvent('uncombined', 'post', postId, { ideaIds: links.map(link => String(link.idea_id)) }, now)
+      this.db.run('COMMIT'); this.persist()
+      return { ideas: links.map(link => this.ideaOne(String(link.idea_id))).filter(Boolean) as Row[], post: this.one(postId)! }
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  listEvents(entity?: string, entityId?: string): Row[] {
+    const clauses = [entity ? `entity = ${this.sqlString(entity)}` : '', entityId ? `entity_id = ${this.sqlString(entityId)}` : ''].filter(Boolean)
+    return this.rows(`SELECT * FROM events${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT 500`)
+  }
+
+  async refreshIdeaEmbeddings(ids?: string[], ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }> {
+    const model = 'multilingual-e5-small'
+    const modelVersion = '4'
+    const ignored = new Set(ignoredTerms.map(term => term.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim()).filter(Boolean))
+    const corpus = this.listIdeas()
+    const automaticTerms = this.semanticGenericTerms(corpus, ignored, options)
+    const selected = ids?.length ? ids.map(id => corpus.find(idea => idea.id === id)).filter(Boolean) as Row[] : corpus
+    const extractor = await this.getSemanticExtractor()
+    const now = new Date().toISOString()
+    // Generate vectors before opening the SQL.js transaction. The extractor
+    // is asynchronous; keeping a transaction open across await allowed an
+    // import to start another transaction and corrupt the WASM database.
+    const pending: Array<{ ideaId: string; hash: string; vector: Uint8Array }> = []
+    try {
+      for (const idea of selected) {
+        const title = String(idea.title || '')
+        const body = String(idea.body || '')
+        const hash = createHash('sha256').update(`${model}:${modelVersion}|${JSON.stringify(options)}|${[...ignored].sort().join(',')}|${[...automaticTerms].sort().join(',')}|${this.ideaHash(title, body)}`).digest('hex')
+        const existing = this.rows(`SELECT content_hash FROM embeddings WHERE idea_id = ${this.sqlString(String(idea.id))} AND model = ${this.sqlString(model)} AND model_version = ${this.sqlString(modelVersion)}`).at(0)
+        if (existing && String(existing.content_hash) === hash) continue
+        // E5 requires mean pooling over token embeddings and L2 normalization.
+        const semanticText = this.semanticText(title, body, automaticTerms, options)
+        const output = await extractor(`passage: ${semanticText}`, { pooling: 'mean', normalize: true })
+        const vector = this.semanticVector(output)
+        pending.push({ ideaId: String(idea.id), hash, vector })
+      }
+      if (!pending.length) return { updated: 0, model, modelVersion }
+      this.db.run('BEGIN TRANSACTION')
+      for (const item of pending) this.db.run('INSERT OR REPLACE INTO embeddings (idea_id,model,model_version,content_hash,vector,created_at) VALUES (?,?,?,?,?,?)', [item.ideaId, model, modelVersion, item.hash, item.vector, now])
+      this.db.run('COMMIT'); if (selected.length) this.persist()
+      return { updated: pending.length, model, modelVersion }
+    } catch (error) { try { this.db.run('ROLLBACK') } catch { /* transaction may not have started */ } throw error }
+  }
+
+  async listIdeaNeighbors(id: string, limit = 8, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions): Promise<Row[]> {
+    const source = this.ideaOne(id)
+    if (!source) throw new Error('Idea no encontrada')
+    await this.refreshIdeaEmbeddings(undefined, ignoredTerms, options)
+    const sourceVector = this.embeddingVector(id)
+    if (!sourceVector) return []
+    return this.listIdeas().filter(idea => idea.id !== id).map(idea => ({ idea, score: this.cosine(sourceVector, this.embeddingVector(String(idea.id)) || []) })).filter(item => item.score > 0.025).sort((a, b) => b.score - a.score).slice(0, Math.max(1, Math.min(30, limit))).map(item => ({ ...item.idea, similarity: Number(item.score.toFixed(4)) }))
+  }
+
+  async proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions): Promise<Array<{ id: string; name: string; ideaIds: string[]; scores: number[] }>> {
+    const ignored = new Set(ignoredTerms.map(term => term.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim()).filter(Boolean))
+    await this.refreshIdeaEmbeddings(undefined, [...ignored], options)
+    const ideas = this.listIdeas()
+    const namingIgnored = new Set([...ignored, ...this.semanticGenericTerms(ideas, ignored, options)])
+    const documentFrequency = new Map<string, number>()
+    for (const idea of ideas) for (const token of new Set(this.ideaTokens(idea, ignored, options.ignoreTitleNumbersInClusterNames))) documentFrequency.set(token, (documentFrequency.get(token) || 0) + 1)
+    const vectors = new Map(ideas.map(idea => [String(idea.id), this.embeddingVector(String(idea.id)) || []]))
+    const neighborCount = Math.min(8, Math.max(3, Math.ceil(Math.sqrt(ideas.length))))
+    const nearest = new Map<string, Set<string>>()
+    for (const idea of ideas) {
+      const id = String(idea.id)
+      const matches = ideas.filter(other => other.id !== idea.id).map(other => ({ id: String(other.id), score: this.cosine(vectors.get(id) || [], vectors.get(String(other.id)) || []) })).filter(match => match.score >= threshold).sort((a, b) => b.score - a.score).slice(0, neighborCount)
+      nearest.set(id, new Set(matches.map(match => match.id)))
+    }
+    const groups: string[][] = []
+    const remaining = new Set(ideas.map(idea => String(idea.id)))
+    // Complete-linkage style grouping prevents long similarity chains from
+    // turning an entire corpus into one giant cluster.
+    while (remaining.size) {
+      const root = [...remaining][0]
+      const group = [root]
+      remaining.delete(root)
+      for (const candidate of [...remaining]) {
+        const compatible = group.every(member => {
+          const score = this.cosine(vectors.get(member) || [], vectors.get(candidate) || [])
+          return score >= threshold && nearest.get(member)?.has(candidate) && nearest.get(candidate)?.has(member)
+        })
+        if (compatible) { group.push(candidate); remaining.delete(candidate) }
+      }
+      if (group.length >= 2) groups.push(group)
+    }
+    const candidates = groups.filter(group => group.length >= 2).map(group => {
+      const members = group.map(id => ideas.find(idea => String(idea.id) === id)!).filter(Boolean)
+      const terms = this.clusterTerms(members, namingIgnored, documentFrequency, ideas.length, options.ignoreTitleNumbersInClusterNames)
+      const name = terms.slice(0, 3).join(' ') || 'Cluster sin nombre'
+      const cohesion = members.length < 2 ? 0 : members.reduce((sum, idea, index) => sum + members.slice(index + 1).reduce((pairSum, other) => pairSum + this.cosine(vectors.get(String(idea.id)) || [], vectors.get(String(other.id)) || []), 0), 0) / (members.length * (members.length - 1) / 2)
+      return { id: crypto.randomUUID(), name: name[0]?.toLocaleUpperCase() + name.slice(1), ideaIds: group, scores: group.map(() => cohesion) }
+    })
+    const now = new Date().toISOString()
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      for (const cluster of candidates) {
+        this.db.run('INSERT INTO idea_clusters (id,name,algorithm,model,model_version,calculated_at,name_manually_edited) VALUES (?,?,?,?,?,?,0)', [cluster.id, cluster.name, 'complete-linkage-mutual-nearest', 'multilingual-e5-small', '4', now])
+        cluster.ideaIds.forEach((ideaId, position) => this.db.run('INSERT INTO idea_cluster_members (cluster_id,idea_id,position,score) VALUES (?,?,?,?)', [cluster.id, ideaId, position, cluster.scores[position]]))
+      }
+      this.recordEvent('clusters_proposed', 'ideas', 'workspace', { count: candidates.length, threshold }, now)
+      this.db.run('COMMIT'); this.persist()
+      return candidates
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  private async getSemanticExtractor() {
+    if (!this.semanticExtractor) {
+      env.allowLocalModels = false
+      env.allowRemoteModels = true
+      this.semanticExtractor = pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { dtype: 'q8' })
+    }
+    return this.semanticExtractor
+  }
+
+  previewIdeaAnalysis(ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
+    const ignored = new Set(ignoredTerms.map(term => term.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').trim()).filter(Boolean))
+    return { automaticTerms: [...this.semanticGenericTerms(this.listIdeas(), ignored, options)].sort() }
+  }
+
+  private semanticTitle(title: string, options: IdeaAnalysisOptions) {
+    const value = title.trim()
+    const afterColon = options.stripColonPrefixes ? value.match(/^[^:]{2,40}:\s*(.+)$/)?.[1] : undefined
+    if (afterColon) return afterColon
+    const configuredPrefix = options.editorialPrefixes.find(item => item.trim() && value.toLocaleLowerCase().startsWith(item.trim().toLocaleLowerCase()))
+    return configuredPrefix ? value.slice(configuredPrefix.length).replace(/^\s*[+\-–—]?\s*\d*\s*/, '').trim() || value : value
+    return value.replace(/^(?:prompt(?:\s+prohibido)?|modo\s+dios)\b\s*[+\-–—]?\s*\d*\s*/i, '').trim() || value
+  }
+
+  private semanticText(title: string, body: string, genericTerms: Set<string>, options: IdeaAnalysisOptions) {
+    const clean = (value: string) => value
+      .replace(options.stripBracketedText ? /\[[^\]]*\]/g : /$^/, ' ')
+      .replace(options.stripNumbers ? /\b\d+(?:[.,]\d+)?\b/g : /$^/, ' ')
+      .replace(/\s+/g, ' ').trim()
+    const titleText = clean(this.semanticTitle(title, options))
+    const bodyText = clean(body)
+    const removeGeneric = (value: string) => value.split(/\s+/).filter(token => {
+      const normalized = token.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}]/gu, '')
+      return normalized.length >= options.minTokenLength && !genericTerms.has(normalized)
+    }).join(' ')
+    const cleanedBody = removeGeneric(bodyText)
+    const cleanedTitle = removeGeneric(titleText)
+    return `${cleanedBody} ${cleanedTitle} ${cleanedBody}`.trim()
+  }
+
+  private semanticGenericTerms(ideas: Row[], ignored: Set<string>, options: IdeaAnalysisOptions) {
+    const frequency = new Map<string, number>()
+    const total = ideas.length || 1
+    for (const idea of ideas) {
+      const tokens = new Set(this.analysisTokens(this.semanticText(String(idea.title || ''), String(idea.body || ''), new Set(), options), ignored))
+      for (const token of tokens) frequency.set(token, (frequency.get(token) || 0) + 1)
+    }
+    // Corpus-wide template language is weak semantic evidence. Keep this
+    // automatic so the user does not need to curate a permanent stop-list.
+    return new Set([...frequency.entries()].filter(([, count]) => count / total >= options.genericTermThreshold).map(([token]) => token))
+  }
+
+  private semanticVector(output: any): Uint8Array {
+    const values = output?.tolist ? output.tolist() : output?.data ? Array.from(output.data) : []
+    const flat = Array.isArray(values) ? (Array.isArray(values[0]) ? values[0] : values) : []
+    return new TextEncoder().encode(JSON.stringify(flat.map(Number)))
+  }
+
+  listIdeaClusters(): Array<{ id: string; name: string; algorithm: string; model: string; model_version: string; calculated_at: string; ideaIds: string[] }> {
+    return this.rows('SELECT * FROM idea_clusters ORDER BY calculated_at DESC').map(cluster => ({
+      id: String(cluster.id), name: String(cluster.name), algorithm: String(cluster.algorithm), model: String(cluster.model), model_version: String(cluster.model_version), calculated_at: String(cluster.calculated_at),
+      ideaIds: this.rows(`SELECT idea_id FROM idea_cluster_members WHERE cluster_id = ${this.sqlString(String(cluster.id))} ORDER BY position`).map(row => String(row.idea_id)),
+    }))
+  }
+
+  private localEmbedding(tokens: string[], documentFrequency: Map<string, number>, totalDocuments: number): Uint8Array {
+    const frequencies = new Map<string, number>()
+    for (const token of tokens) frequencies.set(token, (frequencies.get(token) || 0) + 1)
+    const vector: Record<string, number> = {}
+    for (const [token, frequency] of frequencies) {
+      const idf = Math.log(1 + (totalDocuments - (documentFrequency.get(token) || 0) + 0.5) / ((documentFrequency.get(token) || 0) + 0.5))
+      vector[token] = (1 + Math.log(frequency)) * idf
+    }
+    const norm = Math.sqrt(Object.values(vector).reduce((sum, value) => sum + value * value, 0)) || 1
+    for (const token of Object.keys(vector)) vector[token] /= norm
+    return new TextEncoder().encode(JSON.stringify(vector))
+  }
+
+  private embeddingVector(id: string): number[] | null {
+    const row = this.rows(`SELECT vector FROM embeddings WHERE idea_id = ${this.sqlString(id)} AND model = 'multilingual-e5-small' AND model_version = '4'`).at(0)
+    if (!row?.vector) return null
+    const bytes = row.vector instanceof Uint8Array ? row.vector : new Uint8Array(row.vector as ArrayBuffer)
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+      return Array.isArray(parsed) ? parsed.map(Number) : null
+    } catch { return null }
+  }
+
+  private cosine(a: number[], b: number[]) {
+    if (!a.length || !b.length || a.length !== b.length) return 0
+    return a.reduce((sum, value, index) => sum + value * b[index], 0)
+  }
+
+  private clusterTerms(ideas: Row[], ignored: Set<string>, corpusFrequency: Map<string, number>, corpusSize: number, ignoreTitleNumbers: boolean) {
+    const documents = ideas.map(idea => this.ideaTokens(idea, ignored, ignoreTitleNumbers))
+    const frequency = new Map<string, number>()
+    documents.forEach(tokens => tokens.forEach(token => frequency.set(token, (frequency.get(token) || 0) + 1)))
+    return [...frequency.entries()].map(([token, count]) => {
+      const corpusCount = corpusFrequency.get(token) || 0
+      const idf = Math.log(1 + (corpusSize - corpusCount + 0.5) / (corpusCount + 0.5))
+      return { token, score: count * idf }
+    }).sort((a, b) => b.score - a.score).map(item => item.token)
+  }
+
+  private ideaTokens(idea: Row, ignored: Set<string>, ignoreTitleNumbers = false) {
+    const titleText = String(idea.title || '').replace(ignoreTitleNumbers ? /\b\d+(?:[.,]\d+)?\b/g : /$^/, ' ')
+    const title = this.analysisTokens(titleText, ignored)
+    const body = this.analysisTokens(String(idea.body || ''), ignored)
+    return [...title.flatMap(token => [token, token]), ...body]
+  }
+
+  private analysisTokens(value: string, ignored: Set<string>) {
+    return value.toLocaleLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').match(/[\p{L}\p{N}]{3,}/gu)?.filter(token => !ignored.has(token)) || []
+  }
+
+  private recordEvent(type: string, entity: string, entityId: string, payload: Record<string, unknown>, createdAt = new Date().toISOString()) {
+    this.db.run('INSERT INTO events (id,type,entity,entity_id,payload,created_at) VALUES (?,?,?,?,?,?)', [crypto.randomUUID(), type, entity, entityId, JSON.stringify(payload), createdAt])
+  }
+
+  private syncPostIdeas(postId: string, blocks: unknown, now: string) {
+    if (!Array.isArray(blocks)) return
+    const existing = new Map(this.rows(`SELECT idea_id,relation FROM post_ideas WHERE post_id = ${this.sqlString(postId)}`).map(row => [String(row.idea_id), String(row.relation)]))
+    this.db.run('DELETE FROM post_ideas WHERE post_id = ?', [postId])
+    blocks.forEach((block, position) => {
+      if (typeof block !== 'object' || block === null) return
+      const id = String((block as Record<string, unknown>).id || '')
+      if (!id) return
+      const idea = this.ideaOne(id)
+      const relation = existing.get(id) || (idea?.combined_post_id === postId ? 'combined' : idea?.post_id === postId ? 'individual' : null)
+      if (!relation) return
+      this.db.run('INSERT OR REPLACE INTO post_ideas (post_id,idea_id,relation,position,created_at) VALUES (?,?,?,?,?)', [postId, id, relation, position, now])
+    })
   }
 
   listConceptMap(): { nodes: Row[]; links: Row[]; folders: Row[] } {

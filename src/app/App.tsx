@@ -31,6 +31,12 @@ export default function App() {
     void syncPreferences()
     return () => { active = false }
   }, [load])
+  useEffect(() => {
+    if (view !== 'board' && (selectedId || creating)) {
+      if (selectedId) select(null)
+      if (creating) setCreating(false)
+    }
+  }, [view, selectedId, creating, select])
   const filtered = useMemo(() => {
     const inSpace = activeSpace ? posts.filter(post => post.project === activeSpace) : posts
     return inSpace.filter(post => postMatchesQuery(post, query))
