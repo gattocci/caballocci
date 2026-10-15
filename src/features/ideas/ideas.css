@@ -1,4 +1,28 @@
 .ideas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.ideas-tabs { display: flex; gap: 4px; margin: -2px 0 14px; border-bottom: 1px solid var(--line); }
+.ideas-tabs button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: #8f9a93; padding: 8px 10px; font-size: 10px; cursor: pointer; }
+.ideas-tabs button.active { border-bottom-color: var(--accent); color: #eef2ef; }
+.ideas-tabs span { margin-left: 4px; color: #c6d0c9; }
+.ideas-import-history { border-top: 2px solid #343c37; background: #131715; padding: 18px; }
+.ideas-import-history header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.ideas-import-history header span { color: #727d76; font-size: 9px; font-weight: 800; letter-spacing: 1px; }
+.ideas-import-history h2 { margin: 5px 0 0; font-size: 17px; }
+.ideas-import-history-list { display: grid; gap: 8px; }
+.ideas-import-history-list article { display: flex; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid #303b33; background: #19201b; }
+.ideas-import-history-list article > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.ideas-import-history-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e3eae5; font-size: 11px; }
+.ideas-import-history-list small { color: #7f8b83; font-size: 9px; }
+.ideas-import-stats { display: flex; align-items: center; gap: 10px; color: #aab6ae; font: 9px 'DM Mono', monospace; white-space: nowrap; }
+.ideas-import-history-empty { color: #8b968e; font-size: 10px; }
+.show-import-history > .ideas-import-result,
+.show-import-history > .ideas-toolbar,
+.show-import-history > .idea-analysis-settings,
+.show-import-history > .ideas-bulk-actions,
+.show-import-history > .ideas-analysis-message,
+.show-import-history > .ideas-analysis-panel,
+.show-import-history > .ideas-grid,
+.show-import-history > .ideas-pagination,
+.show-import-history > .space-dialog-backdrop { display: none; }
 .ideas-toolbar { display: flex; align-items: end; gap: 14px; margin-bottom: 14px; color: #7e8982; font-size: 10px; }
 .ideas-toolbar label { display: flex; align-items: center; gap: 7px; color: #9da69f; font-size: 9px; text-transform: uppercase; }
 .idea-status-filters { display: flex; flex-wrap: wrap; gap: 4px; }

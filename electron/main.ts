@@ -640,6 +640,7 @@ app.whenReady().then(async () => {
     const result = database.saveIdeasMany(inputs)
     return { created: result.created.map(mapIdea), skipped: result.skipped, duplicates: result.duplicates }
   })
+  handle('ideas:import-history', withoutArguments(() => database.listIdeaImportRuns().map(row => ({ id: row.id, fileName: row.file_name, space: row.space, total: Number(row.total || 0), created: Number(row.created || 0), skipped: Number(row.skipped || 0), importedAt: row.imported_at }))))
   handle('ideas:remove', args => {
     validateArgumentCount(args, 1)
     return database.removeIdea(validateId(args[0], 'idea.id'))

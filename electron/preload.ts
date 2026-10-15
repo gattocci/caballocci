@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('planner', {
     list: () => ipcRenderer.invoke('ideas:list'),
     save: (idea: unknown) => ipcRenderer.invoke('ideas:save', idea),
     saveMany: (ideas: unknown[]) => ipcRenderer.invoke('ideas:save-many', ideas),
+    importHistory: () => ipcRenderer.invoke('ideas:import-history'),
     remove: (id: string) => ipcRenderer.invoke('ideas:remove', id),
     convert: (id: string) => ipcRenderer.invoke('ideas:convert', id),
     combine: (ids: string[]) => ipcRenderer.invoke('ideas:combine', ids),

@@ -301,6 +301,18 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idea_cluster_members_idea_idx ON idea_cluster_members(idea_id);
     `,
   },
+  {
+    version: 24,
+    name: 'idea_import_history',
+    up: `
+      CREATE TABLE IF NOT EXISTS idea_import_runs (
+        id TEXT PRIMARY KEY, file_name TEXT NOT NULL, space TEXT NOT NULL DEFAULT '',
+        total INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL DEFAULT 0,
+        skipped INTEGER NOT NULL DEFAULT 0, imported_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idea_import_runs_date_idx ON idea_import_runs(imported_at);
+    `,
+  },
 ]
 
 export class PlannerDatabase {
@@ -810,10 +822,18 @@ export class PlannerDatabase {
         const saved = this.saveIdea(input, false)
         created.push(saved); seen.add(hash)
       }
+      const first = inputs[0]
+      if (first) {
+        this.db.run('INSERT INTO idea_import_runs (id,file_name,space,total,created,skipped,imported_at) VALUES (?,?,?,?,?,?,?)', [crypto.randomUUID(), String(first.sourceName || 'Importación manual'), String(first.space || ''), inputs.length, created.length, skipped, new Date().toISOString()])
+      }
       this.db.run('COMMIT')
-      if (created.length) this.persist()
+      if (inputs.length) this.persist()
       return { created, skipped, duplicates }
     } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  listIdeaImportRuns() {
+    return this.rows('SELECT id,file_name,space,total,created,skipped,imported_at FROM idea_import_runs ORDER BY imported_at DESC')
   }
 
   removeIdea(id: string) {
@@ -1036,6 +1056,10 @@ export class PlannerDatabase {
 
   private async getSemanticExtractor() {
     if (!this.semanticExtractor) {
+      const cacheDirectory = path.join(path.dirname(this.filePath), 'transformers-cache')
+      fs.mkdirSync(cacheDirectory, { recursive: true })
+      env.cacheDir = cacheDirectory
+      env.useFSCache = true
       env.allowLocalModels = false
       env.allowRemoteModels = true
       this.semanticExtractor = pipeline('feature-extraction', 'Xenova/multilingual-e5-small', { dtype: 'q8' })

@@ -66,6 +66,7 @@ export interface Idea {
 }
 
 export interface IdeaNeighbor extends Idea { similarity: number }
+export interface IdeaImportRun { id: string; fileName: string; space: string; total: number; created: number; skipped: number; importedAt: string }
 export interface IdeaAnalysisOptions {
   editorialPrefixes: string[]
   stripColonPrefixes: boolean
@@ -248,6 +249,7 @@ export interface ElectronAPI {
     list(): Promise<Idea[]>
     save(idea: IdeaInput): Promise<Idea>
     saveMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number; duplicates: Array<{ title: string; sourceName: string; existingId: string; existingTitle: string; existingSourceName: string }> }>
+    importHistory(): Promise<IdeaImportRun[]>
     remove(id: string): Promise<void>
     convert(id: string): Promise<{ idea: Idea; post: Post }>
     combine(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>

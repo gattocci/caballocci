@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CalendarDays, Combine, ExternalLink, Layers3, Lightbulb, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { ViewHeading } from '../../components/layout/AppShell'
 import { ideaMatchesQuery, usePlanner } from '../../app/store'
-import type { Idea, IdeaAnalysisOptions, IdeaCluster, IdeaInput, IdeaNeighbor, IdeaPriority, IdeaStatus } from '../../shared/types'
+import type { Idea, IdeaAnalysisOptions, IdeaCluster, IdeaImportRun, IdeaInput, IdeaNeighbor, IdeaPriority, IdeaStatus } from '../../shared/types'
 import './ideas.css'
 
 const blankIdea = (space: string): IdeaInput => ({
@@ -90,6 +90,8 @@ export function IdeasView() {
   const [clusterSelection, setClusterSelection] = useState(false)
   const [selectedOnly, setSelectedOnly] = useState(false)
   const [analysisMessage, setAnalysisMessage] = useState('')
+  const [ideasTab, setIdeasTab] = useState<'ideas' | 'imports'>('ideas')
+  const [importHistory, setImportHistory] = useState<IdeaImportRun[]>([])
   const [ignoredTermsText, setIgnoredTermsText] = useState(readIgnoredTerms)
   const [analysisOptions, setAnalysisOptions] = useState<IdeaAnalysisOptions>(readAnalysisOptions)
   const [automaticTerms, setAutomaticTerms] = useState<string[]>([])
@@ -102,6 +104,7 @@ export function IdeasView() {
   useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-ignored-terms', ignoredTermsText) } catch { /* Optional local preference. */ } }, [ignoredTermsText])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-options', JSON.stringify(analysisOptions)) } catch { /* Optional local preference. */ } }, [analysisOptions])
+  useEffect(() => { void window.planner.ideas.importHistory().then(setImportHistory).catch(() => setImportHistory([])) }, [])
   useEffect(() => {
     let active = true
     const timer = window.setTimeout(() => { void window.planner.ideas.analysisPreview(ignoredTerms, analysisOptions).then(result => { if (active) setAutomaticTerms(result.automaticTerms) }).catch(() => { if (active) setAutomaticTerms([]) }) }, 180)
@@ -131,6 +134,7 @@ export function IdeasView() {
       const result = await saveIdeasMany(parsed)
       setImportMessage(`${result.created.length} de ${parsed.length} ideas importadas${result.skipped ? ` · ${result.skipped} duplicadas omitidas` : ''}.`)
       setImportDuplicates(result.duplicates)
+      setImportHistory(await window.planner.ideas.importHistory())
     } finally { setImporting(false) }
   }
   const toggleSelected = (id: string) => setSelectedIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
@@ -182,10 +186,12 @@ export function IdeasView() {
     setSelectedIds([])
   }
 
-  return <section className="workspace ideas-workspace">
+  return <section className={`workspace ideas-workspace ${ideasTab === 'imports' ? 'show-import-history' : ''}`}>
     <ViewHeading title="Ideas" subtitle="Captura, desarrolla y convierte tus ideas en contenido.">
       <button className="settings-button" disabled={importing} onClick={() => void importFile()}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button className="settings-button" disabled={importing} onClick={() => void makeClusters()}><Layers3 size={14} /> Proponer clusters</button><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
     </ViewHeading>
+    <div className="ideas-tabs" role="tablist"><button type="button" role="tab" aria-selected={ideasTab === 'ideas'} className={ideasTab === 'ideas' ? 'active' : ''} onClick={() => setIdeasTab('ideas')}>Ideas</button><button type="button" role="tab" aria-selected={ideasTab === 'imports'} className={ideasTab === 'imports' ? 'active' : ''} onClick={() => setIdeasTab('imports')}>Historial de importaciones <span>{importHistory.length}</span></button></div>
+    {ideasTab === 'imports' && <section className="ideas-import-history"><header><div><span>ARCHIVOS LOCALES</span><h2>Historial de importaciones</h2></div><button type="button" className="settings-button" onClick={() => void window.planner.ideas.importHistory().then(setImportHistory)}>Actualizar</button></header>{importHistory.length ? <div className="ideas-import-history-list">{importHistory.map(run => <article key={run.id}><div><strong>{run.fileName}</strong><small>{new Date(run.importedAt).toLocaleString()} · {run.space || 'Todos los contenidos'}</small></div><div className="ideas-import-stats"><span>{run.total} detectadas</span><span>{run.created} nuevas</span><span>{run.skipped} duplicadas</span></div></article>)}</div> : <p className="ideas-import-history-empty">Todavía no hay importaciones registradas.</p>}</section>}
     {importMessage && <div className="ideas-import-result"><p className="ideas-import-message">{importMessage}</p>{importDuplicates.length > 0 && <details><summary>Ver {importDuplicates.length} coincidencias existentes</summary><ul>{importDuplicates.map((duplicate, index) => <li key={`${duplicate.title}-${index}`}><strong>{duplicate.title}</strong><span>ya existe como “{duplicate.existingTitle}”{duplicate.existingSourceName ? ` · ${duplicate.existingSourceName}` : ''}</span></li>)}</ul></details>}</div>}
     <div className="ideas-toolbar"><div className="idea-status-filters" role="group" aria-label="Filtrar ideas por estado">{statusFilters.map(filter => <button type="button" key={filter.value} aria-pressed={statusFilter === filter.value} className={statusFilter === filter.value ? 'active' : ''} onClick={() => { setStatusFilter(filter.value); setPage(1); setSelectedIds([]); setSelectedOnly(false); setClusterSelection(false) }}>{filter.label}</button>)}</div><span>{selectedOnly ? `${ideasInSpace.length} seleccionadas` : `${ideasInSpace.length} ideas`} · página {page} de {pageCount}</span>{selectedOnly && <button type="button" className="settings-button" onClick={clearClusterView}>Ver todas</button>}<button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button></div>
     <details className="idea-analysis-settings"><summary>Configuración del análisis local</summary>
