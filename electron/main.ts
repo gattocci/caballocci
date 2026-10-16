@@ -80,7 +80,24 @@ function assertTrustedIpcSender(event: IpcMainInvokeEvent) {
 function handle(channel: string, callback: (args: unknown[]) => unknown) {
   ipcMain.handle(channel, (event, ...args: unknown[]) => {
     assertTrustedIpcSender(event)
-    return callback(args)
+    try {
+      const result = callback(args)
+      if (!result || typeof (result as Promise<unknown>).then !== 'function') return result
+      return Promise.resolve(result).catch(async error => {
+        if (error instanceof WebAssembly.RuntimeError || (error && typeof error === 'object' && 'name' in error && String((error as { name?: unknown }).name) === 'RuntimeError')) {
+          database = await database.reopenFromDisk()
+        }
+        throw error
+      })
+    } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError || (error && typeof error === 'object' && 'name' in error && String((error as { name?: unknown }).name) === 'RuntimeError')) {
+        return database.reopenFromDisk().then((replacement) => {
+          database = replacement
+          throw error
+        })
+      }
+      throw error
+    }
   })
 }
 

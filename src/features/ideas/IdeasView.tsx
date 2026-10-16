@@ -109,7 +109,7 @@ export function IdeasView() {
     let active = true
     const timer = window.setTimeout(() => { void window.planner.ideas.analysisPreview(ignoredTerms, analysisOptions).then(result => { if (active) setAutomaticTerms(result.automaticTerms) }).catch(() => { if (active) setAutomaticTerms([]) }) }, 180)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [ignoredTermsText, analysisOptions, ideas.length])
+  }, [ignoredTermsText, analysisOptions])
   const edit = (idea: Idea) => setDraft({ ...idea })
   const save = async () => {
     if (!draft?.title.trim()) return
