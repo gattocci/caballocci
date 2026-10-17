@@ -119,8 +119,14 @@ function ideaKey(idea: Pick<IdeaInput, 'title' | 'body'>) {
 }
 
 export function IdeasView() {
-  const { ideas, activeSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query } = usePlanner()
+  const { ideas, activeSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query, selectedIdeaId, selectIdea } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
+  useEffect(() => {
+    if (!selectedIdeaId) return
+    const idea = ideas.find(item => item.id === selectedIdeaId)
+    if (idea) setDraft({ ...idea })
+    selectIdea(null)
+  }, [ideas, selectedIdeaId, selectIdea])
   const [importing, setImporting] = useState(false)
   const [importMessage, setImportMessage] = useState('')
   const [importDuplicates, setImportDuplicates] = useState<Array<{ title: string; existingTitle: string; existingSourceName: string }>>([])

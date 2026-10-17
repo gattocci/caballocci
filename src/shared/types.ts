@@ -38,6 +38,9 @@ export interface MediaAsset {
   kind: 'image' | 'video' | 'document'
   size: number
   mode: 'copy' | 'reference'
+  presentationRole?: 'representative' | 'cover' | 'slide' | 'closing' | 'other'
+  sequence?: number | null
+  groupName?: string
 }
 
 export interface IdeaBlock {
@@ -268,7 +271,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; openFolder(postId?: string): Promise<void>; imageUrl(id: string): string }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }

@@ -19,6 +19,7 @@
     "@fontsource-variable/manrope": "^5.2.8",
     "@fontsource/dm-mono": "^5.2.6",
     "@huggingface/transformers": "^4.3.1",
+    "adm-zip": "^0.6.1",
     "date-fns": "^4.1.0",
     "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",

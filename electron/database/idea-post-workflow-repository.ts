@@ -24,7 +24,7 @@ export class IdeaPostWorkflowRepository {
     }
     const now = new Date().toISOString()
     const postId = crypto.randomUUID()
-    const hashtags = this.parseTags(idea.tags).map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+    const hashtags = this.publicationHashtags(idea)
     const ideaBlocks = JSON.stringify([{ id: String(idea.id), title: String(idea.title), text: String(idea.body) }])
     this.db.run('BEGIN TRANSACTION')
     try {
@@ -49,8 +49,7 @@ export class IdeaPostWorkflowRepository {
     const now = new Date().toISOString()
     const postId = crypto.randomUUID()
     const blocks = selected.map(idea => ({ id: String(idea.id), title: String(idea.title || ''), text: String(idea.body || '') }))
-    const tags = Array.from(new Set([...selected.flatMap(idea => this.parseTags(idea.tags)), 'combinada']))
-    const hashtags = tags.map(tag => tag.startsWith('#') ? tag : `#${tag}`)
+    const hashtags = Array.from(new Set(selected.flatMap(idea => this.publicationHashtags(idea))))
     this.db.run('BEGIN TRANSACTION')
     try {
       this.db.run(`INSERT INTO posts (id,title,caption,notes,hashtags,mentions,platforms,distribution_json,content_type,status,scheduled_at,duration_minutes,project,color,media,idea_blocks,source_idea_id,title_manually_edited,created_at,updated_at)
@@ -94,6 +93,19 @@ export class IdeaPostWorkflowRepository {
       this.persist()
       return { ideas: links.map(link => this.idea(String(link.idea_id))).filter(Boolean) as Row[], post: this.post(postId)! }
     } catch (error) { this.db.run('ROLLBACK'); throw error }
+  }
+
+  private publicationHashtags(idea: Row): string[] {
+    const sourceName = String(idea.source_name || '').trim().toLocaleLowerCase()
+    return this.parseTags(idea.tags)
+      .filter(tag => {
+        const normalized = tag.replace(/^#/, '').trim().toLocaleLowerCase()
+        return normalized !== 'combinada'
+          && normalized !== sourceName
+          && !/\.(?:md|markdown|txt|json|csv)$/i.test(normalized)
+          && !/\bbatch\s*\d+\b/i.test(normalized)
+      })
+      .map(tag => tag.startsWith('#') ? tag : `#${tag}`)
   }
 
   private parseTags(value: unknown): string[] {

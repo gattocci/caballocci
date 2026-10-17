@@ -72,9 +72,11 @@ contextBridge.exposeInMainWorld('planner', {
   },
   media: {
     list: () => ipcRenderer.invoke('media:list'),
-    choose: (mode: 'copy' | 'reference', postId?: string) => ipcRenderer.invoke('media:choose', mode, postId),
+    choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
+    scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),
+    organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),
     reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
-    openFolder: (postId?: string) => ipcRenderer.invoke('media:open-folder', postId),
+    openFolder: (postId?: string, project?: string) => ipcRenderer.invoke('media:open-folder', postId, project),
     imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
   files: { readText: () => ipcRenderer.invoke('files:read-text') },

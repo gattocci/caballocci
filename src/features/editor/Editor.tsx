@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronUp, Clipboard, Database, FileImage, FolderOpen, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, FileImage, FolderOpen, FolderPlus, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Sparkles, Trash2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { usePlanner } from '../../app/store'
-import type { CatalogSync, ContentRecord, ContentType, IdeaBlock, Platform, Post, PostInput, PostStatus } from '../../shared/types'
+import type { CatalogSync, ContentRecord, ContentType, IdeaBlock, MediaAsset, Platform, Post, PostInput, PostStatus } from '../../shared/types'
+import { EditorError } from './EditorError'
 import './editor.css'
 
 const blankPost = (project: string): PostInput => ({
@@ -67,25 +68,125 @@ function itemsToNotes(items: NoteItem[]) {
   return items.filter(item => item.title.trim() || item.text.trim()).map(item => `${item.title.trim() ? `[${item.title.trim()}]\n` : ''}${item.text.trim()}`).join('\n\n---\n\n')
 }
 
-function Preview({ draft }: { draft: PostInput }) {
+function inferredVisual(asset: NonNullable<PostInput['media']>[number]) {
+  const name = asset.name.toLocaleLowerCase()
+  const numbered = name.match(/^(\d+)[-_ .]/)
+  if (/representative|representativa|portada/.test(name)) return { role: 'representative' as const, sequence: undefined }
+  if (/cover/.test(name)) return { role: 'cover' as const, sequence: 0 }
+  if (/cierre|closing|final/.test(name)) return { role: 'closing' as const, sequence: 10000 }
+  if (numbered) return { role: 'slide' as const, sequence: Number(numbered[1]) }
+  return { role: asset.presentationRole || 'other' as const, sequence: asset.sequence }
+}
+
+function visualSequence(asset: NonNullable<PostInput['media']>[number]) {
+  return asset.sequence === null ? null : asset.sequence ?? inferredVisual(asset).sequence
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try { return JSON.stringify(error) } catch { return String(error) }
+}
+
+function Preview({ draft, onMediaChange, onError }: { draft: PostInput; onMediaChange(media: NonNullable<PostInput['media']>): void; onError(message: string): void }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [folderAssets, setFolderAssets] = useState<MediaAsset[]>([])
+  const [folderBusy, setFolderBusy] = useState(false)
+  const [selectedAssets, setSelectedAssets] = useState<string[]>([])
+  const [organizeMessage, setOrganizeMessage] = useState('')
+  const [groupDialog, setGroupDialog] = useState<{ currentName?: string; name: string } | null>(null)
+  const refreshFolder = async () => {
+    setFolderBusy(true)
+    try {
+      const scanned = await window.planner.media.scanPostFolder(draft.id || '', draft.project || '')
+      setFolderAssets(scanned)
+      const linked = new Map((draft.media || []).map(asset => [asset.id, asset]))
+      onMediaChange([...draft.media || [], ...scanned.filter(asset => !linked.has(asset.id))])
+    } catch (error) { setFolderAssets([]); onError(errorMessage(error)) } finally { setFolderBusy(false) }
+  }
+  useEffect(() => { void refreshFolder() }, [draft.id, draft.project])
   const platform = draft.platforms[0] || 'instagram'
   const text = [draft.caption, ...draft.hashtags].join(' ').trim()
-  const image = draft.media?.find(asset => asset.kind === 'image')
+  const images = folderAssets.map(asset => {
+    const linked = (draft.media || []).find(item => item.id === asset.id)
+    return linked ? { ...asset, presentationRole: linked.presentationRole, sequence: linked.sequence } : asset
+  })
+  const roleOf = (asset: typeof images[number]) => asset.presentationRole || inferredVisual(asset).role
+  const presentation = images.filter(asset => !['representative', 'other'].includes(roleOf(asset))).sort((a, b) => (visualSequence(a) ?? Number.MAX_SAFE_INTEGER) - (visualSequence(b) ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name, undefined, { numeric: true }))
+  const image = images.find(asset => asset.id === selectedId) || presentation[0] || images.find(asset => roleOf(asset) === 'representative')
+  const sequenceIndex = Math.max(0, presentation.findIndex(asset => asset.id === image?.id))
+  const isSequenceImage = presentation.some(asset => asset.id === image?.id)
   const firstIdea = draft.ideaBlocks?.[0]
+  const updateVisual = (id: string, role: NonNullable<typeof images[number]['presentationRole']>, sequence?: number | null) => {
+    const current = images.find(asset => asset.id === id)
+    const currentRole = current ? roleOf(current) : undefined
+    const nextSequence = sequence === undefined && currentRole !== role
+      ? role === 'cover' ? 0 : role === 'closing' ? 10000 : role === 'slide' ? Math.max(0, ...presentation.map(asset => visualSequence(asset) || 0)) + 1 : undefined
+      : sequence
+    onMediaChange((draft.media || []).map(asset => asset.id === id ? { ...asset, presentationRole: role, sequence: nextSequence } : asset))
+  }
+  const moveVisual = (id: string, offset: -1 | 1) => {
+    const next = [...presentation]
+    const index = next.findIndex(asset => asset.id === id)
+    const target = index + offset
+    if (index < 0 || target < 0 || target >= next.length) return
+    const [item] = next.splice(index, 1)
+    next.splice(target, 0, item)
+    const orders = new Map(next.map((asset, position) => [asset.id, position + 1]))
+    onMediaChange((draft.media || []).map(asset => orders.has(asset.id) ? { ...asset, presentationRole: roleOf(images.find(imageAsset => imageAsset.id === asset.id) || asset), sequence: orders.get(asset.id) } : asset))
+  }
+  const groupSelected = async () => {
+    if (!selectedAssets.length) return
+    if (!draft.id) {
+      const message = 'Guarda la publicaci\u00f3n antes de crear una carpeta de diapositivas.'
+      setOrganizeMessage(message)
+      onError(message)
+      return
+    }
+    if (!draft.id) { setOrganizeMessage('Guarda la publicación antes de crear una carpeta de diapositivas.'); return }
+    setGroupDialog({ name: 'Grupo de diapositivas' })
+  }
+  const saveGroup = async () => {
+    if (!groupDialog?.name.trim()) return
+    if (!draft.id) {
+      const message = 'Guarda la publicacion antes de crear una carpeta de diapositivas.'
+      setOrganizeMessage(message)
+      onError(message)
+      return
+    }
+    setOrganizeMessage('')
+    try {
+      await window.planner.media.organizePost(draft.id, draft.project || '', selectedAssets, groupDialog.name.trim(), groupDialog.currentName)
+      setSelectedAssets([])
+      setGroupDialog(null)
+      await refreshFolder()
+    } catch (error) { const message = errorMessage(error); setOrganizeMessage(message); onError(message) }
+  }
+  const renameGroup = async (currentName: string) => {
+    if (!draft.id) return
+    setGroupDialog({ currentName, name: currentName })
+  }
+  const groups = Array.from(new Set(images.map(asset => asset.groupName).filter((name): name is string => Boolean(name))))
+  const groupedCount = images.filter(asset => Boolean(asset.groupName)).length
+  const ungroupedCount = images.length - groupedCount
   return <div className="preview-wrap">
+    <div className="visual-folder-summary"><span><FolderOpen size={12} /> {groupedCount} en carpeta</span><span><FileImage size={12} /> {ungroupedCount} sin agrupar</span></div>
+    <section className="visual-assets"><header><div><span>RECURSOS DE ESTA PUBLICACIÓN</span><strong>{images.length} {images.length === 1 ? 'imagen' : 'imágenes'}</strong></div><button type="button" className="visual-refresh" onClick={() => void refreshFolder()} disabled={folderBusy}><FolderOpen size={13} /> {folderBusy ? 'Leyendo…' : 'Actualizar carpeta'}</button></header><small className="visual-folder-hint">Selecciona varias imágenes para agruparlas en una carpeta; el orden se ajusta aquí sin renombrar archivos.</small>{selectedAssets.length > 0 && <div className="visual-group-actions"><span>{selectedAssets.length} seleccionadas</span><button type="button" onClick={() => void groupSelected()}><FolderPlus size={13} /> Crear carpeta</button></div>}{organizeMessage && <p className="media-import-error" role="alert">{organizeMessage}</p>}{groups.map(group => <div className="visual-group-heading" key={group}><FolderOpen size={13} /><strong>{group}</strong><button type="button" title={`Renombrar ${group}`} onClick={() => void renameGroup(group)}><Edit3 size={13} /></button></div>)}{images.length ? <div className="visual-asset-list">{images.map(asset => { const role = roleOf(asset); const order = visualSequence(asset); const position = presentation.findIndex(item => item.id === asset.id); return <article className={'visual-asset-row' + (image?.id === asset.id ? ' selected' : '')} key={asset.id}><input type="checkbox" className="visual-asset-check" aria-label={`Seleccionar ${asset.name} para agrupar`} checked={selectedAssets.includes(asset.id)} onChange={event => setSelectedAssets(current => event.target.checked ? [...current, asset.id] : current.filter(id => id !== asset.id))} /><button type="button" className="visual-asset-thumb" onClick={() => setSelectedId(asset.id)}><img src={window.planner.media.imageUrl(asset.id)} alt="" /></button><div className="visual-asset-meta"><strong title={asset.name}>{asset.groupName ? `${asset.groupName} / ${asset.name}` : asset.name}</strong><select aria-label={`Uso de ${asset.name}`} value={role} onChange={event => updateVisual(asset.id, event.target.value as NonNullable<typeof asset.presentationRole>, order)}><option value="representative">Representativa</option><option value="cover">Portada</option><option value="slide">Diapositiva</option><option value="closing">Cierre</option><option value="other">Excluir de la secuencia</option></select></div>{!['representative', 'other'].includes(role) && <div className="visual-order-controls"><input aria-label={`Orden de ${asset.name}`} className="visual-order" type="number" min="1" max="10000" value={order ?? ''} placeholder="Sin orden" onChange={event => updateVisual(asset.id, role, event.target.value === '' ? null : Number(event.target.value))} /><button type="button" title="Subir en la secuencia" aria-label={`Subir ${asset.name}`} disabled={position <= 0} onClick={() => moveVisual(asset.id, -1)}><ChevronUp size={13} /></button><button type="button" title="Bajar en la secuencia" aria-label={`Bajar ${asset.name}`} disabled={position < 0 || position === presentation.length - 1} onClick={() => moveVisual(asset.id, 1)}><ChevronDown size={13} /></button></div>}</article>})}</div> : <p className="visual-assets-empty">No hay PNG, JPG o WebP en la carpeta de esta publicación.</p>}</section>
     <div className="preview-platforms">{draft.platforms.map(p => <button key={p}><PlatformMark platform={p} />{getPlatformMeta(p).label}</button>)}</div>
     <div className={'social-preview ' + platform}>
-      <header><div className="preview-avatar">CP</div><div><strong>tu_cuenta</strong><span>Vista previa local</span></div><MoreHorizontal size={17} /></header>
+      <header><div className="preview-avatar" aria-label="Caballocci"><i /><i /><i /></div><div><strong>tu_cuenta</strong><span><i className="preview-local-dot" /> Vista previa local · {getPlatformMeta(platform).label}</span></div><MoreHorizontal size={17} /></header>
       <div className="preview-media">
         {image
           ? <img src={window.planner.media.imageUrl(image.id)} alt={image.name} />
           : <div className="preview-placeholder"><Instagram size={38} />{firstIdea ? <><strong>{firstIdea.title || 'Idea 1'}</strong><p>{firstIdea.text || 'Texto pendiente'}</p></> : <span>{contentLabels[draft.contentType]}</span>}</div>}
-        <span className="preview-dimensions">1080 × 1350</span>
+        <span className="preview-dimensions">{image ? `${roleOf(image) === 'representative' ? 'Imagen representativa' : roleOf(image) === 'cover' ? 'Portada' : roleOf(image) === 'closing' ? 'Cierre' : 'Diapositiva'}${image.sequence ? ` · ${image.sequence}` : ''}` : 'Sin recurso visual'}</span>
       </div>
+      {presentation.length > 1 && isSequenceImage && <div className="preview-sequence"><button type="button" title="Imagen anterior" onClick={() => setSelectedId(presentation[(sequenceIndex - 1 + presentation.length) % presentation.length].id)}><ChevronLeft size={15} /></button><span>{sequenceIndex + 1} / {presentation.length}</span><button type="button" title="Imagen siguiente" onClick={() => setSelectedId(presentation[(sequenceIndex + 1) % presentation.length].id)}><ChevronRight size={15} /></button></div>}
       <div className="preview-actions"><MessageCircle /><Archive /><Clipboard /></div>
       <p><strong>tu_cuenta </strong>{text || 'Aquí aparecerá el texto de tu publicación.'}</p>
     </div>
     <button className="copy-helper" onClick={() => window.planner.clipboard.write(text)}><Clipboard size={16} /> Copiar texto para publicar</button>
+    {groupDialog && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null) }}><form className="space-dialog" onSubmit={event => { event.preventDefault(); void saveGroup() }}><header><div><span>{groupDialog.currentName ? 'RENOMBRAR CARPETA' : 'NUEVA CARPETA'}</span><h2>Carpeta de diapositivas</h2></div><button type="button" className="icon-button" aria-label="Cerrar" onClick={() => setGroupDialog(null)}><X size={18} /></button></header><label>Nombre<input autoFocus maxLength={120} value={groupDialog.name} onChange={event => setGroupDialog(current => current ? { ...current, name: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setGroupDialog(null)}>Cancelar</button><button className="save-button" disabled={!groupDialog.name.trim() || groupDialog.name.trim() === groupDialog.currentName}>Guardar carpeta</button></footer></form></div>}
   </div>
 }
 
@@ -123,7 +224,7 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
 }
 
 export function Editor({ initial, onClose }: { initial: Post | null; onClose(): void }) {
-  const { save, remove, uncombinePost, activeSpace } = usePlanner()
+  const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
   const [draft, setDraft] = useState<PostInput>(() => {
     if (initial) return { ...initial }
@@ -137,6 +238,7 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   const [assistantMessage, setAssistantMessage] = useState('')
   const [noteItems, setNoteItems] = useState<NoteItem[]>(() => notesToItems(initial?.notes || ''))
   const [saving, setSaving] = useState(false)
+  const [mediaMessage, setMediaMessage] = useState('')
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
   const [catalogConfig, setCatalogConfig] = useState<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite' }>({ configured: false, endpoint: '', createdBy: '', defaultKind: 'resource' })
   const [catalogToken, setCatalogToken] = useState('')
@@ -188,7 +290,11 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
     onClose()
   }
   const submitAndClear = async () => { await submit(); localStorage.removeItem(draftKey); await window.planner.preferences.remove(draftKey) }
-  const attach = async () => update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id)])
+  const attach = async () => {
+    setMediaMessage('')
+    try { update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id, draft.project)]) }
+    catch (error) { setMediaMessage(errorMessage(error)) }
+  }
   const applyAssistant = () => {
     const titles = parseTitleCandidates(assistantTitles)
     const blocks = parseMasterSlides(assistantMaster)
@@ -204,9 +310,11 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
   const saveCatalog = async () => { setCatalogBusy(true); setCatalogMessage(''); try { const config = await window.planner.catalog.saveConfig({ endpoint: catalogEndpoint, createdBy: catalogCreatedBy, token: catalogToken, defaultKind: catalogKind, scope: draft.project || activeSpace || '' }); setCatalogConfig(config); setCatalogToken(''); if (initial) await window.planner.catalog.savePostFields({ postId: initial.id, summary: catalogSummary, content: catalogContent, useHashtags: catalogUseHashtags, categoryId: catalogCategoryId ? Number(catalogCategoryId) : null, categorySlug: catalogCategorySlug, kind: catalogKind }); setCatalogMessage('Configuracion guardada') } catch (error) { setCatalogMessage(error instanceof Error ? error.message : 'No se pudo guardar la configuracion') } finally { setCatalogBusy(false) } }
   const syncCatalog = async (dryRun: boolean, publishOverride = catalogPublish) => { if (!initial) { setCatalogMessage('Guarda la publicacion antes de sincronizar'); return }; let category = catalogCategoryId; let slug = catalogCategorySlug.trim(); if (catalogKind === 'resource' && !category && !slug) { const value = window.prompt('Escribe category_id numerico o category_slug:', '') || ''; if (/^\d+$/.test(value)) category = value; else slug = value.trim() } if (catalogKind === 'resource' && ((!category || !/^\d+$/.test(category) || Number(category) < 1) && !slug)) { setCatalogMessage('Resource requiere category_id o category_slug valido'); return }; if (category && slug) { setCatalogMessage('Usa category_id o category_slug, no ambos'); return }; setCatalogCategoryId(category); setCatalogCategorySlug(slug); setCatalogBusy(true); setCatalogMessage(dryRun ? 'Validando en la API...' : 'Sincronizando...'); try { await save(draft); await window.planner.catalog.savePostFields({ postId: initial.id, summary: catalogSummary, content: catalogContent, useHashtags: catalogUseHashtags, categoryId: category ? Number(category) : null, categorySlug: slug, kind: catalogKind }); const result = await window.planner.catalog.sync(initial.id, catalogKind, dryRun, publishOverride); setCatalogSync(result.sync); setCatalogMessage(dryRun ? `Simulacion: ${result.sync.action}` : `Catalogo: ${result.sync.action}`) } catch (error) { setCatalogMessage(error instanceof Error ? error.message : 'No se pudo sincronizar') } finally { setCatalogBusy(false) } }
   const catalogPreview = { source: 'caballocci', dry_run: true, publish: false, items: [{ kind: catalogKind, external_id: `post-${initial?.id || ''}`, title: draft.title, ...(catalogKind === 'resource' && catalogCategorySlug ? { category_slug: catalogCategorySlug } : catalogKind === 'resource' && catalogCategoryId ? { category_id: Number(catalogCategoryId) } : {}), summary: catalogSummary, content: catalogContent }] }
+  const sourceIdea = initial?.sourceIdeaId ? ideas.find(idea => idea.id === initial.sourceIdeaId) : undefined
 
   return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor">
-    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2></div><button className="icon-button" onClick={close}><X size={19} /></button></header>
+    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><button className="icon-button" onClick={close}><X size={19} /></button></header>
+    <EditorError message={mediaMessage} onDismiss={() => setMediaMessage('')} />
     <div className="editor-tabs"><button className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Ideas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button>{externalRecord && <button className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
     <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
     <div className="editor-tabs editor-tabs-slides"><button className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button></div>
@@ -220,14 +328,16 @@ export function Editor({ initial, onClose }: { initial: Post | null; onClose(): 
         <label>Texto de la publicación<div className="caption-box"><textarea value={draft.caption} onChange={e => update('caption', e.target.value)} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean))} placeholder="#contenido #campaña" /></label>
         <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={draft.scheduledAt?.slice(0, 16) || ''} onChange={e => update('scheduledAt', e.target.value ? new Date(e.target.value).toISOString() : null)} /><small className="field-hint">Sin fecha programada hasta que la elijas.</small></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
-        <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir material</strong><small>Se guardará en la carpeta de esta publicación</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id)}><FolderOpen size={17} /> Abrir carpeta</button></div>
+        <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
+        <p className="media-folder-hint"><FolderOpen size={13} /> También puedes copiar imágenes directamente en esta carpeta y pulsar “Actualizar carpeta” en Vista previa.</p>
+        {mediaMessage && <p className="media-import-error" role="alert">{mediaMessage}</p>}
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
       {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}
       {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={blocks => update('ideaBlocks', blocks)} />}
       {tab === 'notes' && <section className="notes-editor"><header><div><span>APUNTES INTERNOS</span><strong>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'}</strong></div><button type="button" className="new-button" onClick={() => updateNotes([...noteItems, { id: crypto.randomUUID(), title: '', text: '' }])}><Plus size={15} /> Nueva nota</button></header>{noteItems.map((note, index) => <article className="note-item" key={note.id}><div className="note-item-heading"><span>NOTA {String(index + 1).padStart(2, '0')}</span>{noteItems.length > 1 && <button type="button" onClick={() => updateNotes(noteItems.filter(item => item.id !== note.id))}><Trash2 size={14} /></button>}</div><input value={note.title} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, title: event.target.value } : item))} placeholder="Nombre opcional" /><textarea value={note.text} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, text: event.target.value } : item))} placeholder="Dato, referencia, pendiente o contexto..." /></article>)}</section>}
       {tab === 'assistant' && <section className="ai-assistant"><header><div><span>INGESTA DE RESPUESTAS</span><strong>Convierte tus textos en una publicación</strong></div><Sparkles size={19} /></header><p className="assistant-hint">Se detectan títulos y slides numeradas; las secciones “final” o “cierre” se descartan.</p><label>Original<textarea value={assistantIdea} onChange={event => setAssistantIdea(event.target.value)} placeholder="Pega aquí el texto seleccionado" /></label><label>Títulos<textarea value={assistantTitles} onChange={event => setAssistantTitles(event.target.value)} placeholder="Un título por línea" /></label>{parseTitleCandidates(assistantTitles).length > 0 && <div className="assistant-candidates"><span>Elegir título</span>{parseTitleCandidates(assistantTitles).map(title => <button type="button" key={title} onClick={() => update('title', title)}>{title}</button>)}</div>}<label>Respuesta del p1<textarea value={assistantMaster} onChange={event => setAssistantMaster(event.target.value)} placeholder={'Slide 0: ...\nSlide 1: ...\nFinal: ...'} /></label><div className="assistant-actions"><button type="button" className="save-button" onClick={applyAssistant}><Sparkles size={15} /> Aplicar a la publicación</button><button type="button" className="ghost-button" onClick={() => void copyObsidianMark()}><Clipboard size={15} /> Copiar marca</button></div>{assistantMessage && <p className="assistant-message">{assistantMessage}</p>}</section>}
-      {tab === 'preview' && <Preview draft={draft} />}
+      {tab === 'preview' && <Preview draft={draft} onMediaChange={media => update('media', media)} onError={setMediaMessage} />}
       {tab === 'notes' && <label>Notas internas<textarea className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value)} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}
       {tab === 'catalog' && <div className="catalog-fields"><label>category_id (solo Resource)<input type="number" min="1" step="1" value={catalogCategoryId} onChange={event => setCatalogCategoryId(event.target.value)} placeholder="Ej. 4" /></label><label>Resumen del catalogo<textarea value={catalogSummary} onChange={event => setCatalogSummary(event.target.value)} placeholder="Resumen breve; conserva saltos de linea y Markdown pegado." /></label><label>Contenido del catalogo<textarea value={catalogContent} onChange={event => setCatalogContent(event.target.value)} placeholder="Pega aqui el Markdown completo." /></label><label><input type="checkbox" checked={catalogUseHashtags} onChange={event => setCatalogUseHashtags(event.target.checked)} /> Convertir hashtags a tags (requiere IDs)</label></div>}

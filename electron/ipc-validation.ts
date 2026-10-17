@@ -51,6 +51,8 @@ function mediaAsset(value: unknown, index: number) {
     kind: enumValue(asset.kind, `media[${index}].kind`, mediaKinds),
     size,
     mode: enumValue(asset.mode, `media[${index}].mode`, mediaModes),
+    ...(asset.presentationRole === undefined ? {} : { presentationRole: enumValue(asset.presentationRole, `media[${index}].presentationRole`, ['representative', 'cover', 'slide', 'closing', 'other'] as const) }),
+    ...(asset.sequence === undefined ? {} : { sequence: asset.sequence === null ? null : typeof asset.sequence === 'number' && Number.isInteger(asset.sequence) && asset.sequence >= 0 && asset.sequence <= 10000 ? asset.sequence : invalid(`media[${index}].sequence`) }),
   }
 }
 

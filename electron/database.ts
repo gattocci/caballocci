@@ -272,6 +272,14 @@ export class PlannerDatabase {
     return this.media.getPath(id)
   }
 
+  findMediaByPath(filePath: string): Row | undefined {
+    return this.media.findByPath(filePath)
+  }
+
+  updateMediaPath(id: string, filePath: string) {
+    this.media.updatePath(id, filePath)
+  }
+
   getMediaFile(id: string): { path: string; kind: string } | undefined {
     return this.media.getFile(id)
   }

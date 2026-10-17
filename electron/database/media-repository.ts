@@ -9,6 +9,20 @@ export class MediaRepository {
 
   getPath(id: string): string | undefined { return this.getFile(id)?.path }
 
+  findByPath(filePath: string): Row | undefined {
+    const statement = this.db.prepare('SELECT id,name,kind,size,mode FROM media_assets WHERE path = ?')
+    try {
+      statement.bind([filePath])
+      if (!statement.step()) return undefined
+      return statement.getAsObject() as Row
+    } finally { statement.free() }
+  }
+
+  updatePath(id: string, filePath: string) {
+    this.db.run('UPDATE media_assets SET path = ?, name = ? WHERE id = ?', [filePath, filePath.split(/[\\/]/).at(-1) || '', id])
+    this.persist()
+  }
+
   getFile(id: string): { path: string; kind: string } | undefined {
     const statement = this.db.prepare('SELECT path,kind FROM media_assets WHERE id = ?')
     try {
