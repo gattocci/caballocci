@@ -45,6 +45,23 @@ function readAnalysisOptions(): IdeaAnalysisOptions {
   } catch { return defaultAnalysisOptions }
 }
 
+function commonTitlePrefix(titles: string[]) {
+  if (titles.length < 2) return ''
+  let prefix = titles[0].trim()
+  for (const title of titles.slice(1)) {
+    while (prefix && !title.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase())) prefix = prefix.slice(0, -1)
+    if (!prefix) break
+  }
+  const boundary = prefix.lastIndexOf(' ')
+  return boundary > 0 ? prefix.slice(0, boundary + 1).trim() : ''
+}
+
+function clusterTitlePreview(idea: Idea, prefix: string) {
+  const title = idea.title || ''
+  const remainder = prefix && title.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase()) ? title.slice(prefix.length).trim() : title.trim()
+  return remainder.length >= 8 ? remainder : (idea.body.trim().slice(0, 84) || 'Idea sin título')
+}
+
 function parseTextFile(text: string, sourceName: string, space: string): IdeaInput[] {
   const normalizedText = text.replace(/^\uFEFF/, '').replace(/\r/g, '')
   const frontmatter = normalizedText.match(/^---\n([\s\S]*?)\n---(?:\n|$)/)
@@ -87,6 +104,9 @@ export function IdeasView() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [neighbors, setNeighbors] = useState<IdeaNeighbor[]>([])
   const [clusters, setClusters] = useState<IdeaCluster[]>([])
+  const [activeClusterId, setActiveClusterId] = useState<string | null>(null)
+  const [clusterQuery, setClusterQuery] = useState('')
+  const [showSmallClusters, setShowSmallClusters] = useState(false)
   const [clusterSelection, setClusterSelection] = useState(false)
   const [selectedOnly, setSelectedOnly] = useState(false)
   const [analysisMessage, setAnalysisMessage] = useState('')
@@ -100,6 +120,15 @@ export function IdeasView() {
   const pageSize = 40
   const pageCount = Math.max(1, Math.ceil(ideasInSpace.length / pageSize))
   const visibleIdeas = ideasInSpace.slice((page - 1) * pageSize, page * pageSize)
+  const clusterIdeas = (cluster: IdeaCluster) => cluster.ideaIds.map(id => ideas.find(idea => idea.id === id)).filter((idea): idea is Idea => Boolean(idea))
+  const visibleClusters = useMemo(() => {
+    const normalizedQuery = clusterQuery.trim().toLocaleLowerCase()
+    return clusters
+      .filter(cluster => showSmallClusters || cluster.ideaIds.length >= 3)
+      .filter(cluster => !normalizedQuery || cluster.name.toLocaleLowerCase().includes(normalizedQuery) || clusterIdeas(cluster).some(idea => idea.title.toLocaleLowerCase().includes(normalizedQuery)))
+      .sort((a, b) => b.ideaIds.length - a.ideaIds.length || a.name.localeCompare(b.name))
+  }, [clusterQuery, clusters, ideas, showSmallClusters])
+  const activeCluster = visibleClusters.find(cluster => cluster.id === activeClusterId) || visibleClusters[0] || null
   useEffect(() => { setPage(1); setSelectedIds([]); setSelectedOnly(false) }, [query, statusFilter, activeSpace])
   useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-ignored-terms', ignoredTermsText) } catch { /* Optional local preference. */ } }, [ignoredTermsText])
@@ -115,6 +144,14 @@ export function IdeasView() {
     if (!draft?.title.trim()) return
     await saveIdea({ ...draft, title: draft.title.trim(), body: draft.body.trim() })
     setDraft(null)
+  }
+  const saveAndConvert = async () => {
+    if (!draft?.title.trim()) return
+    const saved = await saveIdea({ ...draft, title: draft.title.trim(), body: draft.body.trim() })
+    const post = await convertIdea(saved.id)
+    setDraft(null)
+    select(post.id)
+    setView('board')
   }
   const convert = async (idea: Idea) => {
     const post = await convertIdea(idea.id)
@@ -175,6 +212,7 @@ export function IdeasView() {
     try {
       const proposed = await proposeClusters(0.65, ignoredTerms, analysisOptions)
       setClusters(proposed)
+      setActiveClusterId(proposed[0]?.id || null)
       setAnalysisMessage(proposed.length ? '' : 'No se encontraron grupos suficientemente relacionados con estos términos.')
     } catch (error) {
       setAnalysisMessage(error instanceof Error ? error.message : 'No se pudieron proponer clusters.')
@@ -205,14 +243,20 @@ export function IdeasView() {
     {selectedIds.length > 0 && <div className="ideas-bulk-actions"><strong>{selectedIds.length} seleccionadas</strong>{selectedIds.length === 1 && <button type="button" onClick={() => void findNeighbors()}><Search size={13} /> Ideas parecidas</button>}{selectedIds.length >= 2 && <button type="button" onClick={() => void bulkCombine()}><Combine size={13} /> Combinar</button>}<button type="button" onClick={() => void bulkStatus('developing')}>Desarrollar</button><button type="button" onClick={() => void bulkStatus('ready')}>Marcar listas</button><button type="button" onClick={() => void bulkConvert()}>Convertir</button><button type="button" onClick={() => void bulkStatus('archived')}>Archivar</button><button type="button" onClick={() => void bulkRemove()}>Eliminar</button></div>}
     {analysisMessage && <p className="ideas-analysis-message">{analysisMessage}</p>}
     {neighbors.length > 0 && <section className="ideas-analysis-panel"><header><strong>Ideas parecidas</strong><button type="button" className="icon-button" onClick={() => setNeighbors([])}><X size={14} /></button></header><div>{neighbors.map(idea => <button type="button" key={idea.id} onClick={() => { setSelectedIds([idea.id]); setNeighbors([]) }}><span>{idea.title || 'Idea sin titulo'}</span><small>{Math.round(idea.similarity * 100)}% de similitud</small></button>)}</div></section>}
-    {clusters.length > 0 && <section className="ideas-analysis-panel"><header><strong>Clusters sugeridos</strong><button type="button" className="icon-button" onClick={() => setClusters([])}><X size={14} /></button></header><div>{clusters.map(cluster => <article key={cluster.id}><strong>{cluster.name}</strong><small>{cluster.ideaIds.length} ideas</small><button type="button" onClick={() => { setSelectedIds(cluster.ideaIds); setSelectedOnly(true); setClusterSelection(true); setPage(1) }}>Seleccionar y ver</button></article>)}</div></section>}
-    {clusterSelection && selectedIds.length > 0 && <section className="ideas-analysis-panel ideas-selection-preview"><header><strong>{selectedIds.length} ideas del cluster</strong><button type="button" className="settings-button" onClick={clearClusterView}>Ver todas</button><button type="button" className="icon-button" onClick={clearClusterView}><X size={14} /></button></header><div>{selectedIds.map(id => ideas.find(idea => idea.id === id)).filter(Boolean).map(idea => <button type="button" key={idea!.id} onClick={() => edit(idea!)}><strong>{idea!.title || 'Idea sin título'}</strong><small>{idea!.body.slice(0, 150)}{idea!.body.length > 150 ? '…' : ''}</small></button>)}</div></section>}
+    {clusters.length > 0 && <section className="ideas-analysis-panel clusters-panel">
+      <header className="clusters-panel-header"><div><strong>Clusters sugeridos</strong><small>{visibleClusters.length} grupos visibles · ordenados por tamaño</small></div><div className="clusters-panel-actions"><label className="clusters-search"><Search size={13} /><input value={clusterQuery} onChange={event => setClusterQuery(event.target.value)} placeholder="Buscar cluster" /></label><button type="button" className={showSmallClusters ? 'settings-button active' : 'settings-button'} onClick={() => setShowSmallClusters(current => !current)}>{showSmallClusters ? 'Ocultar grupos de 2' : 'Ver grupos de 2'}</button><button type="button" className="icon-button" onClick={() => { setClusters([]); setActiveClusterId(null) }}><X size={14} /></button></div></header>
+      <div className="clusters-layout">
+        <nav className="clusters-list" aria-label="Lista de clusters">{visibleClusters.map(cluster => { const items = clusterIdeas(cluster); const prefix = commonTitlePrefix(items.map(idea => idea.title)); const isSeries = prefix.length > 0 && items.every(idea => idea.title.length > 0) && prefix.length / Math.max(...items.map(idea => idea.title.length)) > .6; return <button type="button" key={cluster.id} className={activeCluster?.id === cluster.id ? 'active' : ''} onClick={() => setActiveClusterId(cluster.id)}><span>{cluster.name}</span><small>{items.length} ideas{isSeries ? ' · Serie' : ''}</small><em>{items.slice(0, 2).map(idea => clusterTitlePreview(idea, prefix)).join(' · ')}</em></button> })}{!visibleClusters.length && <p className="clusters-empty">No hay clusters que coincidan.</p>}</nav>
+        {activeCluster && <div className="cluster-detail"><div className="cluster-detail-heading"><div><span>CLUSTER SELECCIONADO</span><h3>{activeCluster.name}</h3><small>{clusterIdeas(activeCluster).length} ideas relacionadas</small></div><div className="cluster-detail-actions"><button type="button" className="settings-button" onClick={() => { const ids = activeCluster.ideaIds; setSelectedIds(current => current.length === ids.length && ids.every(id => current.includes(id)) ? [] : ids); setSelectedOnly(false); setClusterSelection(true) }}>{activeCluster.ideaIds.every(id => selectedIds.includes(id)) ? 'Quitar selección' : 'Seleccionar todas'}</button><button type="button" className="new-button" onClick={() => { setSelectedIds(activeCluster.ideaIds); setSelectedOnly(true); setClusterSelection(true); setPage(1) }}>Ver ideas</button></div></div><div className="cluster-ideas-list">{(() => { const items = clusterIdeas(activeCluster); const prefix = commonTitlePrefix(items.map(idea => idea.title)); const isSeries = prefix.length > 0 && items.every(idea => idea.title.length > 0) && prefix.length / Math.max(...items.map(idea => idea.title.length)) > .6; return <>{isSeries && <div className="cluster-series-label"><span>Serie</span>{prefix}</div>}{items.map(idea => <article className={'cluster-idea-card ' + (selectedIds.includes(idea.id) ? 'selected' : '')} key={idea.id} onClick={() => edit(idea)}><header><label onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /><span>{idea.status === 'converted' ? 'Convertida' : statusLabels[idea.status]}</span></label><div><button type="button" title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={13} /></button></div></header><strong>{clusterTitlePreview(idea, prefix)}</strong><small>{idea.body.slice(0, 130)}{idea.body.length > 130 ? '…' : ''}</small><footer>{idea.status === 'converted' ? <span className="cluster-converted">Convertida</span> : <button type="button" onClick={event => { event.stopPropagation(); void convert(idea) }}>Convertir <ArrowRight size={13} /></button>}</footer></article>)}</> })()}</div></div>}
+      </div>
+      {visibleClusters.some(cluster => cluster.ideaIds.length < 3) && !showSmallClusters && <button type="button" className="clusters-small-note" onClick={() => setShowSmallClusters(true)}>Hay {clusters.filter(cluster => cluster.ideaIds.length < 3).length} posibles duplicados o series de 2 ideas. Verlos.</button>}
+    </section>}
     {ideasInSpace.length ? <div className="ideas-grid">{visibleIdeas.map(idea => <article className={'idea-card ' + (selectedIds.includes(idea.id) ? 'selected' : '')} key={idea.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selectedIds.length > 0) toggleSelected(idea.id) }}>
       <header><label className="idea-select" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span></label><div><button title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={event => { event.stopPropagation(); if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
       <span className="idea-status">{statusLabels[idea.status]}</span>{(idea.combinedPostIds.length > 0 || idea.combinedPostId) && <span className="idea-combined-badge">{idea.combinedPostIds.length > 1 ? `${idea.combinedPostIds.length} combinaciones` : 'Combinada'}</span>}<h2>{idea.title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>
       <footer>{idea.dueDate && <span><CalendarDays size={13} />{new Date(idea.dueDate).toLocaleDateString()}</span>}<small>{idea.space}</small><div className="idea-links">{(idea.combinedPostIds.length > 0 ? idea.combinedPostIds : (idea.combinedPostId ? [idea.combinedPostId] : [])).map((postId, index) => <button key={postId} onClick={event => { event.stopPropagation(); select(postId); setView('board') }} title="Abrir publicacion combinada"><ExternalLink size={13} /> {index === 0 ? 'Ver combinado' : `Ver combinado ${index + 1}`}</button>)}{idea.postId ? <button onClick={event => { event.stopPropagation(); select(idea.postId!); setView('board') }} title="Abrir publicacion individual"><ExternalLink size={13} /> Ver publicacion</button> : <button onClick={event => { event.stopPropagation(); void convert(idea) }}>Convertir <ArrowRight size={14} /></button>}</div></footer>
     </article>)}</div> : <div className="ideas-empty"><Lightbulb size={34} /><strong>No hay ideas en este filtro</strong><span>Importa un archivo o cambia el estado seleccionado.</span><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
     {ideasInSpace.length > 0 && <div className="ideas-pagination"><button disabled={page <= 1} onClick={() => setPage(current => current - 1)}>Anterior</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage(current => current + 1)}>Siguiente</button></div>}
-    {draft && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setDraft(null) }}><form className="space-dialog idea-dialog" onSubmit={event => { event.preventDefault(); void save() }}><header><div><span>{draft.id ? 'EDITAR IDEA' : 'NUEVA IDEA'}</span><h2>{draft.title || 'Idea sin titulo'}</h2></div><button type="button" className="icon-button" onClick={() => setDraft(null)}><X size={18} /></button></header><label>Titulo<input autoFocus value={draft.title} maxLength={240} onChange={event => setDraft(current => current ? { ...current, title: event.target.value } : current)} placeholder="Describe la idea" /></label><label>Desarrollo<textarea value={draft.body} maxLength={20_000} onChange={event => setDraft(current => current ? { ...current, body: event.target.value } : current)} placeholder="Anota el enfoque, datos o una primera version" /></label><div className="idea-dialog-row"><label>Estado<select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as IdeaStatus } : current)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Prioridad<select value={draft.priority} onChange={event => setDraft(current => current ? { ...current, priority: event.target.value as IdeaPriority } : current)}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><label>Espacio<input value={draft.space} maxLength={200} onChange={event => setDraft(current => current ? { ...current, space: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancelar</button><button className="save-button" disabled={!draft.title.trim()}>Guardar idea</button></footer></form></div>}
+    {draft && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setDraft(null) }}><form className="space-dialog idea-dialog" onSubmit={event => { event.preventDefault(); void save() }}><header><div><span>{draft.id ? 'EDITAR IDEA' : 'NUEVA IDEA'}</span><h2>{draft.title || 'Idea sin titulo'}</h2></div><button type="button" className="icon-button" onClick={() => setDraft(null)}><X size={18} /></button></header><label>Titulo<input autoFocus value={draft.title} maxLength={240} onChange={event => setDraft(current => current ? { ...current, title: event.target.value } : current)} placeholder="Describe la idea" /></label><label>Desarrollo<textarea value={draft.body} maxLength={20_000} onChange={event => setDraft(current => current ? { ...current, body: event.target.value } : current)} placeholder="Anota el enfoque, datos o una primera version" /></label><div className="idea-dialog-row"><label>Estado<select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as IdeaStatus } : current)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Prioridad<select value={draft.priority} onChange={event => setDraft(current => current ? { ...current, priority: event.target.value as IdeaPriority } : current)}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><label>Espacio<input value={draft.space} maxLength={200} onChange={event => setDraft(current => current ? { ...current, space: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancelar</button><button type="button" className="ghost-button" disabled={!draft.title.trim()} onClick={() => void saveAndConvert()}>Guardar y convertir</button><button className="save-button" disabled={!draft.title.trim()}>Guardar idea</button></footer></form></div>}
   </section>
 }
