@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CalendarDays, Combine, ExternalLink, Layers3, Lightbulb, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { ViewHeading } from '../../components/layout/AppShell'
 import { ideaMatchesQuery, usePlanner } from '../../app/store'
@@ -43,6 +43,31 @@ function readAnalysisOptions(): IdeaAnalysisOptions {
     const stored = JSON.parse(localStorage.getItem('caballocci.ideas.analysis-options') || '{}')
     return { ...defaultAnalysisOptions, ...stored }
   } catch { return defaultAnalysisOptions }
+}
+function readFamilyPatterns(): Record<string, string> {
+  try { const parsed = JSON.parse(localStorage.getItem('caballocci.ideas.family-patterns') || '{}'); return parsed && typeof parsed === 'object' ? parsed : {} } catch { return {} }
+}
+function ideaFamily(title: string, sourceName?: string, patterns = readFamilyPatterns()) {
+  const configured = sourceName ? patterns[sourceName] : undefined
+  if (configured) {
+    try { const match = title.match(new RegExp(configured, 'i')); if (match?.[0]) return { family: match[0].replace(/\s*\+\d+\s*:?[ \t]*/g, '').replace(/\s*:\s*$/, '').trim(), title: title.slice(match[0].length).trim() || title.trim() } } catch { /* Invalid local pattern: use generic detection. */ }
+  }
+  const match = title.match(/^\s*((?:[A-ZÁÉÍÓÚÜÑ][A-ZÁÉÍÓÚÜÑ\d+]*(?:\s+|$)){1,5})(?::|\s+-\s+|\s{2,})/) || title.match(/^\s*((?:[A-ZÁÉÍÓÚÜÑ][A-ZÁÉÍÓÚÜÑ\d+]*(?:\s+|$)){1,5})\s*\+\d+\s*:?\s*/)
+  if (!match) return { family: '', title: title.trim() }
+  const family = match[1].replace(/\s*\+\d+\s*$/, '').trim()
+  return { family, title: title.slice(match[0].length).trim() || title.trim() }
+}
+function testFamilyPattern(title: string, sourceName: string, patternsText: string) {
+  try { const patterns = JSON.parse(patternsText) as Record<string, unknown>; const pattern = patterns[sourceName]; if (typeof pattern !== 'string' || !pattern) return { ok: false, message: 'No hay patrón para esa fuente.' }; const match = title.match(new RegExp(pattern, 'i')); if (!match?.[0]) return { ok: true, message: 'No coincide; se conservaría el título completo.', title }; const family = match[0].replace(/\s*\+\d+\s*:?[ \t]*/g, '').replace(/\s*:\s*$/, '').trim(); return { ok: true, message: `Familia: ${family || 'detectada'} · título resultante:`, title: title.slice(match[0].length).trim() || title.trim() } } catch (error) { return { ok: false, message: error instanceof Error ? error.message : 'JSON o regex no válidos.' } }
+}
+function familyPatternError(text: string) {
+  try { JSON.parse(text); return '' } catch (error) {
+    const message = error instanceof Error ? error.message : 'JSON no válido.'
+    const position = message.match(/position\s+(\d+)/i)?.[1]
+    if (!position) return message
+    const index = Number(position); const before = text.slice(0, index); const line = before.split('\n').length; const column = index - (before.lastIndexOf('\n') + 1) + 1
+    return `${message} · línea ${line}, columna ${column}`
+  }
 }
 
 function commonTitlePrefix(titles: string[]) {
@@ -107,6 +132,7 @@ export function IdeasView() {
   const [activeClusterId, setActiveClusterId] = useState<string | null>(null)
   const [clusterQuery, setClusterQuery] = useState('')
   const [showSmallClusters, setShowSmallClusters] = useState(false)
+  const [familyFilter, setFamilyFilter] = useState('')
   const [clusterSelection, setClusterSelection] = useState(false)
   const [selectedOnly, setSelectedOnly] = useState(false)
   const [analysisMessage, setAnalysisMessage] = useState('')
@@ -114,12 +140,44 @@ export function IdeasView() {
   const [importHistory, setImportHistory] = useState<IdeaImportRun[]>([])
   const [ignoredTermsText, setIgnoredTermsText] = useState(readIgnoredTerms)
   const [analysisOptions, setAnalysisOptions] = useState<IdeaAnalysisOptions>(readAnalysisOptions)
+  const [familyPatternsText, setFamilyPatternsText] = useState(() => { try { return localStorage.getItem('caballocci.ideas.family-patterns') || '{}' } catch { return '{}' } })
+  const [familyTestSource, setFamilyTestSource] = useState('')
+  const [familyTestTitle, setFamilyTestTitle] = useState('')
+  const [familyTestResult, setFamilyTestResult] = useState<{ ok: boolean; message: string; title?: string } | null>(null)
+  const familyPatternsState = useMemo(() => {
+    try {
+      const parsed = JSON.parse(familyPatternsText)
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return { valid: false, message: 'Debe ser un objeto JSON con fuente y patrón.' }
+      Object.entries(parsed).forEach(([source, pattern]) => { if (typeof source !== 'string' || typeof pattern !== 'string') throw new Error('Cada fuente y patrón debe ser texto.') ; new RegExp(pattern) })
+      return { valid: true, message: 'Configuración válida. Se aplicará por nombre de fuente.' }
+    } catch (error) { return { valid: false, message: familyPatternError(familyPatternsText) || (error instanceof Error ? error.message : 'JSON no válido.') } }
+  }, [familyPatternsText])
+  const familyPatternsRef = useRef<HTMLTextAreaElement>(null)
+  const insertFamilyPair = (open: string, close: string) => {
+    const el = familyPatternsRef.current
+    const start = el?.selectionStart ?? familyPatternsText.length
+    const end = el?.selectionEnd ?? start
+    const selected = familyPatternsText.slice(start, end)
+    setFamilyPatternsText(familyPatternsText.slice(0, start) + open + selected + close + familyPatternsText.slice(end))
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      const cursor = start + open.length + (selected ? selected.length + close.length : 0)
+      el.setSelectionRange(cursor, cursor)
+    })
+  }
+  const formatFamilyPatterns = () => {
+    try { setFamilyPatternsText(JSON.stringify(JSON.parse(familyPatternsText), null, 2)) } catch { /* Invalid JSON: nothing to format. */ }
+  }
   const [automaticTerms, setAutomaticTerms] = useState<string[]>([])
   const ignoredTerms = useMemo(() => Array.from(new Set(ignoredTermsText.split(/[\n,;]+/).map(term => term.trim().toLocaleLowerCase()).filter(Boolean))), [ignoredTermsText])
-  const ideasInSpace = useMemo(() => (activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas).filter(idea => statusFilter === 'active' ? idea.status === 'inbox' || idea.status === 'developing' || idea.status === 'ready' : idea.status === statusFilter).filter(idea => ideaMatchesQuery(idea, query)).filter(idea => !selectedOnly || selectedIds.includes(idea.id)), [activeSpace, ideas, query, selectedIds, selectedOnly, statusFilter])
+  const scopedIdeas = useMemo(() => activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas, [activeSpace, ideas])
+  const familyCounts = useMemo(() => { const counts = new Map<string, number>(); scopedIdeas.forEach(idea => { const family = ideaFamily(idea.title, idea.sourceName).family || 'Otras'; counts.set(family, (counts.get(family) || 0) + 1) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]) }, [scopedIdeas])
+  const ideasInSpace = useMemo(() => scopedIdeas.filter(idea => statusFilter === 'active' ? idea.status === 'inbox' || idea.status === 'developing' || idea.status === 'ready' : idea.status === statusFilter).filter(idea => !familyFilter || (ideaFamily(idea.title, idea.sourceName).family || 'Otras') === familyFilter).filter(idea => ideaMatchesQuery(idea, query)).filter(idea => !selectedOnly || selectedIds.includes(idea.id)), [familyFilter, query, scopedIdeas, selectedIds, selectedOnly, statusFilter])
   const pageSize = 40
   const pageCount = Math.max(1, Math.ceil(ideasInSpace.length / pageSize))
   const visibleIdeas = ideasInSpace.slice((page - 1) * pageSize, page * pageSize)
+  const statusCount = (status: 'active' | IdeaStatus) => scopedIdeas.filter(idea => status === 'active' ? ['inbox', 'developing', 'ready'].includes(idea.status) : idea.status === status).filter(idea => !familyFilter || (ideaFamily(idea.title, idea.sourceName).family || 'Otras') === familyFilter).filter(idea => ideaMatchesQuery(idea, query)).length
   const clusterIdeas = (cluster: IdeaCluster) => cluster.ideaIds.map(id => ideas.find(idea => idea.id === id)).filter((idea): idea is Idea => Boolean(idea))
   const visibleClusters = useMemo(() => {
     const normalizedQuery = clusterQuery.trim().toLocaleLowerCase()
@@ -129,10 +187,11 @@ export function IdeasView() {
       .sort((a, b) => b.ideaIds.length - a.ideaIds.length || a.name.localeCompare(b.name))
   }, [clusterQuery, clusters, ideas, showSmallClusters])
   const activeCluster = visibleClusters.find(cluster => cluster.id === activeClusterId) || visibleClusters[0] || null
-  useEffect(() => { setPage(1); setSelectedIds([]); setSelectedOnly(false) }, [query, statusFilter, activeSpace])
+  useEffect(() => { setPage(1); setSelectedIds([]); setSelectedOnly(false) }, [query, statusFilter, activeSpace, familyFilter])
   useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-ignored-terms', ignoredTermsText) } catch { /* Optional local preference. */ } }, [ignoredTermsText])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-options', JSON.stringify(analysisOptions)) } catch { /* Optional local preference. */ } }, [analysisOptions])
+  useEffect(() => { if (familyPatternsState.valid) { try { localStorage.setItem('caballocci.ideas.family-patterns', familyPatternsText) } catch { /* Optional local preference. */ } } }, [familyPatternsState.valid, familyPatternsText])
   useEffect(() => { void window.planner.ideas.importHistory().then(setImportHistory).catch(() => setImportHistory([])) }, [])
   useEffect(() => {
     let active = true
@@ -231,8 +290,10 @@ export function IdeasView() {
     <div className="ideas-tabs" role="tablist"><button type="button" role="tab" aria-selected={ideasTab === 'ideas'} className={ideasTab === 'ideas' ? 'active' : ''} onClick={() => setIdeasTab('ideas')}>Ideas</button><button type="button" role="tab" aria-selected={ideasTab === 'imports'} className={ideasTab === 'imports' ? 'active' : ''} onClick={() => setIdeasTab('imports')}>Historial de importaciones <span>{importHistory.length}</span></button></div>
     {ideasTab === 'imports' && <section className="ideas-import-history"><header><div><span>ARCHIVOS LOCALES</span><h2>Historial de importaciones</h2></div><button type="button" className="settings-button" onClick={() => void window.planner.ideas.importHistory().then(setImportHistory)}>Actualizar</button></header>{importHistory.length ? <div className="ideas-import-history-list">{importHistory.map(run => <article key={run.id}><div><strong>{run.fileName}</strong><small>{new Date(run.importedAt).toLocaleString()} · {run.space || 'Todos los contenidos'}</small></div><div className="ideas-import-stats"><span>{run.total} detectadas</span><span>{run.created} nuevas</span><span>{run.skipped} duplicadas</span></div></article>)}</div> : <p className="ideas-import-history-empty">Todavía no hay importaciones registradas.</p>}</section>}
     {importMessage && <div className="ideas-import-result"><p className="ideas-import-message">{importMessage}</p>{importDuplicates.length > 0 && <details><summary>Ver {importDuplicates.length} coincidencias existentes</summary><ul>{importDuplicates.map((duplicate, index) => <li key={`${duplicate.title}-${index}`}><strong>{duplicate.title}</strong><span>ya existe como “{duplicate.existingTitle}”{duplicate.existingSourceName ? ` · ${duplicate.existingSourceName}` : ''}</span></li>)}</ul></details>}</div>}
-    <div className="ideas-toolbar"><div className="idea-status-filters" role="group" aria-label="Filtrar ideas por estado">{statusFilters.map(filter => <button type="button" key={filter.value} aria-pressed={statusFilter === filter.value} className={statusFilter === filter.value ? 'active' : ''} onClick={() => { setStatusFilter(filter.value); setPage(1); setSelectedIds([]); setSelectedOnly(false); setClusterSelection(false) }}>{filter.label}</button>)}</div><span>{selectedOnly ? `${ideasInSpace.length} seleccionadas` : `${ideasInSpace.length} ideas`} · página {page} de {pageCount}</span>{selectedOnly && <button type="button" className="settings-button" onClick={clearClusterView}>Ver todas</button>}<button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button></div>
+    <div className="ideas-toolbar"><div className="idea-status-filters" role="group" aria-label="Filtrar ideas por estado">{statusFilters.map(filter => <button type="button" key={filter.value} aria-pressed={statusFilter === filter.value} className={statusFilter === filter.value ? 'active' : ''} onClick={() => { setStatusFilter(filter.value); setPage(1); setSelectedIds([]); setSelectedOnly(false); setClusterSelection(false) }}>{filter.label} <span>{statusCount(filter.value)}</span></button>)}</div><span>{selectedOnly ? `${ideasInSpace.length} seleccionadas` : `${ideasInSpace.length} ideas`} · página {page} de {pageCount}</span>{selectedOnly && <button type="button" className="settings-button" onClick={clearClusterView}>Ver todas</button>}<button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button></div>
+    <div className="ideas-family-filters" role="group" aria-label="Filtrar ideas por familia"><button type="button" className={!familyFilter ? 'active' : ''} onClick={() => setFamilyFilter('')}>Todas <span>{scopedIdeas.length}</span></button>{familyCounts.map(([family, count]) => <button type="button" key={family} className={familyFilter === family ? 'active' : ''} onClick={() => setFamilyFilter(family)}>{family} <span>{count}</span></button>)}</div>
     <details className="idea-analysis-settings"><summary>Configuración del análisis local</summary>
+      <details className="family-pattern-advanced"><summary>Avanzado · patrones de familia por fuente</summary><div className="family-pattern-field"><span>Configuración JSON</span><div className={`family-pattern-editor ${familyPatternsState.valid ? 'valid' : 'invalid'}`}><div className="family-pattern-tools"><button type="button" onMouseDown={event => event.preventDefault()} onClick={() => insertFamilyPair('[', ']')} title="Insertar corchetes">{'[ ]'}</button><button type="button" onMouseDown={event => event.preventDefault()} onClick={() => insertFamilyPair('{', '}')} title="Insertar llaves">{'{ }'}</button><button type="button" onMouseDown={event => event.preventDefault()} onClick={formatFamilyPatterns} disabled={!familyPatternsState.valid} title="Dar formato al JSON">Formatear</button></div><textarea aria-label="Configuración JSON" ref={familyPatternsRef} value={familyPatternsText} onChange={event => setFamilyPatternsText(event.target.value)} placeholder={'{\n  "TikTok": "^(HOOK|CTA)\\s*:",\n  "Newsletter": "^\\[\\w+\\]"\n}'} /><span className={familyPatternsState.valid ? 'family-pattern-badge valid' : 'family-pattern-badge invalid'}>{familyPatternsState.valid ? '✓ JSON válido' : '✕ JSON inválido'}</span></div><small>La clave es el nombre exacto de la fuente.</small><small>El valor es una regex; se retira del título lo que coincida.</small>{!familyPatternsState.valid && <small className="family-pattern-status invalid">{familyPatternsState.message}</small>}</div><div className="family-pattern-tester"><strong>Probar patrón</strong><div><input value={familyTestSource} onChange={event => { setFamilyTestSource(event.target.value); setFamilyTestResult(null) }} placeholder="Fuente" /><input value={familyTestTitle} onChange={event => { setFamilyTestTitle(event.target.value); setFamilyTestResult(null) }} placeholder="Pega un título de ejemplo" /><button type="button" className="settings-button" onClick={() => setFamilyTestResult(testFamilyPattern(familyTestTitle, familyTestSource, familyPatternsText))}>Probar</button></div>{familyTestResult && <small className={familyTestResult.ok ? 'family-test-result valid' : 'family-test-result invalid'}>{familyTestResult.message}{familyTestResult.title !== undefined && <><br /><strong>{familyTestResult.title}</strong></>}</small>}</div></details>
       <label>Términos que quieres ignorar<textarea value={ignoredTermsText} onChange={event => setIgnoredTermsText(event.target.value)} placeholder="ejemplo, ejemplo, ejemplo" /></label>
       <label>Prefijos editoriales que quieres ignorar<textarea value={analysisOptions.editorialPrefixes.join('\n')} onChange={event => setAnalysisOptions(current => ({ ...current, editorialPrefixes: event.target.value.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean) }))} placeholder={'ejemplo\nejemplo'} /></label>
       <div className="idea-analysis-options"><label><input type="checkbox" checked={analysisOptions.stripColonPrefixes} onChange={event => setAnalysisOptions(current => ({ ...current, stripColonPrefixes: event.target.checked }))} /> Quitar prefijo antes de dos puntos en títulos</label><label><input type="checkbox" checked={analysisOptions.stripBracketedText} onChange={event => setAnalysisOptions(current => ({ ...current, stripBracketedText: event.target.checked }))} /> Excluir texto entre corchetes</label><label><input type="checkbox" checked={analysisOptions.stripNumbers} onChange={event => setAnalysisOptions(current => ({ ...current, stripNumbers: event.target.checked }))} /> Excluir números de los embeddings</label><label><input type="checkbox" checked={analysisOptions.ignoreTitleNumbersInClusterNames} onChange={event => setAnalysisOptions(current => ({ ...current, ignoreTitleNumbersInClusterNames: event.target.checked }))} /> Ignorar números de títulos al nombrar clusters</label></div>
@@ -252,8 +313,8 @@ export function IdeasView() {
       {visibleClusters.some(cluster => cluster.ideaIds.length < 3) && !showSmallClusters && <button type="button" className="clusters-small-note" onClick={() => setShowSmallClusters(true)}>Hay {clusters.filter(cluster => cluster.ideaIds.length < 3).length} posibles duplicados o series de 2 ideas. Verlos.</button>}
     </section>}
     {ideasInSpace.length ? <div className="ideas-grid">{visibleIdeas.map(idea => <article className={'idea-card ' + (selectedIds.includes(idea.id) ? 'selected' : '')} key={idea.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selectedIds.length > 0) toggleSelected(idea.id) }}>
-      <header><label className="idea-select" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span></label><div><button title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={event => { event.stopPropagation(); if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
-      <span className="idea-status">{statusLabels[idea.status]}</span>{(idea.combinedPostIds.length > 0 || idea.combinedPostId) && <span className="idea-combined-badge">{idea.combinedPostIds.length > 1 ? `${idea.combinedPostIds.length} combinaciones` : 'Combinada'}</span>}<h2>{idea.title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>
+      <header><label className="idea-select" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> {idea.priority !== 'normal' && <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span>}</label><div><button title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={event => { event.stopPropagation(); if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
+      {ideaFamily(idea.title, idea.sourceName).family && <span className="idea-family-chip">{ideaFamily(idea.title, idea.sourceName).family}</span>} {idea.status !== 'inbox' && <span className={'idea-status ' + idea.status}>{statusLabels[idea.status]}</span>}{(idea.combinedPostIds.length > 0 || idea.combinedPostId) && <span className="idea-combined-badge">{idea.combinedPostIds.length > 1 ? `${idea.combinedPostIds.length} combinaciones` : 'Combinada'}</span>}<h2>{ideaFamily(idea.title, idea.sourceName).title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>
       <footer>{idea.dueDate && <span><CalendarDays size={13} />{new Date(idea.dueDate).toLocaleDateString()}</span>}<small>{idea.space}</small><div className="idea-links">{(idea.combinedPostIds.length > 0 ? idea.combinedPostIds : (idea.combinedPostId ? [idea.combinedPostId] : [])).map((postId, index) => <button key={postId} onClick={event => { event.stopPropagation(); select(postId); setView('board') }} title="Abrir publicacion combinada"><ExternalLink size={13} /> {index === 0 ? 'Ver combinado' : `Ver combinado ${index + 1}`}</button>)}{idea.postId ? <button onClick={event => { event.stopPropagation(); select(idea.postId!); setView('board') }} title="Abrir publicacion individual"><ExternalLink size={13} /> Ver publicacion</button> : <button onClick={event => { event.stopPropagation(); void convert(idea) }}>Convertir <ArrowRight size={14} /></button>}</div></footer>
     </article>)}</div> : <div className="ideas-empty"><Lightbulb size={34} /><strong>No hay ideas en este filtro</strong><span>Importa un archivo o cambia el estado seleccionado.</span><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
     {ideasInSpace.length > 0 && <div className="ideas-pagination"><button disabled={page <= 1} onClick={() => setPage(current => current - 1)}>Anterior</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage(current => current + 1)}>Siguiente</button></div>}
