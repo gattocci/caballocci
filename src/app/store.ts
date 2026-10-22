@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Idea, IdeaAnalysisOptions, IdeaCluster, IdeaInput, IdeaNeighbor, Post, PostInput, PostStatus } from '../shared/types'
+import type { Idea, IdeaAnalysisOptions, IdeaAnalysisProgress, IdeaCluster, IdeaInput, IdeaNeighbor, Post, PostInput, PostStatus } from '../shared/types'
 
 export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'sources' | 'about'
 
@@ -43,7 +43,7 @@ interface PlannerState {
   uncombinePost(id: string): Promise<{ ideas: Idea[]; post: Post }>
   ideaNeighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
   refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaCluster[]>
+  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
   previewIdeaAnalysis(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
   listIdeaClusters(): Promise<IdeaCluster[]>
   setView(view: PlannerView): void
@@ -167,7 +167,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   },
   ideaNeighbors: (id, limit, ignoredTerms, options) => window.planner.ideas.neighbors(id, limit, ignoredTerms, options),
   refreshEmbeddings: (ids, ignoredTerms, options) => window.planner.ideas.refreshEmbeddings(ids, ignoredTerms, options),
-  proposeClusters: async (threshold, ignoredTerms, options) => window.planner.ideas.clusters(threshold, ignoredTerms, options),
+  proposeClusters: async (threshold, ignoredTerms, options, onProgress) => window.planner.ideas.clusters(threshold, ignoredTerms, options, onProgress),
   previewIdeaAnalysis: (ignoredTerms, options) => window.planner.ideas.analysisPreview(ignoredTerms, options),
   listIdeaClusters: () => window.planner.ideas.clustersList(),
   setView: (view) => set({ view }),

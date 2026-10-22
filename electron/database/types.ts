@@ -1,4 +1,10 @@
 export type Row = Record<string, unknown>
+export type IdeaAnalysisProgress = {
+  stage: 'loading-model' | 'embeddings' | 'comparing' | 'grouping' | 'saving' | 'done'
+  completed: number
+  total: number
+}
+export type IdeaClusterComparison = { ideaId: string; score: number }
 
 export type IdeaAnalysisOptions = {
   editorialPrefixes: string[]

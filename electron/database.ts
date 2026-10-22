@@ -1,7 +1,7 @@
 ﻿import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import initSqlJs, { Database } from 'sql.js'
-import { defaultIdeaAnalysisOptions, type IdeaAnalysisOptions, type Row } from './database/types'
+import { defaultIdeaAnalysisOptions, type IdeaAnalysisOptions, type IdeaAnalysisProgress, type Row } from './database/types'
 import { ensureCatalogColumns } from './database/schema-repair'
 import { DatabasePersistence } from './database/persistence'
 import { MediaRepository } from './database/media-repository'
@@ -221,14 +221,14 @@ export class PlannerDatabase {
   listIdeaNeighbors(id: string, limit = 8, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
     return this.analysis.listIdeaNeighbors(id, limit, ignoredTerms, options)
   }
-  proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
-    return this.analysis.proposeIdeaClusters(threshold, ignoredTerms, options)
+  proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void) {
+    return this.analysis.proposeIdeaClusters(threshold, ignoredTerms, options, onProgress)
   }
   previewIdeaAnalysis(ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
     return this.analysis.previewIdeaAnalysis(ignoredTerms, options)
   }
 
-  listIdeaClusters(): Array<{ id: string; name: string; algorithm: string; model: string; model_version: string; calculated_at: string; ideaIds: string[] }> {
+  listIdeaClusters(): Array<{ id: string; name: string; algorithm: string; model: string; model_version: string; calculated_at: string; ideaIds: string[]; memberScores: number[] }> {
     return this.analysis.listClusters()
   }
 

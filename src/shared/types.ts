@@ -79,7 +79,9 @@ export interface IdeaAnalysisOptions {
   minTokenLength: number
   genericTermThreshold: number
 }
-export interface IdeaCluster { id: string; name: string; ideaIds: string[]; algorithm?: string; calculatedAt?: string }
+export interface IdeaClusterComparison { ideaId: string; score: number }
+export interface IdeaCluster { id: string; name: string; ideaIds: string[]; memberScores?: number[]; memberComparisons?: IdeaClusterComparison[][]; threshold?: number; neighborLimit?: number; model?: string; algorithm?: string; calculatedAt?: string }
+export interface IdeaAnalysisProgress { stage: 'loading-model' | 'embeddings' | 'comparing' | 'grouping' | 'saving' | 'done'; completed: number; total: number }
 
 export type IdeaInput = Omit<Idea, 'id' | 'createdAt' | 'updatedAt' | 'postId' | 'combinedPostId' | 'combinedPostIds'> & { id?: string; postId?: string | null; combinedPostId?: string | null; combinedPostIds?: string[] }
 
@@ -260,7 +262,7 @@ export interface ElectronAPI {
     combine(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>
     neighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
     refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaCluster[]>
+    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
     analysisPreview(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
     clustersList(): Promise<IdeaCluster[]>
   }

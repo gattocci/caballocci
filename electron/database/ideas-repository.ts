@@ -50,6 +50,17 @@ export class IdeasRepository {
 
   remove(id: string) {
     this.db.run('BEGIN TRANSACTION')
-    try { const now = new Date().toISOString(); this.db.run('UPDATE posts SET source_idea_id = NULL WHERE source_idea_id = ?', [id]); this.db.run('DELETE FROM ideas WHERE id = ?', [id]); this.db.run('DELETE FROM post_ideas WHERE idea_id = ?', [id]); this.db.run('DELETE FROM embeddings WHERE idea_id = ?', [id]); this.db.run('DELETE FROM idea_cluster_members WHERE idea_id = ?', [id]); this.event('idea_deleted', 'idea', id, {}, now); this.db.run('COMMIT'); this.persist() } catch (error) { this.db.run('ROLLBACK'); throw error }
+    try {
+      const now = new Date().toISOString()
+      this.db.run('UPDATE posts SET source_idea_id = NULL WHERE source_idea_id = ?', [id])
+      this.db.run('DELETE FROM ideas WHERE id = ?', [id])
+      this.db.run('DELETE FROM post_ideas WHERE idea_id = ?', [id])
+      this.db.run('DELETE FROM embeddings WHERE idea_id = ?', [id])
+      this.db.run('DELETE FROM idea_cluster_members WHERE idea_id = ?', [id])
+      this.db.run('DELETE FROM idea_clusters WHERE name_manually_edited = 0 AND NOT EXISTS (SELECT 1 FROM idea_cluster_members WHERE cluster_id = idea_clusters.id)')
+      this.event('idea_deleted', 'idea', id, {}, now)
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 }

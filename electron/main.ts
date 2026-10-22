@@ -114,12 +114,12 @@ function resumeIpcOperations() {
   ipcOperationsPaused = false
 }
 
-function handle(channel: string, callback: (args: unknown[]) => unknown) {
+function handle(channel: string, callback: (args: unknown[], event: IpcMainInvokeEvent) => unknown) {
   ipcMain.handle(channel, (event, ...args: unknown[]) => {
     assertTrustedIpcSender(event)
     const finishTracking = trackIpcOperation(channel)
     try {
-      const result = callback(args)
+      const result = callback(args, event)
       if (!result || typeof (result as Promise<unknown>).then !== 'function') {
         finishTracking()
         return result
@@ -733,15 +733,20 @@ app.whenReady().then(async () => {
     if (args.length > 3) throw new TypeError('Numero de argumentos no valido')
     return database.refreshIdeaEmbeddings(validateOptionalIdeaIds(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2]))
   })
-  handle('ideas:clusters', args => {
-    if (args.length > 3) throw new TypeError('Numero de argumentos no valido')
-    return database.proposeIdeaClusters(validateThreshold(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2])).then(clusters => clusters.map(cluster => ({ id: cluster.id, name: cluster.name, ideaIds: cluster.ideaIds })))
+  handle('ideas:clusters', (args, event) => {
+    if (args.length !== 4) throw new TypeError('Numero de argumentos no valido')
+    if (typeof args[3] !== 'string' || !args[3] || args[3].length > 100) throw new TypeError('Identificador de analisis no valido')
+    const requestId = args[3]
+    const progress = (update: { stage: string; completed: number; total: number }) => {
+      if (!event.sender.isDestroyed()) event.sender.send('ideas:clusters:progress', { requestId, ...update })
+    }
+    return database.proposeIdeaClusters(validateThreshold(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2]), progress).then(clusters => clusters)
   })
   handle('ideas:analysis-preview', args => {
     if (args.length > 2) throw new TypeError('Numero de argumentos no valido')
     return database.previewIdeaAnalysis(validateAnalysisTerms(args[0]), validateIdeaAnalysisOptions(args[1]))
   })
-  handle('ideas:clusters-list', withoutArguments(() => database.listIdeaClusters().map(cluster => ({ id: cluster.id, name: cluster.name, ideaIds: cluster.ideaIds, algorithm: cluster.algorithm, calculatedAt: cluster.calculated_at }))))
+  handle('ideas:clusters-list', withoutArguments(() => database.listIdeaClusters().map(cluster => ({ id: cluster.id, name: cluster.name, ideaIds: cluster.ideaIds, memberScores: cluster.memberScores, algorithm: cluster.algorithm, calculatedAt: cluster.calculated_at }))))
   handle('concept-map:list', withoutArguments(() => {
     const conceptMap = database.listConceptMap()
     return { nodes: conceptMap.nodes.map(mapConceptNode), links: conceptMap.links.map(mapConceptLink), folders: conceptMap.folders.map(mapConceptFolder) }

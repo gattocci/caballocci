@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { randomUUID } from 'node:crypto'
+import type { IdeaAnalysisProgress } from './database/types'
 
 contextBridge.exposeInMainWorld('planner', {
   posts: {
@@ -57,7 +59,18 @@ contextBridge.exposeInMainWorld('planner', {
     combine: (ids: string[]) => ipcRenderer.invoke('ideas:combine', ids),
     neighbors: (id: string, limit?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:neighbors', id, limit, ignoredTerms, options),
     refreshEmbeddings: (ids?: string[], ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:embeddings-refresh', ids, ignoredTerms, options),
-    clusters: (threshold?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options),
+    clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, onProgress?: (progress: IdeaAnalysisProgress) => void) => {
+      const requestId = randomUUID()
+      const listener = (_event: Electron.IpcRendererEvent, update: IdeaAnalysisProgress & { requestId: string }) => {
+        if (update.requestId === requestId) onProgress?.(update)
+      }
+      ipcRenderer.on('ideas:clusters:progress', listener)
+      try {
+        return await ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options, requestId)
+      } finally {
+        ipcRenderer.removeListener('ideas:clusters:progress', listener)
+      }
+    },
     analysisPreview: (ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:analysis-preview', ignoredTerms, options),
     clustersList: () => ipcRenderer.invoke('ideas:clusters-list'),
   },
