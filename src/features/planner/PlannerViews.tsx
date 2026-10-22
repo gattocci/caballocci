@@ -110,9 +110,15 @@ export function Board() {
   const [groupDescription, setGroupDescription] = useState('')
   const [savingGroup, setSavingGroup] = useState(false)
   const [pendingGroupAction, setPendingGroupAction] = useState<{ type: 'archive' | 'restore' | 'delete'; group: WorkGroup } | null>(null)
+  const [groupDeleteMode, setGroupDeleteMode] = useState<'group' | 'all-posts' | 'selected-posts'>('group')
+  const [groupPostsToDelete, setGroupPostsToDelete] = useState<string[]>([])
   const [pendingMediaCompression, setPendingMediaCompression] = useState<{ target: 'group' | 'post'; id: string; name: string; mediaCount: number } | null>(null)
   const [workingOnGroup, setWorkingOnGroup] = useState(false)
   const [mediaCompressionMessage, setMediaCompressionMessage] = useState('')
+  useEffect(() => {
+    setGroupDeleteMode('group')
+    setGroupPostsToDelete([])
+  }, [pendingGroupAction?.group.id])
   const availableGroups = workGroups.filter(group => showArchivedGroups || !group.archivedAt)
   const selectedWorkGroup = workGroups.find(group => group.id === selectedWorkGroupId) || null
   const matchingPosts = (selectedWorkGroup
@@ -177,7 +183,13 @@ export function Board() {
       try {
         const { type, group } = pendingGroupAction
         if (type === 'delete') {
-          if (group.compressedMediaCount) await window.planner.workGroups.restoreMedia(group.id)
+          const postIds = groupDeleteMode === 'all-posts' ? group.postIds : groupDeleteMode === 'selected-posts' ? groupPostsToDelete : []
+          for (const id of postIds) {
+            const post = allPosts.find(item => item.id === id)
+            if (post?.media.some(asset => asset.compressed)) await window.planner.workGroups.restorePostMedia(id)
+            await usePlanner.getState().remove(id)
+          }
+          if (!postIds.length && group.compressedMediaCount) await window.planner.workGroups.restoreMedia(group.id)
           await removeWorkGroup(group.id)
           await usePlanner.getState().load()
           setSelectedWorkGroupId('')
@@ -277,11 +289,18 @@ export function Board() {
         <header><span>CONFIRMAR ACCIÓN</span><button type="button" aria-label="Cerrar" disabled={workingOnGroup} onClick={() => setPendingGroupAction(null)}>×</button></header>
         <h2 id="work-group-confirm-title">{pendingGroupAction.type === 'delete' ? '¿Borrar esta colección?' : pendingGroupAction.type === 'archive' ? '¿Archivar esta colección?' : '¿Restaurar esta colección?'}</h2>
         <p id="work-group-confirm-description">{pendingGroupAction.type === 'delete'
-          ? <>Se borrará <strong>{pendingGroupAction.group.name}</strong> y sus vínculos. Las {pendingGroupAction.group.postIds.length} publicaciones, sus archivos y su pertenencia a otras colecciones se conservarán. {pendingGroupAction.group.compressedMediaCount ? 'Primero se restaurarán sus medios comprimidos a sus ubicaciones originales. ' : ''}Esta acción no se puede deshacer.</>
+          ? <>Se borrará <strong>{pendingGroupAction.group.name}</strong> y sus vínculos. Elige qué hacer con sus {pendingGroupAction.group.postIds.length} publicaciones:</>
           : pendingGroupAction.type === 'archive'
             ? <>Se archivará <strong>{pendingGroupAction.group.name}</strong>. Sus publicaciones y estados permanecerán intactos; podrás restaurarla después.</>
             : <>Se restaurará <strong>{pendingGroupAction.group.name}</strong> y volverá a aparecer entre las colecciones activas.</>}</p>
-        <footer><button type="button" className="settings-button" disabled={workingOnGroup} onClick={() => setPendingGroupAction(null)}>Cancelar</button><button type="button" className={pendingGroupAction.type === 'delete' ? 'work-group-danger-button' : 'new-button'} disabled={workingOnGroup} onClick={confirmGroupAction}>{workingOnGroup ? 'Procesando…' : pendingGroupAction.type === 'delete' ? 'Borrar solo colección' : pendingGroupAction.type === 'archive' ? 'Archivar colección' : 'Restaurar colección'}</button></footer>
+        {pendingGroupAction.type === 'delete' && <div className="work-group-delete-options" role="radiogroup" aria-label="Qué borrar">
+          <label><input type="radio" name="group-delete-mode" checked={groupDeleteMode === 'group'} onChange={() => setGroupDeleteMode('group')} /><span><strong>Borrar solo la colección</strong><small>Conserva publicaciones y archivos.</small></span></label>
+          <label><input type="radio" name="group-delete-mode" checked={groupDeleteMode === 'all-posts'} onChange={() => setGroupDeleteMode('all-posts')} /><span><strong>Borrar colección y todas las publicaciones ({pendingGroupAction.group.postIds.length})</strong><small>Se quitarán también de otras colecciones.</small></span></label>
+          <label><input type="radio" name="group-delete-mode" checked={groupDeleteMode === 'selected-posts'} onChange={() => setGroupDeleteMode('selected-posts')} /><span><strong>Borrar colección y algunas publicaciones</strong><small>Elige cuáles borrar; las demás se conservan.</small></span></label>
+          {groupDeleteMode === 'selected-posts' && <div className="work-group-delete-post-list">{allPosts.filter(post => pendingGroupAction.group.postIds.includes(post.id)).map(post => <label key={post.id}><input type="checkbox" checked={groupPostsToDelete.includes(post.id)} onChange={event => setGroupPostsToDelete(current => event.target.checked ? [...current, post.id] : current.filter(id => id !== post.id))} /><span>{post.title || 'Publicación sin título'}</span></label>)}</div>}
+          <p>{groupDeleteMode === 'group' ? 'No se eliminará ninguna publicación.' : `Se eliminarán ${groupDeleteMode === 'all-posts' ? pendingGroupAction.group.postIds.length : groupPostsToDelete.length} publicaciones y sus vínculos. Esta acción no se puede deshacer.`}{pendingGroupAction.group.compressedMediaCount ? ' Los medios comprimidos se restaurarán antes del borrado.' : ''}</p>
+        </div>}
+        <footer><button type="button" className="settings-button" disabled={workingOnGroup} onClick={() => setPendingGroupAction(null)}>Cancelar</button><button type="button" className={pendingGroupAction.type === 'delete' && groupDeleteMode !== 'group' ? 'work-group-danger-button' : 'new-button'} disabled={workingOnGroup || pendingGroupAction.type === 'delete' && groupDeleteMode === 'selected-posts' && !groupPostsToDelete.length} onClick={confirmGroupAction}>{workingOnGroup ? 'Procesando…' : pendingGroupAction.type === 'delete' ? groupDeleteMode === 'group' ? 'Borrar solo colección' : 'Borrar colección y publicaciones' : pendingGroupAction.type === 'archive' ? 'Archivar colección' : 'Restaurar colección'}</button></footer>
       </section>
     </div>}
     {pendingMediaCompression && <div className="work-group-form-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPendingMediaCompression(null) }}>
