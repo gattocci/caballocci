@@ -244,7 +244,7 @@
 .board-select { width: 13px!important; height: 13px!important; margin-right: 6px; accent-color: var(--accent); cursor: pointer; }
 .board-select-hit { display: grid; place-items: center; width: 28px; height: 28px; margin: -6px 2px -6px -8px; cursor: pointer; }
 .board-select-hit input { width: 15px; height: 15px; accent-color: var(--accent); }
-.board-stack article:not(:hover) .board-select-hit input:not(:checked) { opacity: .35; }
+.board-stack article:not(:hover) .board-select-hit input:not(:checked) { opacity: .65; }
 .board.selecting .board-select-hit input { opacity: 1; }
 .board-grip { display: inline-flex; align-items: center; cursor: grab; opacity: .4; margin-right: 3px; }
 .board-stack article:hover .board-grip { opacity: 1; }

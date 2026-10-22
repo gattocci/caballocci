@@ -23,14 +23,24 @@ export class MediaRepository {
     this.persist()
   }
 
-  getFile(id: string): { path: string; kind: string } | undefined {
-    const statement = this.db.prepare('SELECT path,kind FROM media_assets WHERE id = ?')
+  getFile(id: string): { path: string; kind: string; mode: string; archivePath?: string; entryName?: string } | undefined {
+    const statement = this.db.prepare(`SELECT m.path,m.kind,m.mode,a.archive_path,c.entry_name
+      FROM media_assets m
+      LEFT JOIN compressed_media_assets c ON c.asset_id = m.id
+      LEFT JOIN media_compression_archives a ON a.id = c.archive_id
+      WHERE m.id = ?`)
     try {
       statement.bind([id])
       if (!statement.step()) return undefined
       const row = statement.getAsObject()
-      if (typeof row.path !== 'string' || typeof row.kind !== 'string') return undefined
-      return { path: row.path, kind: row.kind }
+      if (typeof row.path !== 'string' || typeof row.kind !== 'string' || typeof row.mode !== 'string') return undefined
+      return {
+        path: row.path,
+        kind: row.kind,
+        mode: row.mode,
+        ...(typeof row.archive_path === 'string' ? { archivePath: row.archive_path } : {}),
+        ...(typeof row.entry_name === 'string' ? { entryName: row.entry_name } : {}),
+      }
     } finally { statement.free() }
   }
 

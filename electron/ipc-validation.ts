@@ -319,6 +319,24 @@ export function validateExportProfileInput(value: unknown): Record<string, unkno
   return validated
 }
 
+export function validateWorkGroupInput(value: unknown): Record<string, unknown> {
+  const group = record(value, 'workGroup')
+  const validated: Record<string, unknown> = {
+    name: text(group.name, 'workGroup.name', 120, false).trim(),
+    description: text(group.description ?? '', 'workGroup.description', 2_000).trim(),
+  }
+  const id = optionalId(group.id, 'workGroup.id')
+  if (id) validated.id = id
+  return validated
+}
+
+export function validateWorkGroupPostIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 2_000) invalid('workGroup.postIds')
+  const ids = value.map((item, index) => text(item, `workGroup.postIds[${index}]`, 128, false))
+  if (new Set(ids).size !== ids.length) invalid('workGroup.postIds')
+  return ids
+}
+
 export function validateOptionalPostStatus(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined
   return enumValue(value, field, postStatuses)

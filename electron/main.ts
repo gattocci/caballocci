@@ -26,6 +26,8 @@ import {
   validateOptionalPostStatus,
   validatePostInput,
   validateProject,
+  validateWorkGroupInput,
+  validateWorkGroupPostIds,
   validateSourceDefinitionInput,
   validateSourceInput,
 } from './ipc-validation'
@@ -158,7 +160,8 @@ function mapMediaAssets(value: unknown) {
       .filter(item => typeof item === 'object' && item !== null && !Array.isArray(item))
       .map(item => {
         const asset = item as Record<string, unknown>
-        return { id: asset.id, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode, presentationRole: asset.presentationRole, sequence: asset.sequence, groupName: asset.groupName }
+        const compressed = typeof asset.id === 'string' && Boolean(database?.getMediaCompressionState(asset.id))
+        return { id: asset.id, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode, presentationRole: asset.presentationRole, sequence: asset.sequence, groupName: asset.groupName, compressed }
       })
   } catch {
     return []
@@ -193,6 +196,31 @@ function mapPost(row: Record<string, unknown>) {
     isCombined: Number(row.combined_idea_count || 0) > 0,
     combinedIdeaIds: parseJsonStringArray(row.combined_idea_ids),
     createdAt: row.created_at, updatedAt: row.updated_at,
+  }
+}
+
+function mapWorkGroup(row: Record<string, unknown>) {
+  const postIds = Array.isArray(row.post_ids) ? row.post_ids.map(String) : []
+  const postIdSet = new Set(postIds)
+  const compressedIds = new Set(database.compressedMediaIds())
+  const compressedMediaIds = new Set([
+    ...database.list()
+    .filter(post => postIdSet.has(String(post.id)))
+    .flatMap(post => mapMediaAssets(post.media))
+    .filter(asset => compressedIds.has(String(asset.id)))
+    .map(asset => String(asset.id)),
+    ...database.compressedMediaIdsForTarget('group', String(row.id)),
+  ])
+  const compressedMediaCount = compressedMediaIds.size
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    archivedAt: row.archived_at || null,
+    postIds,
+    compressedMediaCount,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }
 
@@ -402,10 +430,20 @@ function registerMediaProtocol() {
       if (url.hostname !== 'asset') return new Response(null, { status: 404 })
       const id = validateId(decodeURIComponent(url.pathname.slice(1)), 'media.id')
       const media = database.getMediaFile(id)
-      if (!media || media.kind !== 'image' || !path.isAbsolute(media.path) || !fs.existsSync(media.path)) {
+      if (!media || media.kind !== 'image') {
         return new Response(null, { status: 404 })
       }
-      return net.fetch(pathToFileURL(media.path).href, { bypassCustomProtocolHandlers: true })
+      if (path.isAbsolute(media.path) && fs.existsSync(media.path)) {
+        return net.fetch(pathToFileURL(media.path).href, { bypassCustomProtocolHandlers: true })
+      }
+      if (media.archivePath && media.entryName && fs.existsSync(media.archivePath)) {
+        const entry = new AdmZip(media.archivePath).getEntry(media.entryName)
+        if (!entry) return new Response(null, { status: 404 })
+        const extension = path.extname(media.path).toLowerCase()
+        const contentType = extension === '.png' ? 'image/png' : extension === '.gif' ? 'image/gif' : extension === '.webp' ? 'image/webp' : 'image/jpeg'
+        return new Response(new Uint8Array(entry.getData()), { headers: { 'content-type': contentType } })
+      }
+      return new Response(null, { status: 404 })
     } catch {
       return new Response(null, { status: 400 })
     }
@@ -491,7 +529,9 @@ app.whenReady().then(async () => {
   })
   handle('posts:remove', args => {
     validateArgumentCount(args, 1)
-    return database.remove(validateId(args[0], 'post.id'))
+    const id = validateId(args[0], 'post.id')
+    restoreTargetMedia('post', id)
+    return database.remove(id)
   })
   handle('posts:reassign-project', args => {
     validateArgumentCount(args, 2)
@@ -501,6 +541,117 @@ app.whenReady().then(async () => {
     validateArgumentCount(args, 1)
     const result = database.uncombinePost(validateId(args[0], 'post.id'))
     return { ideas: result.ideas.map(mapIdea), post: mapPost(result.post) }
+  })
+  handle('work-groups:list', withoutArguments(() => database.listWorkGroups().map(mapWorkGroup)))
+  handle('work-groups:save', args => {
+    validateArgumentCount(args, 1)
+    return mapWorkGroup(database.saveWorkGroup(validateWorkGroupInput(args[0])))
+  })
+  handle('work-groups:set-posts', args => {
+    validateArgumentCount(args, 2)
+    const id = validateId(args[0], 'workGroup.id')
+    return mapWorkGroup(database.setWorkGroupPosts(id, validateWorkGroupPostIds(args[1])))
+  })
+  handle('work-groups:set-archived', args => {
+    validateArgumentCount(args, 2)
+    const id = validateId(args[0], 'workGroup.id')
+    if (typeof args[1] !== 'boolean') throw new TypeError('Argumento IPC no valido: workGroup.archived')
+    return mapWorkGroup(database.setWorkGroupArchived(id, args[1]))
+  })
+  handle('work-groups:remove', args => {
+    validateArgumentCount(args, 1)
+    const id = validateId(args[0], 'workGroup.id')
+    restoreTargetMedia('group', id)
+    return database.removeWorkGroup(id)
+  })
+  const compressTargetMedia = (targetType: 'group' | 'post', targetId: string) => {
+    const allPosts = database.list().map(mapPost)
+    let targetPosts: typeof allPosts
+    if (targetType === 'group') {
+      const group = database.listWorkGroups().find(item => String(item.id) === targetId)
+      if (!group) throw new Error('No se encontró la colección.')
+      if (!group.archived_at) throw new Error('Archiva la colección antes de comprimir sus medios.')
+      const postIds = new Set(Array.isArray(group.post_ids) ? group.post_ids.map(String) : [])
+      targetPosts = allPosts.filter(post => postIds.has(String(post.id)))
+    } else {
+      const row = database.getPost(targetId)
+      if (!row) throw new Error('No se encontró la publicación.')
+      if (String(row.status) !== 'archived') throw new Error('Archiva la publicación antes de comprimir sus medios.')
+      targetPosts = allPosts.filter(post => String(post.id) === targetId)
+    }
+    const includedPostIds = new Set(targetPosts.map(post => String(post.id)))
+    const references = new Map<string, Set<string>>()
+    for (const post of allPosts) {
+      for (const asset of post.media) {
+        const assetId = String(asset.id || '')
+        if (!assetId) continue
+        references.set(assetId, new Set([...(references.get(assetId) || []), String(post.id)]))
+      }
+    }
+    const candidates = new Map<string, { id: string; name: string; kind: string; path: string; size: number; mode: string }>()
+    for (const post of targetPosts) {
+      for (const asset of post.media) {
+        const assetId = String(asset.id || '')
+        if (!assetId) continue
+        const file = database.getMediaFile(assetId)
+        if (!file) continue
+        candidates.set(assetId, {
+          id: assetId,
+          name: String(asset.name || 'archivo'),
+          kind: file.kind,
+          path: file.path,
+          size: fs.existsSync(file.path) ? fs.statSync(file.path).size : Number(asset.size || 0),
+          mode: file.mode,
+        })
+      }
+    }
+    return database.compressMedia(
+      targetType,
+      targetId,
+      [...candidates.values()],
+      references,
+      includedPostIds,
+      path.join(dataDirectory, 'Media', 'Archives'),
+      dataDirectory,
+    )
+  }
+  const restoreTargetMedia = (targetType: 'group' | 'post', targetId: string) => {
+    let postIds: Set<string>
+    if (targetType === 'group') {
+      const group = database.listWorkGroups().find(item => String(item.id) === targetId)
+      if (!group) throw new Error('No se encontró la colección.')
+      postIds = new Set(Array.isArray(group.post_ids) ? group.post_ids.map(String) : [])
+    } else {
+      if (!database.getPost(targetId)) throw new Error('No se encontró la publicación.')
+      postIds = new Set([targetId])
+    }
+    const compressedIds = new Set(database.compressedMediaIds())
+    const assetIds = [...new Set([
+      ...database.compressedMediaIdsForTarget(targetType, targetId),
+      ...database.list()
+      .filter(post => postIds.has(String(post.id)))
+      .flatMap(post => mapMediaAssets(post.media))
+      .map(asset => String(asset.id))
+      .filter(id => compressedIds.has(id)),
+    ])]
+    return database.restoreMedia(assetIds, dataDirectory)
+  }
+  handle('work-groups:compress-media', args => {
+    validateArgumentCount(args, 1)
+    const id = validateId(args[0], 'workGroup.id')
+    return compressTargetMedia('group', id)
+  })
+  handle('work-groups:restore-media', args => {
+    validateArgumentCount(args, 1)
+    return restoreTargetMedia('group', validateId(args[0], 'workGroup.id'))
+  })
+  handle('posts:compress-media', args => {
+    validateArgumentCount(args, 1)
+    return compressTargetMedia('post', validateId(args[0], 'post.id'))
+  })
+  handle('posts:restore-media', args => {
+    validateArgumentCount(args, 1)
+    return restoreTargetMedia('post', validateId(args[0], 'post.id'))
   })
   handle('catalog:config', args => {
     if (args.length > 1) throw new TypeError('Argumento IPC no valido: catalog.config')
@@ -833,7 +984,8 @@ app.whenReady().then(async () => {
   handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))
   handle('media:reveal', args => {
     validateArgumentCount(args, 1)
-    const target = database.getMediaPath(validateId(args[0], 'media.id'))
+    const media = database.getMediaFile(validateId(args[0], 'media.id'))
+    const target = media?.archivePath || media?.path
     if (!target || !path.isAbsolute(target)) throw new Error('Archivo multimedia no encontrado')
     shell.showItemInFolder(target)
   })

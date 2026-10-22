@@ -11,6 +11,17 @@ contextBridge.exposeInMainWorld('planner', {
     reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
     uncombine: (id: string) => ipcRenderer.invoke('posts:uncombine', id),
   },
+  workGroups: {
+    list: () => ipcRenderer.invoke('work-groups:list'),
+    save: (group: unknown) => ipcRenderer.invoke('work-groups:save', group),
+    setPosts: (id: string, postIds: string[]) => ipcRenderer.invoke('work-groups:set-posts', id, postIds),
+    setArchived: (id: string, archived: boolean) => ipcRenderer.invoke('work-groups:set-archived', id, archived),
+    remove: (id: string) => ipcRenderer.invoke('work-groups:remove', id),
+    compressMedia: (id: string) => ipcRenderer.invoke('work-groups:compress-media', id),
+    restoreMedia: (id: string) => ipcRenderer.invoke('work-groups:restore-media', id),
+    compressPostMedia: (id: string) => ipcRenderer.invoke('posts:compress-media', id),
+    restorePostMedia: (id: string) => ipcRenderer.invoke('posts:restore-media', id),
+  },
   catalog: {
     config: (scope?: string) => ipcRenderer.invoke('catalog:config', scope),
     saveConfig: (config: unknown) => ipcRenderer.invoke('catalog:save-config', config),

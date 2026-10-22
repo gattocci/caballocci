@@ -32,6 +32,19 @@ export interface Post {
   updatedAt: string
 }
 
+export interface WorkGroup {
+  id: string
+  name: string
+  description: string
+  archivedAt: string | null
+  postIds: string[]
+  compressedMediaCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description'> & { id?: string }
+
 export interface MediaAsset {
   id: string
   name: string
@@ -41,6 +54,7 @@ export interface MediaAsset {
   presentationRole?: 'representative' | 'cover' | 'slide' | 'closing' | 'other'
   sequence?: number | null
   groupName?: string
+  compressed?: boolean
 }
 
 export interface IdeaBlock {
@@ -212,6 +226,17 @@ export interface ElectronAPI {
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
     uncombine(id: string): Promise<{ ideas: Idea[]; post: Post }>
+  }
+  workGroups: {
+    list(): Promise<WorkGroup[]>
+    save(group: WorkGroupInput): Promise<WorkGroup>
+    setPosts(id: string, postIds: string[]): Promise<WorkGroup>
+    setArchived(id: string, archived: boolean): Promise<WorkGroup>
+    remove(id: string): Promise<void>
+    compressMedia(id: string): Promise<{ compressed: number; skipped: number; releasedBytes: number }>
+    restoreMedia(id: string): Promise<{ restored: number }>
+    compressPostMedia(id: string): Promise<{ compressed: number; skipped: number; releasedBytes: number }>
+    restorePostMedia(id: string): Promise<{ restored: number }>
   }
   catalog: {
     config(scope?: string): Promise<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }>

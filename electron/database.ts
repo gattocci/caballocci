@@ -15,6 +15,9 @@ import { CatalogRepository } from './database/catalog-repository'
 import { ExportsRepository } from './database/exports-repository'
 import { SourceImportRepository } from './database/source-import-repository'
 import { IdeaPostWorkflowRepository } from './database/idea-post-workflow-repository'
+import { WorkGroupsRepository } from './database/work-groups-repository'
+import { MediaCompressionRepository } from './database/media-compression-repository'
+import type { MediaCompressionCandidate } from './database/media-compression-repository'
 import { runMigrations } from './database/migration-runner'
 import { seedDatabase } from './database/seed'
 
@@ -33,6 +36,8 @@ export class PlannerDatabase {
   private exports!: ExportsRepository
   private sourceImports!: SourceImportRepository
   private ideaPostWorkflows!: IdeaPostWorkflowRepository
+  private workGroups!: WorkGroupsRepository
+  private mediaCompression!: MediaCompressionRepository
 
   constructor(
     private readonly filePath: string,
@@ -51,6 +56,8 @@ export class PlannerDatabase {
     this.conceptLinks = new ConceptLinksRepository(this.db, () => this.persist())
     this.sources = new SourcesRepository(this.db, () => this.persist())
     this.posts = new PostsRepository(this.db, () => this.persist(), (type, entity, entityId, payload, at) => this.recordEvent(type, entity, entityId, payload, at))
+    this.workGroups = new WorkGroupsRepository(this.db, () => this.persist())
+    this.mediaCompression = new MediaCompressionRepository(this.db, () => this.persist())
     this.ideas = new IdeasRepository(this.db, () => this.persist(), (title, body) => this.ideaHash(title, body), (type, entity, entityId, payload, at) => this.recordEvent(type, entity, entityId, payload, at))
     this.analysis = new AnalysisRepository(
       this.db,
@@ -98,6 +105,19 @@ export class PlannerDatabase {
   list(): Row[] {
     return this.posts.list()
   }
+
+  listWorkGroups(): Row[] { return this.workGroups.list() }
+  saveWorkGroup(input: Row): Row { return this.workGroups.save(input) }
+  setWorkGroupPosts(id: string, postIds: string[]): Row { return this.workGroups.setPosts(id, postIds) }
+  setWorkGroupArchived(id: string, archived: boolean): Row { return this.workGroups.setArchived(id, archived) }
+  removeWorkGroup(id: string) { this.workGroups.remove(id) }
+  compressMedia(targetType: 'group' | 'post', targetId: string, candidates: MediaCompressionCandidate[], references: Map<string, Set<string>>, includedPostIds: Set<string>, archiveDirectory: string, managedRoot: string) {
+    return this.mediaCompression.compress(targetType, targetId, candidates, references, includedPostIds, archiveDirectory, managedRoot)
+  }
+  restoreMedia(assetIds: string[], managedRoot: string) { return this.mediaCompression.restore(assetIds, managedRoot) }
+  compressedMediaIds() { return this.mediaCompression.compressedIds() }
+  compressedMediaIdsForTarget(targetType: 'group' | 'post', targetId: string) { return this.mediaCompression.assetIdsForTarget(targetType, targetId) }
+  getMediaCompressionState(id: string) { return this.mediaCompression.state(id) }
 
   savePreferences(entries: Record<string, string>) {
     this.preferences.save(entries)
@@ -280,7 +300,7 @@ export class PlannerDatabase {
     this.media.updatePath(id, filePath)
   }
 
-  getMediaFile(id: string): { path: string; kind: string } | undefined {
+  getMediaFile(id: string): { path: string; kind: string; mode: string; archivePath?: string; entryName?: string } | undefined {
     return this.media.getFile(id)
   }
 
