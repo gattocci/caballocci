@@ -2,6 +2,28 @@
   padding-right: 176px;
 }
 
+.update-indicator {
+  min-width: 0;
+  max-width: 210px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #38413b;
+  border-radius: 4px;
+  background: #1b211d;
+  color: #c9d2cc;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update-indicator span { overflow: hidden; text-overflow: ellipsis; }
+.update-indicator.available, .update-indicator.downloaded { border-color: #54715d; color: #9ed5ad; }
+.update-indicator.error { border-color: #77433d; color: #ef9b8c; }
+.update-indicator progress { width: 42px; height: 5px; accent-color: var(--accent); }
+
 .sidebar { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #404842 #111512; }
 .sidebar nav, .side-section, .sidebar-bottom { flex: none; }
 
@@ -120,4 +142,5 @@
 
 @media (max-width: 1200px) {
   .topbar { padding-right: 168px; }
+  .update-indicator { max-width: 160px; }
 }

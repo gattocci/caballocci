@@ -7,12 +7,15 @@
 .update-state{min-height:58px;display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:#171c19;padding:12px}
 .update-state>span{width:9px;height:9px;border-radius:50%;background:#7d8781}
 .update-state.available>span,.update-state.downloaded>span{background:var(--accent)}
+.update-state.installing>span{background:#e0b45f;animation:update-pulse 1.2s ease-in-out infinite}
 .update-state.not-available>span{background:var(--green)}
 .update-state.error>span{background:#e05252}
 .update-state>div{display:grid;gap:4px}
 .update-state strong{font-size:11px}
 .update-state small{font-size:9px;color:var(--muted)}
+@keyframes update-pulse{50%{opacity:.4}}
 .settings-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px}
+.settings-actions.update-notes-actions{margin-top:9px}
 .settings-button{height:36px;border:1px solid #38413b;background:#1b211d;border-radius:4px;padding:0 12px;display:inline-flex;align-items:center;gap:7px;font-size:10px;font-weight:650;cursor:pointer}
 .settings-button:hover{background:#252c27}
 .settings-button.primary{background:var(--accent);border-color:var(--accent);color:white}
@@ -23,6 +26,9 @@
 .download-progress small{font-size:8px;color:var(--muted)}
 .settings-note{font-size:9px;line-height:15px;color:var(--muted);margin:14px 0 0}
 .settings-note.success{color:#73c99b;overflow-wrap:anywhere}
+.release-notes{max-height:260px;overflow:auto;margin-top:10px;padding:12px;border:1px solid var(--line);background:#171c19}
+.release-notes strong{font-size:10px}
+.release-notes p{margin:8px 0 0;color:#aeb8b1;font-size:10px;line-height:16px;white-space:pre-wrap;overflow-wrap:anywhere}
 .path-list{display:grid;margin:0;border-top:1px solid var(--line)}
 .path-list>div{padding:12px 0;border-bottom:1px solid var(--line);display:grid;gap:5px}
 .path-list dt{font-size:9px;color:var(--muted)}

@@ -40,6 +40,10 @@ let mainWindow: BrowserWindow | null = null
 let database: PlannerDatabase
 let updater: UpdateManager
 let mediaWorkspaceRoot = ''
+let activeIpcOperations = 0
+let ipcQuiescingForUpdate = false
+let ipcOperationsPaused = false
+const ipcIdleWaiters = new Set<() => void>()
 const pendingImports = new Map<string, { sourceId: string; items: Record<string, unknown>[] }>()
 const devServerUrl = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL
 const rendererFilePath = path.join(__dirname, '../dist/index.html')
@@ -79,25 +83,61 @@ function assertTrustedIpcSender(event: IpcMainInvokeEvent) {
   }
 }
 
+function trackIpcOperation(channel: string) {
+  if (channel.startsWith('updates:')) return () => {}
+  if (ipcOperationsPaused) throw new Error('La aplicación está finalizando una actualización.')
+  activeIpcOperations += 1
+  let finished = false
+  return () => {
+    if (finished) return
+    finished = true
+    activeIpcOperations -= 1
+    if (activeIpcOperations === 0 && ipcQuiescingForUpdate) {
+      ipcOperationsPaused = true
+      for (const resolve of ipcIdleWaiters) resolve()
+      ipcIdleWaiters.clear()
+    }
+  }
+}
+
+function waitForIpcOperations() {
+  ipcQuiescingForUpdate = true
+  if (activeIpcOperations === 0) {
+    ipcOperationsPaused = true
+    return Promise.resolve()
+  }
+  return new Promise<void>(resolve => ipcIdleWaiters.add(resolve))
+}
+
+function resumeIpcOperations() {
+  ipcQuiescingForUpdate = false
+  ipcOperationsPaused = false
+}
+
 function handle(channel: string, callback: (args: unknown[]) => unknown) {
   ipcMain.handle(channel, (event, ...args: unknown[]) => {
     assertTrustedIpcSender(event)
+    const finishTracking = trackIpcOperation(channel)
     try {
       const result = callback(args)
-      if (!result || typeof (result as Promise<unknown>).then !== 'function') return result
+      if (!result || typeof (result as Promise<unknown>).then !== 'function') {
+        finishTracking()
+        return result
+      }
       return Promise.resolve(result).catch(async error => {
         if (error instanceof WebAssembly.RuntimeError || (error && typeof error === 'object' && 'name' in error && String((error as { name?: unknown }).name) === 'RuntimeError')) {
           database = await database.reopenFromDisk()
         }
         throw error
-      })
+      }).finally(finishTracking)
     } catch (error) {
       if (error instanceof WebAssembly.RuntimeError || (error && typeof error === 'object' && 'name' in error && String((error as { name?: unknown }).name) === 'RuntimeError')) {
         return database.reopenFromDisk().then((replacement) => {
           database = replacement
           throw error
-        })
+        }).finally(finishTracking)
       }
+      finishTracking()
       throw error
     }
   })
@@ -436,7 +476,12 @@ app.whenReady().then(async () => {
   await database.init()
   database.list().forEach(row => ensurePostMediaFolder(String(row.project || ''), String(row.id)))
   registerMediaProtocol()
-  updater = new UpdateManager(() => mainWindow, () => { database.createBackup('before-update') })
+  updater = new UpdateManager(
+    () => mainWindow,
+    () => { database.createBackup('before-update') },
+    waitForIpcOperations,
+    resumeIpcOperations,
+  )
   handle('posts:list', withoutArguments(() => database.list().map(mapPost)))
   handle('posts:save', args => {
     validateArgumentCount(args, 1)
@@ -780,6 +825,7 @@ app.whenReady().then(async () => {
   handle('updates:check', withoutArguments(() => updater.check()))
   handle('updates:download', withoutArguments(() => updater.download()))
   handle('updates:install', withoutArguments(() => updater.install()))
+  handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))
   handle('media:reveal', args => {
     validateArgumentCount(args, 1)
     const target = database.getMediaPath(validateId(args[0], 'media.id'))

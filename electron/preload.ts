@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld('planner', {
     check: () => ipcRenderer.invoke('updates:check'),
     download: () => ipcRenderer.invoke('updates:download'),
     install: () => ipcRenderer.invoke('updates:install'),
+    openReleaseNotes: () => ipcRenderer.invoke('updates:open-release-notes'),
     onStateChange: (listener: (state: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: unknown) => listener(state)
       ipcRenderer.on('updates:state', handler)

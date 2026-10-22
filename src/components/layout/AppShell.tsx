@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
-import { CalendarDays, Clock3, Columns3, Database, FolderOpen, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Search, Settings, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays, Clock3, Columns3, Database, Download, FolderOpen, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Search, Settings, Trash2, X } from 'lucide-react'
 import { usePlanner } from '../../app/store'
 import { getPlatformMeta } from '../../shared/constants'
-import type { Platform } from '../../shared/types'
+import type { Platform, UpdateState } from '../../shared/types'
 import './app-shell.css'
 
 export function PlatformMark({ platform, small = false }: { platform: Platform; small?: boolean }) {
@@ -40,8 +40,25 @@ export function Sidebar() {
 export function Topbar({ onNew, onSearchSubmit }: { onNew: () => void; onSearchSubmit?: () => void }) {
   const { query, setQuery, setView } = usePlanner()
   const [open, setOpen] = useState(false)
+  const [update, setUpdate] = useState<UpdateState | null>(null)
+  useEffect(() => {
+    let active = true
+    const unsubscribe = window.planner.updates.onStateChange(setUpdate)
+    void window.planner.updates.getState().then(state => { if (active) setUpdate(state) })
+    return () => { active = false; unsubscribe() }
+  }, [])
   const go = (view: 'timeline' | 'calendar' | 'board' | 'ideas' | 'library' | 'sources' | 'about') => { setView(view); setOpen(false) }
-  return <header className="topbar"><div className="search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={event => { if (event.key === 'Enter') onSearchSubmit?.() }} placeholder="Buscar publicaciones, ideas, etiquetas..." /><kbd>Ctrl K</kbd></div><div className="top-actions"><div className="app-menu-wrap"><button className="icon-button" title="Abrir menú" aria-expanded={open} onClick={() => setOpen(value => !value)}><Menu size={18} /></button>{open && <div className="app-menu"><button onClick={() => go('timeline')}><Clock3 size={15} /> Línea de tiempo</button><button onClick={() => go('calendar')}><CalendarDays size={15} /> Calendario</button><button onClick={() => go('board')}><Columns3 size={15} /> Tablero</button><button onClick={() => go('ideas')}><Lightbulb size={15} /> Ideas</button><button onClick={() => go('library')}><Library size={15} /> Biblioteca</button><hr /><button onClick={() => go('about')}><Settings size={15} /> Acerca de y actualizaciones</button></div>}</div><button className="new-button" onClick={onNew}><Plus size={17} /> Nueva publicación</button><div className="avatar">CG</div></div></header>
+  const updateIndicator = update?.status === 'downloading' || update?.status === 'available' || update?.status === 'downloaded' || update?.status === 'installing' || (update?.status === 'error' && update.availableVersion)
+  const updateLabel = update?.status === 'downloading'
+    ? `Descargando · ${Math.round(update.percent || 0)}%`
+    : update?.status === 'installing'
+      ? 'Esperando operaciones'
+    : update?.status === 'available'
+      ? `Disponible · v${update.availableVersion}`
+      : update?.status === 'downloaded'
+        ? 'Actualización lista'
+        : 'Descarga fallida · Reintentar'
+  return <header className="topbar"><div className="search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={event => { if (event.key === 'Enter') onSearchSubmit?.() }} placeholder="Buscar publicaciones, ideas, etiquetas..." /><kbd>Ctrl K</kbd></div><div className="top-actions">{updateIndicator && <button className={`update-indicator ${update?.status}`} title="Ver actualizaciones" onClick={() => setView('about')}><Download size={14} /><span>{updateLabel}</span>{update?.status === 'downloading' && <progress max="100" value={update.percent || 0} />}</button>}<div className="app-menu-wrap"><button className="icon-button" title="Abrir menú" aria-expanded={open} onClick={() => setOpen(value => !value)}><Menu size={18} /></button>{open && <div className="app-menu"><button onClick={() => go('timeline')}><Clock3 size={15} /> Línea de tiempo</button><button onClick={() => go('calendar')}><CalendarDays size={15} /> Calendario</button><button onClick={() => go('board')}><Columns3 size={15} /> Tablero</button><button onClick={() => go('ideas')}><Lightbulb size={15} /> Ideas</button><button onClick={() => go('library')}><Library size={15} /> Biblioteca</button><hr /><button onClick={() => go('about')}><Settings size={15} /> Acerca de y actualizaciones</button></div>}</div><button className="new-button" onClick={onNew}><Plus size={17} /> Nueva publicación</button><div className="avatar">CG</div></div></header>
 }
 
 export function ViewHeading({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {

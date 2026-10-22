@@ -120,13 +120,15 @@ export type ConceptMapFolderInput = Omit<ConceptMapFolder, 'id' | 'createdAt' | 
 
 export interface DashboardStats { total: number; scheduled: number; drafts: number; published: number }
 
-export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error'
 
 export interface UpdateState {
   status: UpdateStatus
   message: string
   installedVersion: string
   availableVersion: string | null
+  releaseNotes: string | null
+  releaseUrl: string | null
   percent: number | null
   transferred: number | null
   total: number | null
@@ -287,6 +289,7 @@ export interface ElectronAPI {
     check(): Promise<UpdateState>
     download(): Promise<UpdateState>
     install(): Promise<boolean>
+    openReleaseNotes(): Promise<void>
     onStateChange(listener: (state: UpdateState) => void): () => void
   }
 }
