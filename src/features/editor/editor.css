@@ -336,6 +336,7 @@
   text-transform: none;
   letter-spacing: 0;
 }
+.schedule-warning { margin: -8px 0 0; color: #e5a096; font-size: 10px; line-height: 1.45; }
 
 .notes-editor + .notes-area,
 .notes-area {

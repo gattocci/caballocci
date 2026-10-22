@@ -33,6 +33,86 @@
 .board-column > header { height: 48px; background: #151a17; }
 .board-column > header strong { color: #e0e7e2; font-size: 11px; }
 .board-column > header em { min-width: 22px; padding: 3px 5px; border-radius: 10px; background: #252c27; color: #c4cec7; text-align: center; }
+.board-mode-switch { flex: none; height: 36px; }
+.board-mode-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 78px; }
+.board-mode-list .board, .board-mode-calendar .board { display: none; }
+.board-mode-list .board-archived-posts, .board-mode-calendar .board-archived-posts, .board-mode-list .board-archive-note, .board-mode-calendar .board-archive-note, .board-mode-list .board-empty, .board-mode-calendar .board-empty, .board-mode-list .work-group-selection-hint, .board-mode-calendar .work-group-selection-hint { display: none; }
+.board-list-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.board-list-filters label { display: grid; gap: 4px; color: #9aa69e; font-size: 9px; font-weight: 700; }
+.board-list-filters select, .board-list-filters input { width: 138px; height: 32px; padding: 0 8px; border: 1px solid #354139; border-radius: 4px; background: #171d19; color: #e1e8e3; font-size: 10px; }
+.board-list-filters input[type="date"] { width: 140px; }
+.board-list-view { min-width: 0; border: 1px solid #303a33; background: #131815; }
+.board-list-scroll { max-height: calc(100vh - 360px); min-height: 220px; overflow: auto; }
+.board-list-view table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.board-list-view thead { position: sticky; top: 0; z-index: 2; background: #1a201c; }
+.board-list-view th { height: 36px; padding: 0 10px; border-bottom: 1px solid #354139; color: #9aa69e; font-size: 9px; font-weight: 700; text-align: left; }
+.board-list-view th:first-child { width: 28%; }
+.board-list-view th:nth-child(2), .board-list-view th:nth-child(3) { width: 12%; }
+.board-list-view th:nth-child(4) { width: 17%; }
+.board-list-view th:nth-child(5) { width: 16%; }
+.board-list-view th:nth-child(6) { width: 15%; }
+.board-list-view th button { padding: 0; border: 0; background: transparent; color: inherit; font-size: inherit; font-weight: inherit; cursor: pointer; }
+.board-list-view td { height: 42px; padding: 5px 10px; overflow: hidden; border-bottom: 1px solid #252d28; color: #aab4ad; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.board-list-view tr:hover td, .board-list-view tr.selected td { background: #1c241f; }
+.board-list-select { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.board-list-select input { flex: none; width: 14px; height: 14px; accent-color: #d0a64b; }
+.board-list-select button { min-width: 0; overflow: hidden; padding: 0; border: 0; background: transparent; color: #e1e8e3; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.board-list-stage { display: flex; align-items: center; gap: 6px; }
+.board-list-stage i { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.board-list-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; color: #929d95; font-size: 10px; }
+.board-list-pagination > div { display: flex; gap: 6px; }
+.board-list-pagination .settings-button { min-height: 29px; height: 29px; }
+.board-list-pagination button:disabled { opacity: .4; cursor: not-allowed; }
+.board-mode-calendar .board-editorial-calendar { min-width: 760px; }
+.board-calendar-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.board-calendar-heading > strong { color: #e1e8e3; font-size: 14px; text-transform: capitalize; }
+.board-calendar-grid { border: 1px solid #303a33; background: #131815; overflow-x: auto; }
+.board-calendar-weekdays, .board-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(100px, 1fr)); }
+.board-calendar-weekdays { position: sticky; top: 0; z-index: 2; background: #1a201c; }
+.board-calendar-weekdays > span { padding: 9px; border-bottom: 1px solid #303a33; color: #9aa69e; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.board-calendar-days > div { min-height: 120px; padding: 6px; border-right: 1px solid #252d28; border-bottom: 1px solid #252d28; }
+.board-calendar-days > div.muted { background: #101411; }
+.board-calendar-days > div.today { background: #1d201b; }
+.board-calendar-days > div > b { color: #b9c3bc; font: 11px 'DM Mono', monospace; }
+.board-calendar-days > div.muted > b { color: #606b63; }
+.board-calendar-days > div > button { display: flex; gap: 5px; width: 100%; margin-top: 5px; padding: 5px; border: 0; border-left: 2px solid #55bf8b; background: #202722; color: #dce4de; text-align: left; cursor: pointer; }
+.board-calendar-days > div > button:hover { background: #2a332d; }
+.board-calendar-days > div > button.board-calendar-more { display: block; border: 0; background: transparent; color: #d0a64b; font-size: 9px; }
+.board-calendar-days time { flex: none; color: #bdc8c0; font: 8px 'DM Mono', monospace; }
+.board-calendar-days button span { min-width: 0; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.board-calendar-note { color: #98a39c; font-size: 10px; }
+.board-unscheduled { display: grid; gap: 8px; margin: 0 0 10px; padding: 9px 10px; border: 1px solid #3a463e; border-left: 3px solid #d0a64b; background: #151a17; }
+.board-unscheduled > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.board-unscheduled > header > div { display: flex; align-items: center; gap: 7px; }
+.board-unscheduled > header strong { color: #e0e7e2; font-size: 10px; }
+.board-unscheduled > header span { min-width: 20px; padding: 2px 5px; border-radius: 9px; background: #29291f; color: #e1c983; font: 9px 'DM Mono', monospace; text-align: center; }
+.board-unscheduled > header label { display: flex; align-items: center; gap: 7px; color: #98a39c; font-size: 9px; }
+.board-unscheduled input { height: 28px; padding: 0 6px; border: 1px solid #354139; border-radius: 4px; background: #101512; color: #e5ebe7; font-size: 10px; }
+.board-unscheduled > div { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; }
+.board-unscheduled > div > button { display: grid; gap: 3px; min-width: 150px; max-width: 220px; padding: 7px 8px; border: 1px solid #343e37; border-radius: 4px; background: #1a201c; text-align: left; cursor: grab; }
+.board-unscheduled > div > button:hover { border-color: #d0a64b; background: #22241d; }
+.board-unscheduled > div > button strong { overflow: hidden; color: #dce4de; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.board-unscheduled > div > button span { color: #929d95; font-size: 8px; }
+.board-unscheduled > small { color: #78847c; font-size: 9px; }
+.bulk-schedule-control { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid #3a463e; background: #171d19; }
+.bulk-schedule-control label { color: #aab4ad; font-size: 9px; }
+.bulk-schedule-control input { height: 27px; padding: 0 5px; border: 1px solid #354139; border-radius: 3px; background: #101512; color: #e5ebe7; font-size: 9px; }
+.bulk-schedule-control button { min-height: 27px; padding: 0 8px; border: 0; border-radius: 3px; background: #385b45; color: #e5f0e8; font-size: 9px; cursor: pointer; }
+.bulk-schedule-control button:disabled { opacity: .45; cursor: not-allowed; }
+.bulk-schedule-warning { flex-basis: 100%; color: #e3a39b; font-size: 9px; }
+.board { overflow-x: auto; overflow-y: hidden; }
+.board .board-column { display: flex; flex-direction: column; min-height: 0; height: clamp(160px, calc(100vh - 450px), 560px); }
+.board-column > header { flex: none; height: auto; min-height: 44px; padding: 0; }
+.board-column > header button { display: flex; align-items: center; gap: 7px; width: 100%; height: 44px; padding: 0 10px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.board-column > header button > strong { flex: 1; }
+.board-column > header button > svg { color: #7c8780; transform: rotate(90deg); transition: transform .15s ease; }
+.board-column.collapsed > header button > svg { transform: rotate(0deg); }
+.board-stack { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #404842 #171b18; }
+.board-stack article { padding: 8px; }
+.board-stack h3 { display: -webkit-box; min-height: 30px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 11px; line-height: 15px; }
+.board-stack article > small { margin-top: 6px; }
+.board-stack article > div > span:last-child { margin-left: auto; color: #9aa69e; text-transform: uppercase; font-size: 8px; }
+.board-more-hint { display: block; padding: 8px; color: #88948c; font-size: 9px; }
 .board-column-empty { margin: 10px 4px; padding: 12px 8px; border: 1px dashed #343e37; border-radius: 5px; color: #78847c; font-size: 10px; line-height: 1.45; text-align: center; }
 .board-archive-note { margin: -8px 0 12px; color: #89948d; font-size: 10px; }
 .work-group-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -8px 0 14px; padding: 10px; border: 1px solid #29332c; border-radius: 6px; background: #131815; }
@@ -118,13 +198,62 @@
 .empty-library { margin: 72px auto; padding: 28px; border: 1px dashed #3a463e; border-radius: 10px; background: #131815; }
 .empty-library > div { border-radius: 12px; color: #d0a64b; background: #27251e; }
 .empty-library p { max-width: 380px; margin-inline: auto; }
+.timeline-workspace { display: flex; flex-direction: column; min-height: 100%; }
+.timeline-heading-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.timeline-outlook { display: grid; grid-template-columns: minmax(150px, .8fr) repeat(4, minmax(110px, 1fr)); align-items: stretch; gap: 7px; margin: -7px 0 12px; }
+.timeline-outlook-label { align-self: center; color: #8e9991; font-size: 9px; font-weight: 800; }
+.timeline-outlook > button { position: relative; display: grid; grid-template-columns: 1fr auto; align-content: center; gap: 2px 8px; min-width: 0; min-height: 54px; padding: 7px 9px 10px; overflow: hidden; border: 1px solid #303a33; border-radius: 4px; background: #151a17; text-align: left; cursor: pointer; }
+.timeline-outlook > button:hover { border-color: #59655d; background: #1b211d; }
+.timeline-outlook > button > span { overflow: hidden; color: #b6c0b9; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-outlook > button > b { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: #e2e9e4; font: 600 16px 'DM Mono', monospace; }
+.timeline-outlook > button > small { color: #78847c; font-size: 8px; }
+.timeline-outlook > button > i { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: #28332b; }
+.timeline-outlook > button > i::after { display: block; width: var(--week-load); height: 100%; background: #55bf8b; content: ''; }
+.timeline-shell { display: flex; flex-direction: column; height: clamp(300px, calc(100vh - 420px), 600px); min-height: 250px; }
+.timeline-legend { flex: none; }
+.timeline-scroll { flex: 1; min-height: 0; }
+.timeline-grid { height: 100%; min-width: 0; }
+.timeline-day { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.timeline-day > header { position: sticky; top: 0; z-index: 1; height: 46px; flex: none; background: #141916; }
+.timeline-day > header small { min-width: 18px; padding: 2px 5px; border-radius: 8px; background: #252c27; color: #a9b3ac; font: 9px 'DM Mono', monospace; text-align: center; }
+.timeline-day.today > header { background: #211d18; }
+.day-track { flex: 1; min-height: 0; overflow-y: auto; padding: 7px; scrollbar-width: thin; scrollbar-color: #404842 #171b18; }
+.post-card { min-height: 0; padding: 7px; margin-bottom: 6px; box-shadow: none; }
+.post-card .type-label { margin-top: 5px; }
+.post-card h3 { display: -webkit-box; min-height: 30px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 10px; line-height: 14px; }
+.post-card footer { margin-top: 6px; }
+.timeline-day-empty { display: block; padding: 8px 2px; color: #626e65; font-size: 9px; text-align: center; }
+.timeline-footer { flex: none; padding-bottom: 0; }
 
 @media (max-width: 900px) {
   .timeline-footer { align-items: flex-start; gap: 12px; flex-direction: column; }
   .mini-stats { width: 100%; flex-wrap: wrap; }
+  .timeline-outlook { grid-template-columns: repeat(4, minmax(100px, 1fr)); }
+  .timeline-outlook-label { grid-column: 1 / -1; }
 }
 
 @media (max-width: 600px) {
+  .timeline-heading-controls { align-items: stretch; flex-direction: column; }
+  .timeline-heading-controls > .segmented, .timeline-heading-controls > .period-controls { width: 100%; justify-content: center; }
+  .timeline-heading-controls > .period-controls span { min-width: 0; flex: 1; }
+  .timeline-outlook { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .timeline-outlook-label { grid-column: 1 / -1; }
+  .timeline-shell { height: clamp(220px, calc(100vh - 390px), 520px); }
+  .timeline-grid { min-width: max-content; }
+  .board-mode-switch { width: 100%; }
+  .board-mode-switch button { flex: 1; min-width: 0; padding: 0 6px; }
+  .board-list-filters { align-items: stretch; }
+  .board-list-filters label { flex: 1 1 42%; }
+  .board-list-filters select, .board-list-filters input, .board-list-filters input[type="date"] { width: 100%; }
+  .board-list-scroll { max-height: calc(100vh - 420px); }
+  .board-list-view table { min-width: 860px; }
+  .board-calendar-grid { overflow-x: auto; }
+  .board-unscheduled > header { align-items: flex-start; flex-direction: column; }
+  .board-unscheduled > header label { width: 100%; justify-content: space-between; }
+  .board-unscheduled input { max-width: 130px; }
+  .bulk-schedule-control { flex-wrap: wrap; }
+  .board-calendar-weekdays, .board-calendar-days { min-width: 760px; }
+  .board .board-column { height: clamp(150px, calc(100vh - 500px), 460px); }
   .planner-empty-inline { align-items: flex-start; flex-direction: column; }
   .planner-empty-inline .settings-button { margin-left: 0; }
   .work-group-toolbar, .work-group-picker { align-items: stretch; flex-direction: column; }
