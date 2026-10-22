@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { randomUUID } from 'node:crypto'
 import type { IdeaAnalysisProgress } from './database/types'
+
+let clusterRequestSequence = 0
 
 contextBridge.exposeInMainWorld('planner', {
   posts: {
@@ -60,7 +61,7 @@ contextBridge.exposeInMainWorld('planner', {
     neighbors: (id: string, limit?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:neighbors', id, limit, ignoredTerms, options),
     refreshEmbeddings: (ids?: string[], ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:embeddings-refresh', ids, ignoredTerms, options),
     clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, onProgress?: (progress: IdeaAnalysisProgress) => void) => {
-      const requestId = randomUUID()
+      const requestId = `${Date.now()}-${++clusterRequestSequence}-${Math.random().toString(36).slice(2)}`
       const listener = (_event: Electron.IpcRendererEvent, update: IdeaAnalysisProgress & { requestId: string }) => {
         if (update.requestId === requestId) onProgress?.(update)
       }

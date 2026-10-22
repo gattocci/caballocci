@@ -7,6 +7,7 @@ import { es } from 'date-fns/locale'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FileImage, FolderOpen, GripVertical, MoreHorizontal, Plus } from 'lucide-react'
 import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { PlatformMark, ViewHeading } from '../../components/layout/AppShell'
+import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { postMatchesQuery, usePlanner } from '../../app/store'
 import { useSelection } from '../../app/useSelection'
 import type { MediaAsset, Post } from '../../shared/types'
@@ -29,14 +30,16 @@ export function Timeline() {
   const [dragged, setDragged] = useState<string | null>(null)
   const days = Array.from({ length: 14 }, (_, i) => addDays(startOfWeek(anchor, { weekStartsOn: 1 }), i))
   const scheduled = posts.filter(p => p.scheduledAt)
-  const drop = async (day: Date) => {
+  const drop = (day: Date) => {
     const post = posts.find(p => p.id === dragged)
     if (!post) return
     const old = post.scheduledAt ? parseISO(post.scheduledAt) : new Date()
     const next = new Date(day)
     next.setHours(old.getHours(), old.getMinutes())
-    await save({ ...post, scheduledAt: next.toISOString(), status: post.status === 'idea' ? 'scheduled' : post.status })
-    setDragged(null)
+    void runWithErrorReporting(async () => {
+      await save({ ...post, scheduledAt: next.toISOString(), status: post.status === 'idea' ? 'scheduled' : post.status })
+      setDragged(null)
+    }, 'No se pudo reprogramar la publicación')
   }
   return <section className="workspace">
     <ViewHeading title="Línea de tiempo" subtitle="Todo tu contenido, en el orden en que cobra vida.">
@@ -57,12 +60,12 @@ export function CalendarView() {
   const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
   const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start, end })
-  const drop = async (event: React.DragEvent, day: Date) => {
+  const drop = (event: React.DragEvent, day: Date) => {
     const post = posts.find(p => p.id === event.dataTransfer.getData('post'))
     if (!post) return
     const next = new Date(day)
     next.setHours(post.scheduledAt ? parseISO(post.scheduledAt).getHours() : 10)
-    await save({ ...post, scheduledAt: next.toISOString() })
+    void runWithErrorReporting(() => save({ ...post, scheduledAt: next.toISOString() }), 'No se pudo reprogramar la publicación')
   }
   return <section className="workspace">
     <ViewHeading title="Calendario" subtitle="Una vista clara de tu ritmo de publicación."><div className="period-controls"><button onClick={() => setMonth(subMonths(month, 1))}><ChevronLeft size={17} /></button><button onClick={() => setMonth(new Date())}>Hoy</button><button onClick={() => setMonth(addMonths(month, 1))}><ChevronRight size={17} /></button><span>{format(month, 'MMMM yyyy', { locale: es })}</span></div></ViewHeading>
@@ -80,11 +83,11 @@ export function Board() {
   const visibleBoardPosts = posts.filter(post => post.status !== 'archived')
   useEffect(() => { clear() }, [query, activeSpace, clear])
   useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clear() }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [clear])
-  const bulkMove = async (status: Post['status']) => {
+  const bulkMove = (status: Post['status']) => runWithErrorReporting(async () => {
     for (const id of selected) if (allPosts.some(item => item.id === id)) await move(id, status)
     clear()
-  }
-  const moveDragged = async (status: Post['status']) => { const ids = dragIds.current; dragIds.current = []; for (const id of ids) await move(id, status); clear() }
+  }, 'No se pudieron actualizar las publicaciones seleccionadas')
+  const moveDragged = (status: Post['status']) => runWithErrorReporting(async () => { const ids = dragIds.current; dragIds.current = []; for (const id of ids) await move(id, status); clear() }, 'No se pudieron mover las publicaciones')
   return <section className="workspace"><ViewHeading title="Tablero de contenido" subtitle="Mueve cada idea hasta convertirla en una publicación."><button className="settings-button" type="button" onClick={() => setVisiblePerColumn(current => current === 30 ? Number.MAX_SAFE_INTEGER : 30)}>{visiblePerColumn === 30 ? 'Ver más tarjetas' : 'Compactar columnas'}</button></ViewHeading>
     {selected.size > 0 && <div className="board-bulk-actions"><strong>{selected.size} seleccionadas</strong><button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button><button type="button" onClick={clear}>Cancelar</button></div>}
     <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = visiblePosts.map(post => post.id); return <div className="board-column" key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em></header><div className="board-stack">{visiblePosts.map(post => <article className={selected.has(post.id) ? 'selected' : ''} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title}</h3><p>{post.caption}</p>{post.distribution?.length ? <small>{post.distribution.filter(target => target.status === 'published').length}/{post.distribution.length} destinos publicados</small> : null}{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} tarjetas ocultas</small>}</div></div> })}</div>
@@ -94,12 +97,12 @@ export function Board() {
 export function LibraryView() {
   const [assets, setAssets] = useState<MediaAsset[]>([])
   const [mode, setMode] = useState<'copy' | 'reference'>('copy')
-  useEffect(() => { void window.planner.media.list().then(setAssets) }, [])
+  useEffect(() => { void window.planner.media.list().then(setAssets).catch(error => reportAppError(error, 'No se pudo cargar la biblioteca multimedia')) }, [])
   const add = async () => {
     const imported = await window.planner.media.choose(mode)
     setAssets(current => [...imported, ...current.filter(item => !imported.some(next => next.id === item.id))])
   }
-  return <section className="workspace"><ViewHeading title="Biblioteca multimedia" subtitle="Tus archivos permanecen en este equipo."><div className="segmented"><button className={mode === 'copy' ? 'active' : ''} onClick={() => setMode('copy')}>Copiar a biblioteca</button><button className={mode === 'reference' ? 'active' : ''} onClick={() => setMode('reference')}>Referenciar original</button></div><button className="new-button" onClick={add}><Plus size={17} /> Añadir archivos</button></ViewHeading>
+  return <section className="workspace">  <ViewHeading title="Biblioteca multimedia" subtitle="Tus archivos permanecen en este equipo."><div className="segmented"><button className={mode === 'copy' ? 'active' : ''} onClick={() => setMode('copy')}>Copiar a biblioteca</button><button className={mode === 'reference' ? 'active' : ''} onClick={() => setMode('reference')}>Referenciar original</button></div><button className="new-button" onClick={() => void runWithErrorReporting(add, 'No se pudieron añadir archivos a la biblioteca')}><Plus size={17} /> Añadir archivos</button></ViewHeading>
     {assets.length ? <div className="asset-grid">{assets.map(a => <article key={a.id}><div className="asset-preview"><FileImage size={34} /></div><strong>{a.name}</strong><span>{a.kind === 'image' ? 'Imagen' : a.kind === 'video' ? 'Vídeo' : 'Documento'}</span><small>{(a.size / 1024 / 1024).toFixed(1)} MB · {a.mode === 'copy' ? 'En biblioteca' : 'Referenciado'}</small><button onClick={() => window.planner.media.reveal(a.id)}><FolderOpen size={14} /> Abrir ubicación</button></article>)}</div> : <div className="empty-library"><div><FileImage size={32} /></div><h3>Tu biblioteca está lista</h3><p>Añade imágenes, vídeos o documentos desde tu equipo. Podrás vincularlos a cada publicación desde el editor.</p><button className="new-button" onClick={add}><Plus size={17} /> Elegir archivos</button></div>}
   </section>
 }

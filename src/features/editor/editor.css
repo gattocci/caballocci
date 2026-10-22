@@ -53,38 +53,6 @@
   .visual-order-controls button:nth-of-type(2) { grid-column: 3; grid-row: 1; }
 }
 .media-import-error { margin: 0; color: #f09986; font-size: 10px; line-height: 15px; }
-.editor-error-banner {
-  display: grid;
-  gap: 7px;
-  margin: 0 24px 10px;
-  padding: 10px 12px;
-  border: 1px solid #a64f43;
-  border-left: 3px solid #ef7259;
-  background: #321d1b;
-  color: #ffd8d0;
-  min-width: 0;
-}
-.editor-error-banner strong { color: #ff9a86; font-size: 10px; letter-spacing: .4px; text-transform: uppercase; }
-.editor-error-banner pre {
-  margin: 0;
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  color: #ffe9e4;
-  font: 10px/15px 'DM Mono', monospace;
-}
-.editor-error-banner button {
-  justify-self: start;
-  border: 1px solid #b76557;
-  background: #4a2925;
-  color: #ffe5de;
-  padding: 5px 8px;
-  font-size: 9px;
-  cursor: pointer;
-}
-.editor-error-banner button:hover { border-color: #ff9a86; background: #60342e; color: #fff; }
 .media-folder-hint { display: flex; align-items: center; gap: 6px; margin: -7px 0 0; color: #7f8c83; font-size: 9px; line-height: 14px; }
 .preview-sequence { height: 32px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #9ba69e; font: 9px 'DM Mono',monospace; }
 .preview-sequence button { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid #343d37; background: #1a201c; color: #c2ccc5; cursor: pointer; }

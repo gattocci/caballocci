@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CalendarDays, Combine, ExternalLink, Layers3, Lightbulb, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { ViewHeading } from '../../components/layout/AppShell'
+import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { ideaMatchesQuery, usePlanner } from '../../app/store'
 import type { Idea, IdeaAnalysisOptions, IdeaAnalysisProgress, IdeaCluster, IdeaImportRun, IdeaInput, IdeaNeighbor, IdeaPriority, IdeaStatus } from '../../shared/types'
 import { buildClusterReview, developSelectedClusterIdeas, ideaCorpusSignature } from './cluster-triage'
@@ -145,6 +146,7 @@ function exploratoryDuplicateKey(idea: Idea) {
 export function IdeasView() {
   const { ideas, activeSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query, selectedIdeaId, selectIdea } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
+  const runSafely = (action: () => Promise<unknown>, context: string) => { void runWithErrorReporting(action, context) }
   useEffect(() => {
     if (!selectedIdeaId) return
     const idea = ideas.find(item => item.id === selectedIdeaId)
@@ -301,10 +303,20 @@ export function IdeasView() {
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-options', JSON.stringify(analysisOptions)) } catch { /* Optional local preference. */ } }, [analysisOptions])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.marked-series', JSON.stringify(markedSeries)) } catch { /* Optional local preference. */ } }, [markedSeries])
   useEffect(() => { if (familyPatternsState.valid) { try { localStorage.setItem('caballocci.ideas.family-patterns', familyPatternsText) } catch { /* Optional local preference. */ } } }, [familyPatternsState.valid, familyPatternsText])
-  useEffect(() => { void window.planner.ideas.importHistory().then(setImportHistory).catch(() => setImportHistory([])) }, [])
   useEffect(() => {
     let active = true
-    const timer = window.setTimeout(() => { void window.planner.ideas.analysisPreview(ignoredTerms, analysisOptions).then(result => { if (active) setAutomaticTerms(result.automaticTerms) }).catch(() => { if (active) setAutomaticTerms([]) }) }, 180)
+    void window.planner.ideas.importHistory()
+      .then(history => { if (active) setImportHistory(history) })
+      .catch(error => { if (active) reportAppError(error, 'No se pudo cargar el historial de importaciones') })
+    return () => { active = false }
+  }, [])
+  useEffect(() => {
+    let active = true
+    const timer = window.setTimeout(() => {
+      void window.planner.ideas.analysisPreview(ignoredTerms, analysisOptions)
+        .then(result => { if (active) setAutomaticTerms(result.automaticTerms) })
+        .catch(error => { if (active) reportAppError(error, 'No se pudo preparar la vista previa del análisis') })
+    }, 180)
     return () => { active = false; window.clearTimeout(timer) }
   }, [ignoredTermsText, analysisOptions])
   const edit = (idea: Idea) => setDraft({ ...idea })
@@ -328,11 +340,13 @@ export function IdeasView() {
   }
   const importFile = async () => {
     setImporting(true)
+    setImportMessage('')
+    setImportDuplicates([])
     try {
       const file = await window.planner.files.readText()
       if (!file) return
       const parsed = parseTextFile(file.text, file.name, activeSpace || 'Mi contenido')
-      if (!parsed.length) { setImportMessage('No se encontraron bloques con contenido.'); return }
+      if (!parsed.length) { reportAppError('No se encontraron ideas con contenido en el archivo. Comprueba el formato e inténtalo de nuevo.', 'No se pudo importar el archivo'); return }
       const sourceHeaders = [...file.text.matchAll(/(?:^|\n)\s*(?:#{1,6}\s*)?\*\*\s*(\d+[.)]?\s*[^*\n]+?)\s*\*\*/gm)].length
       if (sourceHeaders !== parsed.length) setImportMessage(`Aviso: el archivo contiene ${sourceHeaders} encabezados numerados y se pudieron preparar ${parsed.length} Ideas.`)
       if (!window.confirm(`Preview: ${parsed.length} bloques detectados.\nLa base verificará duplicados contra todas las Ideas existentes.\n\n¿Importar este lote?`)) return
@@ -389,13 +403,9 @@ export function IdeasView() {
     setClusterSelection(false)
   }
   const developClusterSelection = async (cluster: IdeaCluster) => {
-    try {
-      const count = await developSelectedClusterIdeas(cluster, ideas, selectedIds, saveIdea)
-      if (!count) return
-      setAnalysisMessage(`${count} ${count === 1 ? 'idea pasó' : 'ideas pasaron'} a En desarrollo.`)
-    } catch (error) {
-      setAnalysisMessage(error instanceof Error ? `No se pudieron actualizar las ideas: ${error.message}` : 'No se pudieron actualizar las ideas.')
-    }
+    const count = await developSelectedClusterIdeas(cluster, ideas, selectedIds, saveIdea)
+    if (!count) return
+    setAnalysisMessage(`${count} ${count === 1 ? 'idea pasó' : 'ideas pasaron'} a En desarrollo.`)
   }
   const bulkConvert = async () => {
     if (!selectedIds.length) return
@@ -412,8 +422,11 @@ export function IdeasView() {
   const findNeighbors = async () => {
     if (selectedIds.length !== 1) return
     setAnalysisMessage('Buscando ideas parecidas... Esto puede tardar un momento.')
-    setNeighbors(await ideaNeighbors(selectedIds[0], 8, ignoredTerms, analysisOptions))
-    setAnalysisMessage('')
+    try {
+      setNeighbors(await ideaNeighbors(selectedIds[0], 8, ignoredTerms, analysisOptions))
+    } finally {
+      setAnalysisMessage('')
+    }
   }
   const generateExploratoryReport = async () => {
     const startingRevision = corpusRevision.current
@@ -440,8 +453,6 @@ export function IdeasView() {
       setActiveClusterId(proposed[0]?.id || null)
       setReportGeneratedAt(new Date().toISOString())
       setAnalysisMessage(proposed.length ? '' : 'No se encontraron grupos suficientemente relacionados; los fragmentos sin grupo siguen disponibles en el informe.')
-    } catch (error) {
-      setAnalysisMessage(error instanceof Error ? error.message : 'No se pudo generar el informe exploratorio.')
     } finally {
       setAnalysisRunning(false)
     }
@@ -454,10 +465,10 @@ export function IdeasView() {
 
   return <section className={`workspace ideas-workspace ${ideasTab === 'imports' ? 'show-import-history' : ''}`}>
     <ViewHeading title="Ideas" subtitle="Captura, desarrolla y convierte tus ideas en contenido.">
-      <button className="settings-button" disabled={importing} onClick={() => void importFile()}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button className="settings-button" disabled={importing || analysisRunning} onClick={() => void generateExploratoryReport()}><Layers3 size={14} /> {analysisRunning ? 'Generando clústers...' : 'Generar clústers'}</button><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
+      <button type="button" className="settings-button" disabled={importing} onClick={() => runSafely(importFile, 'No se pudo importar el archivo')}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button type="button" className="settings-button" disabled={importing || analysisRunning} onClick={() => runSafely(generateExploratoryReport, 'No se pudo generar el análisis')}><Layers3 size={14} /> {analysisRunning ? 'Generando clústers...' : 'Generar clústers'}</button><button type="button" className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
     </ViewHeading>
     <div className="ideas-tabs" role="tablist"><button type="button" role="tab" aria-selected={ideasTab === 'ideas'} className={ideasTab === 'ideas' ? 'active' : ''} onClick={() => setIdeasTab('ideas')}>Ideas</button><button type="button" role="tab" aria-selected={ideasTab === 'imports'} className={ideasTab === 'imports' ? 'active' : ''} onClick={() => setIdeasTab('imports')}>Historial de importaciones <span>{importHistory.length}</span></button></div>
-    {ideasTab === 'imports' && <section className="ideas-import-history"><header><div><span>ARCHIVOS LOCALES</span><h2>Historial de importaciones</h2></div><button type="button" className="settings-button" onClick={() => void window.planner.ideas.importHistory().then(setImportHistory)}>Actualizar</button></header>{importHistory.length ? <div className="ideas-import-history-list">{importHistory.map(run => <article key={run.id}><div><strong>{run.fileName}</strong><small>{new Date(run.importedAt).toLocaleString()} · {run.space || 'Todos los contenidos'}</small></div><div className="ideas-import-stats"><span>{run.total} detectadas</span><span>{run.created} nuevas</span><span>{run.skipped} duplicadas</span></div></article>)}</div> : <p className="ideas-import-history-empty">Todavía no hay importaciones registradas.</p>}</section>}
+    {ideasTab === 'imports' && <section className="ideas-import-history"><header><div><span>ARCHIVOS LOCALES</span><h2>Historial de importaciones</h2></div><button type="button" className="settings-button" onClick={() => runSafely(async () => setImportHistory(await window.planner.ideas.importHistory()), 'No se pudo actualizar el historial')}>Actualizar</button></header>{importHistory.length ? <div className="ideas-import-history-list">{importHistory.map(run => <article key={run.id}><div><strong>{run.fileName}</strong><small>{new Date(run.importedAt).toLocaleString()} · {run.space || 'Todos los contenidos'}</small></div><div className="ideas-import-stats"><span>{run.total} detectadas</span><span>{run.created} nuevas</span><span>{run.skipped} duplicadas</span></div></article>)}</div> : <p className="ideas-import-history-empty">Todavía no hay importaciones registradas.</p>}</section>}
     {importMessage && <div className="ideas-import-result"><p className="ideas-import-message">{importMessage}</p>{importDuplicates.length > 0 && <details><summary>Ver {importDuplicates.length} coincidencias existentes</summary><ul>{importDuplicates.map((duplicate, index) => <li key={`${duplicate.title}-${index}`}><strong>{duplicate.title}</strong><span>ya existe como “{duplicate.existingTitle}”{duplicate.existingSourceName ? ` · ${duplicate.existingSourceName}` : ''}</span></li>)}</ul></details>}</div>}
     <div className="ideas-toolbar">{!selectedOnly && <div className="idea-status-filters" role="group" aria-label="Filtrar ideas por estado">{statusFilters.map(filter => <button type="button" key={filter.value} aria-pressed={statusFilter === filter.value} className={statusFilter === filter.value ? 'active' : ''} onClick={() => { setStatusFilter(filter.value); setPage(1); setSelectedIds([]); setSelectedOnly(false); setClusterSelection(false) }}>{filter.label} <span>{statusCount(filter.value)}</span></button>)}</div>}<span>{selectedOnly ? `${ideasInSpace.length} seleccionadas · filtros pausados` : `${ideasInSpace.length} ideas · página ${page} de ${pageCount}`}</span>{selectedOnly ? <button type="button" className="settings-button" onClick={clearClusterView}>Ver todas</button> : <button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button>}</div>
     {!selectedOnly && <div className="ideas-family-filters" role="group" aria-label="Filtrar ideas por familia"><button type="button" className={!familyFilter ? 'active' : ''} onClick={() => setFamilyFilter('')}>Todas <span>{scopedIdeas.length}</span></button>{familyCounts.map(([family, count]) => <button type="button" key={family} className={familyFilter === family ? 'active' : ''} onClick={() => setFamilyFilter(family)}>{family} <span>{count}</span></button>)}</div>}
@@ -579,24 +590,24 @@ export function IdeasView() {
                 const comparedIdea = ideas.find(item => item.id === comparison.ideaId)
                 return <li key={comparison.ideaId}><span>{comparedIdea?.title || comparedIdea?.body.slice(0, 70) || 'Idea sin título'}</span><strong>{(comparison.score * 100).toFixed(1)}%</strong></li>
               })}</ul></details>}
-              <footer>{isOutlier ? <span className="cluster-fit-warning">Revisar encaje</span> : score !== undefined ? <span className="cluster-fit-score">Afinidad {Math.round(score * 100)}%</span> : null}{idea.status === 'converted' ? <span className="cluster-converted">Convertida</span> : <button type="button" onClick={event => { event.stopPropagation(); void convert(idea) }}>Convertir <ArrowRight size={13} /></button>}</footer>
+              <footer>{isOutlier ? <span className="cluster-fit-warning">Revisar encaje</span> : score !== undefined ? <span className="cluster-fit-score">Afinidad {Math.round(score * 100)}%</span> : null}{idea.status === 'converted' ? <span className="cluster-converted">Convertida</span> : <button type="button" onClick={event => { event.stopPropagation(); runSafely(() => convert(idea), 'No se pudo convertir la idea') }}>Convertir <ArrowRight size={13} /></button>}</footer>
             </article>
           })}</div>
           <div className="cluster-develop-actions">
             <span>{clusterReview.members.filter(({ idea }) => selectedIds.includes(idea.id)).length} ideas de este grupo seleccionadas</span>
-            <button type="button" className="new-button" disabled={!clusterReview.members.some(({ idea }) => selectedIds.includes(idea.id) && idea.status !== 'developing')} onClick={() => void developClusterSelection(activeCluster)}>Pasar selección a En desarrollo</button>
+            <button type="button" className="new-button" disabled={!clusterReview.members.some(({ idea }) => selectedIds.includes(idea.id) && idea.status !== 'developing')} onClick={() => runSafely(() => developClusterSelection(activeCluster), 'No se pudo actualizar la selección')}>Pasar selección a En desarrollo</button>
           </div>
         </div>}
       </div>
       {visibleClusters.some(cluster => cluster.ideaIds.length < 3) && !showSmallClusters && <button type="button" className="clusters-small-note" onClick={() => setShowSmallClusters(true)}>Hay {clusters.filter(cluster => cluster.ideaIds.length < 3).length} posibles duplicados o series de 2 ideas. Verlos.</button>}
     </section>}
-    {selectedIds.length > 0 && <div className={`ideas-bulk-actions ${selectedOnly ? 'selected-ideas-actions' : ''}`} ref={ideasListRef}><strong>{selectedIds.length} seleccionadas</strong>{selectedIds.length === 1 && <button type="button" onClick={() => void findNeighbors()}><Search size={13} /> Ideas parecidas</button>}{selectedIds.length >= 2 && <button type="button" onClick={() => void bulkCombine()}><Combine size={13} /> Combinar</button>}<button type="button" onClick={() => void bulkStatus('developing')}>Desarrollar</button><button type="button" onClick={() => void bulkStatus('ready')}>Marcar listas</button><button type="button" onClick={() => void bulkConvert()}>Convertir</button><button type="button" onClick={() => void bulkStatus('archived')}>Archivar</button><button type="button" onClick={() => void bulkRemove()}>Eliminar</button></div>}
+    {selectedIds.length > 0 && <div className={`ideas-bulk-actions ${selectedOnly ? 'selected-ideas-actions' : ''}`} ref={ideasListRef}><strong>{selectedIds.length} seleccionadas</strong>{selectedIds.length === 1 && <button type="button" onClick={() => runSafely(findNeighbors, 'No se pudieron buscar ideas parecidas')}><Search size={13} /> Ideas parecidas</button>}{selectedIds.length >= 2 && <button type="button" onClick={() => runSafely(bulkCombine, 'No se pudieron combinar las ideas')}><Combine size={13} /> Combinar</button>}<button type="button" onClick={() => runSafely(() => bulkStatus('developing'), 'No se pudieron actualizar las ideas')}>Desarrollar</button><button type="button" onClick={() => runSafely(() => bulkStatus('ready'), 'No se pudieron actualizar las ideas')}>Marcar listas</button><button type="button" onClick={() => runSafely(bulkConvert, 'No se pudieron convertir las ideas')}>Convertir</button><button type="button" onClick={() => runSafely(() => bulkStatus('archived'), 'No se pudieron actualizar las ideas')}>Archivar</button><button type="button" onClick={() => runSafely(bulkRemove, 'No se pudieron eliminar las ideas')}>Eliminar</button></div>}
     {ideasInSpace.length ? <div className="ideas-grid">{visibleIdeas.map(idea => <article className={'idea-card ' + (selectedIds.includes(idea.id) ? 'selected' : '')} key={idea.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selectedIds.length > 0) toggleSelected(idea.id) }}>
-      <header><label className="idea-select" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> {idea.priority !== 'normal' && <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span>}</label><div><button title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={15} /></button><button title="Eliminar idea" className="idea-delete" onClick={event => { event.stopPropagation(); if (window.confirm('Eliminar esta idea?')) void removeIdea(idea.id) }}><Trash2 size={15} /></button></div></header>
+      <header><label className="idea-select" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> {idea.priority !== 'normal' && <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span>}</label><div><button type="button" title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={15} /></button><button type="button" title="Eliminar idea" className="idea-delete" onClick={event => { event.stopPropagation(); if (window.confirm('Eliminar esta idea?')) runSafely(() => removeIdea(idea.id), 'No se pudo eliminar la idea') }}><Trash2 size={15} /></button></div></header>
       {ideaFamily(idea.title, idea.sourceName).family && <span className="idea-family-chip">{ideaFamily(idea.title, idea.sourceName).family}</span>} {idea.status !== 'inbox' && <span className={'idea-status ' + idea.status}>{statusLabels[idea.status]}</span>}{(idea.combinedPostIds.length > 0 || idea.combinedPostId) && <span className="idea-combined-badge">{idea.combinedPostIds.length > 1 ? `${idea.combinedPostIds.length} combinaciones` : 'Combinada'}</span>}<h2>{ideaFamily(idea.title, idea.sourceName).title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>
-      <footer>{idea.dueDate && <span><CalendarDays size={13} />{new Date(idea.dueDate).toLocaleDateString()}</span>}<small>{idea.space}</small><div className="idea-links">{(idea.combinedPostIds.length > 0 ? idea.combinedPostIds : (idea.combinedPostId ? [idea.combinedPostId] : [])).map((postId, index) => <button key={postId} onClick={event => { event.stopPropagation(); select(postId); setView('board') }} title="Abrir publicacion combinada"><ExternalLink size={13} /> {index === 0 ? 'Ver combinado' : `Ver combinado ${index + 1}`}</button>)}{idea.postId ? <button onClick={event => { event.stopPropagation(); select(idea.postId!); setView('board') }} title="Abrir publicacion individual"><ExternalLink size={13} /> Ver publicacion</button> : <button onClick={event => { event.stopPropagation(); void convert(idea) }}>Convertir <ArrowRight size={14} /></button>}</div></footer>
+      <footer>{idea.dueDate && <span><CalendarDays size={13} />{new Date(idea.dueDate).toLocaleDateString()}</span>}<small>{idea.space}</small><div className="idea-links">{(idea.combinedPostIds.length > 0 ? idea.combinedPostIds : (idea.combinedPostId ? [idea.combinedPostId] : [])).map((postId, index) => <button type="button" key={postId} onClick={event => { event.stopPropagation(); select(postId); setView('board') }} title="Abrir publicacion combinada"><ExternalLink size={13} /> {index === 0 ? 'Ver combinado' : `Ver combinado ${index + 1}`}</button>)}{idea.postId ? <button type="button" onClick={event => { event.stopPropagation(); select(idea.postId!); setView('board') }} title="Abrir publicacion individual"><ExternalLink size={13} /> Ver publicacion</button> : <button type="button" onClick={event => { event.stopPropagation(); runSafely(() => convert(idea), 'No se pudo convertir la idea') }}>Convertir <ArrowRight size={14} /></button>}</div></footer>
     </article>)}</div> : <div className="ideas-empty"><Lightbulb size={34} /><strong>No hay ideas en este filtro</strong><span>Importa un archivo o cambia el estado seleccionado.</span><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
     {ideasInSpace.length > 0 && <div className="ideas-pagination"><button disabled={page <= 1} onClick={() => setPage(current => current - 1)}>Anterior</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage(current => current + 1)}>Siguiente</button></div>}
-    {draft && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setDraft(null) }}><form className="space-dialog idea-dialog" onSubmit={event => { event.preventDefault(); void save() }}><header><div><span>{draft.id ? 'EDITAR IDEA' : 'NUEVA IDEA'}</span><h2>{draft.title || 'Idea sin titulo'}</h2></div><button type="button" className="icon-button" onClick={() => setDraft(null)}><X size={18} /></button></header><label>Titulo<input autoFocus value={draft.title} maxLength={240} onChange={event => setDraft(current => current ? { ...current, title: event.target.value } : current)} placeholder="Describe la idea" /></label><label>Desarrollo<textarea value={draft.body} maxLength={20_000} onChange={event => setDraft(current => current ? { ...current, body: event.target.value } : current)} placeholder="Anota el enfoque, datos o una primera version" /></label><div className="idea-dialog-row"><label>Estado<select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as IdeaStatus } : current)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Prioridad<select value={draft.priority} onChange={event => setDraft(current => current ? { ...current, priority: event.target.value as IdeaPriority } : current)}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><label>Espacio<input value={draft.space} maxLength={200} onChange={event => setDraft(current => current ? { ...current, space: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancelar</button><button type="button" className="ghost-button" disabled={!draft.title.trim()} onClick={() => void saveAndConvert()}>Guardar y convertir</button><button className="save-button" disabled={!draft.title.trim()}>Guardar idea</button></footer></form></div>}
+    {draft && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setDraft(null) }}><form className="space-dialog idea-dialog" onSubmit={event => { event.preventDefault(); runSafely(save, 'No se pudo guardar la idea') }}><header><div><span>{draft.id ? 'EDITAR IDEA' : 'NUEVA IDEA'}</span><h2>{draft.title || 'Idea sin titulo'}</h2></div><button type="button" className="icon-button" onClick={() => setDraft(null)}><X size={18} /></button></header><label>Titulo<input autoFocus value={draft.title} maxLength={240} onChange={event => setDraft(current => current ? { ...current, title: event.target.value } : current)} placeholder="Describe la idea" /></label><label>Desarrollo<textarea value={draft.body} maxLength={20_000} onChange={event => setDraft(current => current ? { ...current, body: event.target.value } : current)} placeholder="Anota el enfoque, datos o una primera version" /></label><div className="idea-dialog-row"><label>Estado<select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as IdeaStatus } : current)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Prioridad<select value={draft.priority} onChange={event => setDraft(current => current ? { ...current, priority: event.target.value as IdeaPriority } : current)}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><label>Espacio<input value={draft.space} maxLength={200} onChange={event => setDraft(current => current ? { ...current, space: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancelar</button><button type="button" className="ghost-button" disabled={!draft.title.trim()} onClick={() => runSafely(saveAndConvert, 'No se pudo guardar y convertir la idea')}>Guardar y convertir</button><button className="save-button" disabled={!draft.title.trim()}>Guardar idea</button></footer></form></div>}
   </section>
 }

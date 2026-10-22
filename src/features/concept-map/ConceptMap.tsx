@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
 import { ArrowLeft, BookOpen, Folder, FolderPlus, GitBranch, Lightbulb, Link2, Maximize2, Minus, Network, Plus, Trash2, X, ZoomIn } from 'lucide-react'
 import { ViewHeading } from '../../components/layout/AppShell'
+import { runWithErrorReporting } from '../../app/errors'
 import { usePlanner } from '../../app/store'
 import type { ConceptMapFolder, ConceptMapLink, ConceptMapNode, ConceptNodeKind, ConceptRelation } from '../../shared/types'
 import './concept-map.css'
@@ -50,6 +51,7 @@ export function ConceptMap() {
   const [folderName, setFolderName] = useState('')
   const [drag, setDrag] = useState<{ id: string; startX: number; startY: number; nodeX: number; nodeY: number } | null>(null)
   const [pan, setPan] = useState<{ startX: number; startY: number; camera: Camera } | null>(null)
+  const runSafely = (action: () => Promise<unknown>, context: string) => { void runWithErrorReporting(action, context) }
   const viewportRef = useRef<HTMLDivElement>(null)
   const cameraRef = useRef(camera)
   const availableIdeas = useMemo(() => activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas, [activeSpace, ideas])
@@ -66,7 +68,7 @@ export function ConceptMap() {
   const persistCamera = (next: Camera) => localStorage.setItem(cameraKey(activeFolderId), JSON.stringify(next))
   const setCameraAndPersist = (next: Camera) => { cameraRef.current = next; setCamera(next); persistCamera(next) }
   const reload = async () => { const map = await window.planner.conceptMap.list(); setNodes(map.nodes); setLinks(map.links); setFolders(map.folders) }
-  useEffect(() => { void reload() }, [])
+  useEffect(() => { runSafely(reload, 'No se pudo cargar el mapa conceptual') }, [])
   useEffect(() => { cameraRef.current = camera }, [camera])
   useEffect(() => {
     setSelectedId(null); setLinkStartId(null)
@@ -82,27 +84,35 @@ export function ConceptMap() {
     const saved = await window.planner.conceptMap.saveNode({ folderId: activeFolderId, kind, sourceId, title: title.trim(), body: body.trim(), ...nextPosition(folderNodes.length) })
     setNodes(current => [...current, saved]); setSelectedId(saved.id)
   }
-  const addIdea = (id: string) => { const idea = availableIdeas.find(item => item.id === id); if (idea) void addNode('idea', id, idea.title || 'Idea sin titulo', idea.body) }
-  const addPost = (id: string) => { const post = availablePosts.find(item => item.id === id); if (post) void addNode('post', id, post.title || 'Publicacion sin titulo', post.caption) }
-  const addResource = () => { if (!resourceTitle.trim()) return; void addNode('resource', null, resourceTitle, resourceBody); setResourceTitle(''); setResourceBody(''); setResourceOpen(false) }
-  const createIdea = async () => { if (!ideaTitle.trim()) return; const idea = await saveIdea({ space: activeSpace || 'Mi contenido', title: ideaTitle.trim(), body: ideaBody.trim(), tags: [], media: [], status: 'inbox', priority: 'normal', dueDate: null }); await addNode('idea', idea.id, idea.title, idea.body); setIdeaTitle(''); setIdeaBody(''); setIdeaOpen(false) }
-  const createFolder = async () => { if (!folderName.trim()) return; const folder = await window.planner.conceptMap.saveFolder({ parentId: activeFolderId, name: folderName.trim() }); setFolders(current => [...current, folder]); setFolderName(''); setFolderOpen(false) }
-  const deleteActiveFolder = async () => { if (!activeFolderId || !window.confirm('Eliminar esta carpeta? Sus nodos y subcarpetas subiran al nivel anterior.')) return; const result = await window.planner.conceptMap.removeFolder(activeFolderId); await reload(); setActiveFolderId(result.parentId) }
-  const selectNode = async (id: string) => {
+  const addIdea = (id: string) => { const idea = availableIdeas.find(item => item.id === id); if (idea) runSafely(() => addNode('idea', id, idea.title || 'Idea sin titulo', idea.body), 'No se pudo añadir la idea al mapa') }
+  const addPost = (id: string) => { const post = availablePosts.find(item => item.id === id); if (post) runSafely(() => addNode('post', id, post.title || 'Publicacion sin titulo', post.caption), 'No se pudo añadir la publicación al mapa') }
+  const addResource = () => {
+    if (!resourceTitle.trim()) return
+    runSafely(async () => {
+      await addNode('resource', null, resourceTitle, resourceBody)
+      setResourceTitle('')
+      setResourceBody('')
+      setResourceOpen(false)
+    }, 'No se pudo crear el recurso')
+  }
+  const createIdea = () => runSafely(async () => { if (!ideaTitle.trim()) return; const idea = await saveIdea({ space: activeSpace || 'Mi contenido', title: ideaTitle.trim(), body: ideaBody.trim(), tags: [], media: [], status: 'inbox', priority: 'normal', dueDate: null }); await addNode('idea', idea.id, idea.title, idea.body); setIdeaTitle(''); setIdeaBody(''); setIdeaOpen(false) }, 'No se pudo crear la idea en el mapa')
+  const createFolder = () => runSafely(async () => { if (!folderName.trim()) return; const folder = await window.planner.conceptMap.saveFolder({ parentId: activeFolderId, name: folderName.trim() }); setFolders(current => [...current, folder]); setFolderName(''); setFolderOpen(false) }, 'No se pudo crear la carpeta')
+  const deleteActiveFolder = () => runSafely(async () => { if (!activeFolderId || !window.confirm('Eliminar esta carpeta? Sus nodos y subcarpetas subiran al nivel anterior.')) return; const result = await window.planner.conceptMap.removeFolder(activeFolderId); await reload(); setActiveFolderId(result.parentId) }, 'No se pudo eliminar la carpeta')
+  const selectNode = (id: string) => runSafely(async () => {
     if (linkStartId && linkStartId !== id) { const exists = links.some(link => link.fromNodeId === linkStartId && link.toNodeId === id && link.relation === relation); if (!exists) { const saved = await window.planner.conceptMap.saveLink({ fromNodeId: linkStartId, toNodeId: id, relation }); setLinks(current => [...current, saved]) }; setLinkStartId(null); return }
     setSelectedId(id)
-  }
+  }, 'No se pudo actualizar el nodo o su relación')
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
     if (drag) { const x = drag.nodeX + (event.clientX - drag.startX) / cameraRef.current.zoom; const y = drag.nodeY + (event.clientY - drag.startY) / cameraRef.current.zoom; setNodes(current => current.map(node => node.id === drag.id ? { ...node, x, y } : node)); return }
     if (pan) { const next = { ...pan.camera, x: pan.camera.x - (event.clientX - pan.startX) / pan.camera.zoom, y: pan.camera.y - (event.clientY - pan.startY) / pan.camera.zoom }; cameraRef.current = next; setCamera(next) }
   }
-  const finishPointer = async () => {
+  const finishPointer = () => runSafely(async () => {
     if (pan) persistCamera(cameraRef.current); setPan(null)
     if (!drag) return
     const node = nodes.find(item => item.id === drag.id); setDrag(null); if (!node) return
     const saved = await window.planner.conceptMap.saveNode({ id: node.id, folderId: node.folderId, kind: node.kind, sourceId: node.sourceId, title: node.title, body: node.body, x: node.x, y: node.y })
     setNodes(current => current.map(item => item.id === saved.id ? saved : item))
-  }
+  }, 'No se pudo guardar la posición del nodo')
   const beginPan = (event: PointerEvent<HTMLDivElement>) => { if ((event.target as HTMLElement).closest('.concept-node, .concept-link')) return; event.currentTarget.setPointerCapture(event.pointerId); setPan({ startX: event.clientX, startY: event.clientY, camera: cameraRef.current }) }
   const zoomAt = (nextZoom: number, clientX = viewport.width / 2, clientY = viewport.height / 2) => {
     const element = viewportRef.current; const rect = element?.getBoundingClientRect(); const localX = rect ? clientX - rect.left : viewport.width / 2; const localY = rect ? clientY - rect.top : viewport.height / 2; const previous = cameraRef.current; const zoom = clampZoom(nextZoom); const worldX = previous.x + localX / previous.zoom; const worldY = previous.y + localY / previous.zoom; setCameraAndPersist({ x: worldX - localX / zoom, y: worldY - localY / zoom, zoom })
@@ -112,8 +122,8 @@ export function ConceptMap() {
     if (!folderNodes.length) { setCameraAndPersist({ ...defaultCamera }); return }
     const left = Math.min(...folderNodes.map(node => node.x)); const top = Math.min(...folderNodes.map(node => node.y)); const right = Math.max(...folderNodes.map(node => node.x + nodeSize.width)); const bottom = Math.max(...folderNodes.map(node => node.y + nodeSize.height)); const zoom = clampZoom(Math.min(viewport.width / (right - left + 160), viewport.height / (bottom - top + 160))); setCameraAndPersist({ x: (left + right) / 2 - viewport.width / zoom / 2, y: (top + bottom) / 2 - viewport.height / zoom / 2, zoom })
   }
-  const removeSelected = async () => { if (!selected) return; await window.planner.conceptMap.removeNode(selected.id); setNodes(current => current.filter(node => node.id !== selected.id)); setLinks(current => current.filter(link => link.fromNodeId !== selected.id && link.toNodeId !== selected.id)); setSelectedId(null); setLinkStartId(null) }
-  const removeLink = async (id: string) => { await window.planner.conceptMap.removeLink(id); setLinks(current => current.filter(link => link.id !== id)) }
+  const removeSelected = () => runSafely(async () => { if (!selected) return; await window.planner.conceptMap.removeNode(selected.id); setNodes(current => current.filter(node => node.id !== selected.id)); setLinks(current => current.filter(link => link.fromNodeId !== selected.id && link.toNodeId !== selected.id)); setSelectedId(null); setLinkStartId(null) }, 'No se pudo quitar el nodo del mapa')
+  const removeLink = (id: string) => runSafely(async () => { await window.planner.conceptMap.removeLink(id); setLinks(current => current.filter(link => link.id !== id)) }, 'No se pudo quitar la relación')
 
   return <section className="workspace concept-workspace"><ViewHeading title="Mapa conceptual" subtitle="Conecta ideas, publicaciones y recursos para ver su contexto y dependencias."><button className="new-button" onClick={() => setIdeaOpen(true)}><Lightbulb size={17} /> Nueva idea</button><button className="new-button" onClick={() => setResourceOpen(true)}><Plus size={17} /> Recurso general</button><button className="map-action" onClick={() => setFolderOpen(true)}><FolderPlus size={16} /> Nueva carpeta</button></ViewHeading>
     <div className="map-navigation"><button className="map-icon-button" title="Volver a la carpeta anterior" disabled={!activeFolderId} onClick={() => setActiveFolderId(path.at(-2)?.id || null)}><ArrowLeft size={17} /></button><div className="map-breadcrumb"><button className={!activeFolderId ? 'active' : ''} onClick={() => setActiveFolderId(null)}>Mapa</button>{path.map(folder => <button className={folder.id === activeFolderId ? 'active' : ''} key={folder.id} onClick={() => setActiveFolderId(folder.id)}>{folder.name}</button>)}</div>{activeFolderId && <button className="map-icon-button danger" title="Eliminar carpeta y subir su contenido" onClick={() => void deleteActiveFolder()}><Trash2 size={16} /></button>}</div>

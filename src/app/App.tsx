@@ -7,9 +7,11 @@ import { IdeasView } from '../features/ideas/IdeasView'
 import { Board, CalendarView, LibraryView, Timeline } from '../features/planner/PlannerViews'
 import { AboutUpdates } from '../features/settings/AboutUpdates'
 import { SourcesView } from '../features/sources/SourcesView'
+import { reportAppError } from './errors'
 import { postMatchesQuery, usePlanner } from './store'
+import { AppErrorBoundary, GlobalErrorCenter } from '../components/layout/GlobalErrorCenter'
 
-export default function App() {
+function AppContent() {
   const { load, loading, loadError, view, posts, selectedId, select, query, activeSpace, setView } = usePlanner()
   const [creating, setCreating] = useState(false)
   useEffect(() => {
@@ -25,12 +27,17 @@ export default function App() {
         }
         const merged = await window.planner.preferences.sync(current)
         if (active) for (const [key, value] of Object.entries(merged)) localStorage.setItem(key, value)
-      } catch { /* Preferences are a recovery layer; loading the planner must continue. */ }
+      } catch (error) {
+        reportAppError(error, 'No se pudieron sincronizar las preferencias')
+      }
       if (active) await load()
     }
     void syncPreferences()
     return () => { active = false }
   }, [load])
+  useEffect(() => {
+    if (loadError) reportAppError(loadError, 'No se pudo cargar el workspace')
+  }, [loadError])
   useEffect(() => {
     if (view !== 'board' && (selectedId || creating)) {
       if (selectedId) select(null)
@@ -50,5 +57,20 @@ export default function App() {
   }
   if (loading) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><p>Preparando tu espacio local...</p></div>
   if (loadError) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><strong>No se pudo abrir el workspace</strong><p>{loadError}</p><button className="save-button" onClick={() => void load()}>Reintentar</button></div>
-  return <div className="app"><Sidebar /><main><Topbar onNew={() => setCreating(true)} onSearchSubmit={() => openSearchResult()} /><div className="content">{query && view !== 'about' && view !== 'concept-map' && view !== 'sources' && <div className="search-result"><div className="search-result-summary"><Search size={16} />{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} para "{query}"</div>{filtered.length > 0 && <div className="search-result-list">{filtered.slice(0, 6).map(post => <button key={post.id} onClick={() => openSearchResult(post.id)}><span>{post.title || 'Publicacion sin titulo'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</div>}{filtered.length === 0 && <span className="search-result-empty">No encontramos una publicación con ese texto.</span>}</div>}{view === 'timeline' && <Timeline />}{view === 'calendar' && <CalendarView />}{view === 'board' && <Board />}{view === 'ideas' && <IdeasView />}{view === 'concept-map' && <ConceptMap />}{view === 'library' && <LibraryView />}{view === 'sources' && <SourcesView />}{view === 'about' && <AboutUpdates />}</div></main>{(creating || selected) && <Editor key={selected?.id || 'new'} initial={selected} onClose={() => { setCreating(false); select(null) }} />}</div>
+  return <div className="app"><AppErrorBoundary><Sidebar /></AppErrorBoundary><main><AppErrorBoundary><Topbar onNew={() => setCreating(true)} onSearchSubmit={() => openSearchResult()} /></AppErrorBoundary><div className="content"><AppErrorBoundary key={view}>{query && view !== 'about' && view !== 'concept-map' && view !== 'sources' && <div className="search-result"><div className="search-result-summary"><Search size={16} />{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} para "{query}"</div>{filtered.length > 0 && <div className="search-result-list">{filtered.slice(0, 6).map(post => <button key={post.id} onClick={() => openSearchResult(post.id)}><span>{post.title || 'Publicacion sin titulo'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</div>}{filtered.length === 0 && <span className="search-result-empty">No encontramos una publicación con ese texto.</span>}</div>}{view === 'timeline' && <Timeline />}{view === 'calendar' && <CalendarView />}{view === 'board' && <Board />}{view === 'ideas' && <IdeasView />}{view === 'concept-map' && <ConceptMap />}{view === 'library' && <LibraryView />}{view === 'sources' && <SourcesView />}{view === 'about' && <AboutUpdates />}</AppErrorBoundary></div></main>{(creating || selected) && <AppErrorBoundary key={selected?.id || 'new'}><Editor initial={selected} onClose={() => { setCreating(false); select(null) }} /></AppErrorBoundary>}</div>
+}
+
+export default function App() {
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => reportAppError(event.error || event.message, 'Error inesperado')
+    const onRejection = (event: PromiseRejectionEvent) => reportAppError(event.reason, 'Operación no completada')
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
+
+  return <><GlobalErrorCenter /><AppErrorBoundary><AppContent /></AppErrorBoundary></>
 }
