@@ -16,6 +16,7 @@
 .ideas-import-stats { display: flex; align-items: center; gap: 10px; color: #aab6ae; font: 9px 'DM Mono', monospace; white-space: nowrap; }
 .ideas-import-history-empty { color: #8b968e; font-size: 10px; }
 .show-import-history > .ideas-import-result,
+.show-import-history > .ideas-import-preview,
 .show-import-history > .ideas-toolbar,
 .show-import-history > .idea-analysis-settings,
 .show-import-history > .ideas-bulk-actions,
@@ -285,4 +286,125 @@
 @media (prefers-reduced-motion: reduce) {
   .idea-card { transition: none; }
   .idea-card:hover { transform: none; }
+}
+
+.ideas-workspace > .view-heading {
+  align-items: center;
+  min-height: 0;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.ideas-workspace > .view-heading h1 { margin-bottom: 6px; font-size: 28px; }
+.ideas-workspace > .view-heading p { max-width: 520px; font-size: 13px; line-height: 1.5; }
+.ideas-workspace > .view-heading .view-tools { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.ideas-workspace > .view-heading .settings-button { min-height: 36px; padding: 0 12px; font-size: 11px; }
+.ideas-workspace > .view-heading .new-button { min-height: 38px; padding: 0 15px; font-size: 12px; }
+
+.ideas-tabs { gap: 8px; margin: 0 0 16px; }
+.ideas-tabs button { min-height: 40px; padding: 8px 12px; font-size: 12px; }
+.ideas-tabs button.active { color: #fff; }
+.ideas-tabs span { display: inline-grid; min-width: 20px; height: 20px; place-items: center; border-radius: 10px; background: #252c27; color: #cbd5ce; font: 10px 'DM Mono', monospace; }
+
+.ideas-toolbar { align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 12px; font-size: 11px; }
+.ideas-toolbar > span { margin-left: auto; color: #aab4ad; font-size: 11px; }
+.idea-status-filters { gap: 6px; }
+.idea-status-filters button { min-height: 34px; padding: 0 11px; border-radius: 6px; font-size: 11px; }
+.idea-status-filters button span, .ideas-family-filters button span { margin-left: 4px; font-size: 10px; }
+.ideas-toolbar > .settings-button { min-height: 34px; padding: 0 11px; font-size: 11px; }
+.ideas-family-filters { gap: 7px; margin: 0 0 16px; }
+.ideas-family-filters button { min-height: 30px; padding: 5px 10px; border-radius: 15px; font-size: 10px; }
+.idea-analysis-settings { margin: 0 0 16px; border-radius: 7px; padding: 10px 12px; font-size: 11px; }
+.idea-analysis-settings summary { font-size: 11px; }
+
+.ideas-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 14px; }
+.idea-card {
+  min-height: 210px;
+  padding: 15px;
+  border: 1px solid #303a33;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #191f1b, #151a17);
+}
+.idea-card:hover { border-color: #526257; }
+.idea-card.selected { border-color: var(--accent); }
+.idea-card header button { width: 32px; height: 32px; border-radius: 5px; }
+.idea-priority, .idea-status { font-size: 9px; }
+.idea-family-chip, .idea-combined-badge { font-size: 9px; }
+.idea-card h2 { margin: 7px 0; font-size: 15px; line-height: 1.4; }
+.idea-card p { color: #aab4ad; font-size: 12px; line-height: 1.55; -webkit-line-clamp: 4; }
+.idea-card footer { gap: 9px; padding-top: 16px; color: #9ba69e; font-size: 10px; }
+.idea-card footer button { min-height: 30px; padding: 0 5px; border-radius: 4px; font-size: 10px; }
+.idea-card footer button:hover { background: #252c27; }
+.idea-card footer small { font-size: 10px; }
+.idea-links { flex-wrap: wrap; justify-content: flex-end; }
+
+.ideas-pagination { margin-top: 22px; font-size: 11px; }
+.ideas-pagination button { min-height: 34px; padding: 0 13px; border-radius: 6px; font-size: 11px; }
+.ideas-empty { min-height: 320px; gap: 12px; padding: 30px 20px; text-align: center; }
+.ideas-empty > svg { color: #d0a64b; }
+.ideas-empty strong { font-size: 17px; }
+.ideas-empty > span { max-width: 360px; font-size: 12px; line-height: 1.5; }
+.ideas-empty .new-button { min-height: 38px; }
+.ideas-empty > .settings-button { min-height: 34px; padding: 0 12px; border: 1px solid #3d4b41; border-radius: 6px; background: #1a211c; color: #d7e0d9; font-size: 11px; cursor: pointer; }
+.ideas-empty > .settings-button:hover { border-color: #6c8d73; background: #203025; }
+
+.ideas-analysis-panel { border-radius: 8px; padding: 14px; }
+.exploratory-report { gap: 16px; }
+.exploratory-report > header strong { font-size: 13px; }
+.exploratory-report > header small,
+.exploratory-report small { font-size: 10px; line-height: 1.45; }
+.exploratory-report-stats { gap: 10px !important; }
+.exploratory-report-stats article { padding: 12px; border-radius: 6px; }
+.exploratory-report-stats article strong { font-size: 20px; }
+.exploratory-report-distribution { font-size: 10px; }
+.exploratory-report-distribution span { padding: 5px 8px; border-radius: 4px; }
+.exploratory-report-section { gap: 10px; padding-top: 15px; }
+.exploratory-report-section h3 { font-size: 13px; }
+.exploratory-report-note, .exploratory-report-empty { font-size: 11px; line-height: 1.55; }
+.exploratory-report-groups article, .exploratory-report-duplicates article { gap: 7px; padding: 12px; border-radius: 6px; }
+.exploratory-report-groups article > div strong, .exploratory-report-duplicates article > strong { font-size: 11px; }
+.exploratory-report-member { grid-template-columns: 16px minmax(0, 1fr); font-size: 10px; }
+.exploratory-report-group-actions { flex-wrap: wrap; }
+.exploratory-report-group-actions .settings-button { min-height: 30px; padding: 0 8px; font-size: 9px; }
+.exploratory-report-text-button { min-height: 28px; font-size: 10px !important; }
+
+.ideas-import-preview { display: grid; gap: 14px; margin: 0 0 16px; padding: 16px; border: 1px solid #495b4d; border-radius: 8px; background: linear-gradient(145deg, #19221b, #141a16); }
+.ideas-import-preview > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ideas-import-preview > header > div { min-width: 0; }
+.ideas-import-preview > header span { color: #91c5a7; font-size: 9px; font-weight: 800; letter-spacing: 1px; }
+.ideas-import-preview h2 { overflow: hidden; margin: 4px 0; color: #eff4f0; font-size: 16px; text-overflow: ellipsis; }
+.ideas-import-preview header p { margin: 0; color: #9ba69e; font-size: 11px; line-height: 1.5; }
+.ideas-import-preview-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ideas-import-preview-stats article { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid #35443a; border-radius: 6px; background: #141b16; }
+.ideas-import-preview-stats strong { color: #e8d2b6; font: 700 18px 'DM Mono', monospace; }
+.ideas-import-preview-stats span { color: #aab5ad; font-size: 10px; }
+.ideas-import-warning { margin: 0; padding: 9px 11px; border-left: 3px solid #d0a64b; background: #252018; color: #e4c7a2; font-size: 11px; line-height: 1.5; }
+.ideas-import-preview-list { border-top: 1px solid #303d34; padding-top: 10px; color: #cbd5ce; font-size: 11px; }
+.ideas-import-preview-list summary { cursor: pointer; color: #d7e0d9; }
+.ideas-import-preview-list ul { display: grid; gap: 7px; max-height: 220px; overflow: auto; margin: 9px 0 0; padding: 0; list-style: none; }
+.ideas-import-preview-list li { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid #303d34; border-radius: 5px; background: #171e19; }
+.ideas-import-preview-list li strong { color: #e7eee9; font-size: 11px; }
+.ideas-import-preview-list li span { color: #9ba69e; font-size: 10px; line-height: 1.45; }
+.ideas-import-preview > footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.ideas-import-preview > footer button { min-height: 36px; padding: 0 12px; font-size: 11px; }
+.idea-analysis-intro { max-width: 720px; margin: 10px 0 14px; color: #9ba69e; font-size: 11px; line-height: 1.55; }
+.idea-analysis-settings > label { font-size: 11px; }
+.idea-analysis-settings > label::after { color: #79857d; font-size: 10px; font-weight: 400; text-transform: none; }
+.idea-analysis-settings > label:nth-of-type(1)::after { content: 'Se excluyen del análisis las palabras que no ayudan a distinguir temas.'; }
+.idea-analysis-settings > label:nth-of-type(2)::after { content: 'Útil para quitar prefijos repetidos propios de una fuente o formato.'; }
+.idea-analysis-settings .idea-analysis-advanced { margin-top: 12px; border-top: 1px solid #303833; padding-top: 10px; }
+.idea-analysis-advanced > summary { cursor: pointer; color: #cbd5ce; font-size: 11px; }
+.idea-analysis-advanced > p { margin: 9px 0; color: #87938b; font-size: 10px; line-height: 1.5; }
+.idea-analysis-advanced .idea-analysis-preview { margin-top: 10px; }
+
+@media (max-width: 760px) {
+  .ideas-workspace > .view-heading { align-items: flex-start; flex-direction: column; }
+  .ideas-workspace > .view-heading .view-tools { justify-content: flex-start; }
+  .ideas-toolbar > span { margin-left: 0; }
+  .idea-status-filters { width: 100%; }
+  .idea-status-filters button { flex: 1 1 auto; }
+  .ideas-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+  .ideas-import-preview-stats { grid-template-columns: 1fr; }
+  .ideas-import-preview > footer { flex-direction: column-reverse; }
+  .ideas-import-preview > footer button { width: 100%; }
 }

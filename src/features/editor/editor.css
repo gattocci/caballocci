@@ -208,6 +208,21 @@
   display: none;
 }
 
+.editor .editor-tabs.editor-main-tabs button[aria-pressed]:nth-child(2) {
+  display: flex;
+}
+
+.editor-main-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.editor-main-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .editor-tabs-slides {
   padding-top: 0;
 }

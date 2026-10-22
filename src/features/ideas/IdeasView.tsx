@@ -137,6 +137,28 @@ function ideaKey(idea: Pick<IdeaInput, 'title' | 'body'>) {
   return idea.body.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
 }
 
+function previewImportDuplicates(inputs: IdeaInput[], existingIdeas: Idea[]) {
+  const knownBodies = new Map<string, { title: string; sourceName: string; source: 'workspace' | 'file' }>()
+  existingIdeas.forEach(idea => knownBodies.set(ideaKey(idea), { title: idea.title || '', sourceName: idea.sourceName || '', source: 'workspace' }))
+  const duplicates: Array<{ incomingTitle: string; existingTitle: string; sourceName: string; existingSourceName: string; source: 'workspace' | 'file' }> = []
+  const newCount = inputs.reduce((count, idea) => {
+    const existing = knownBodies.get(ideaKey(idea))
+    if (existing) {
+      duplicates.push({
+        incomingTitle: idea.title,
+        existingTitle: existing.title,
+        sourceName: idea.sourceName || '',
+        existingSourceName: existing.sourceName || '',
+        source: existing.source,
+      })
+      return count
+    }
+    knownBodies.set(ideaKey(idea), { title: idea.title, sourceName: idea.sourceName || '', source: 'file' })
+    return count + 1
+  }, 0)
+  return { newCount, duplicates }
+}
+
 function exploratoryDuplicateKey(idea: Idea) {
   const title = idea.title.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
   const body = idea.body.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
@@ -144,7 +166,7 @@ function exploratoryDuplicateKey(idea: Idea) {
 }
 
 export function IdeasView() {
-  const { ideas, activeSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query, selectedIdeaId, selectIdea } = usePlanner()
+  const { ideas, activeSpace, setActiveSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query, setQuery, selectedIdeaId, selectIdea } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
   const runSafely = (action: () => Promise<unknown>, context: string) => { void runWithErrorReporting(action, context) }
   useEffect(() => {
@@ -154,6 +176,7 @@ export function IdeasView() {
     selectIdea(null)
   }, [ideas, selectedIdeaId, selectIdea])
   const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState<{ fileName: string; ideas: IdeaInput[]; warning: string } | null>(null)
   const [importMessage, setImportMessage] = useState('')
   const [importDuplicates, setImportDuplicates] = useState<Array<{ title: string; existingTitle: string; existingSourceName: string }>>([])
   const [statusFilter, setStatusFilter] = useState<'active' | IdeaStatus>('active')
@@ -222,6 +245,7 @@ export function IdeasView() {
     ? ideas.filter(idea => selectedIds.includes(idea.id))
     : scopedIdeas.filter(idea => statusFilter === 'active' ? idea.status === 'inbox' || idea.status === 'developing' || idea.status === 'ready' : idea.status === statusFilter).filter(idea => !familyFilter || (ideaFamily(idea.title, idea.sourceName).family || 'Otras') === familyFilter).filter(idea => ideaMatchesQuery(idea, query)), [familyFilter, ideas, query, scopedIdeas, selectedIds, selectedOnly, statusFilter])
   const pageSize = 40
+  const importDuplicatePreview = useMemo(() => importPreview ? previewImportDuplicates(importPreview.ideas, ideas) : null, [ideas, importPreview])
   const pageCount = Math.max(1, Math.ceil(ideasInSpace.length / pageSize))
   const visibleIdeas = ideasInSpace.slice((page - 1) * pageSize, page * pageSize)
   const statusCount = (status: 'active' | IdeaStatus) => scopedIdeas.filter(idea => status === 'active' ? ['inbox', 'developing', 'ready'].includes(idea.status) : idea.status === status).filter(idea => !familyFilter || (ideaFamily(idea.title, idea.sourceName).family || 'Otras') === familyFilter).filter(idea => ideaMatchesQuery(idea, query)).length
@@ -340,19 +364,29 @@ export function IdeasView() {
   }
   const importFile = async () => {
     setImporting(true)
-    setImportMessage('')
-    setImportDuplicates([])
     try {
       const file = await window.planner.files.readText()
       if (!file) return
       const parsed = parseTextFile(file.text, file.name, activeSpace || 'Mi contenido')
       if (!parsed.length) { reportAppError('No se encontraron ideas con contenido en el archivo. Comprueba el formato e inténtalo de nuevo.', 'No se pudo importar el archivo'); return }
       const sourceHeaders = [...file.text.matchAll(/(?:^|\n)\s*(?:#{1,6}\s*)?\*\*\s*(\d+[.)]?\s*[^*\n]+?)\s*\*\*/gm)].length
-      if (sourceHeaders !== parsed.length) setImportMessage(`Aviso: el archivo contiene ${sourceHeaders} encabezados numerados y se pudieron preparar ${parsed.length} Ideas.`)
-      if (!window.confirm(`Preview: ${parsed.length} bloques detectados.\nLa base verificará duplicados contra todas las Ideas existentes.\n\n¿Importar este lote?`)) return
-      const result = await saveIdeasMany(parsed)
-      setImportMessage(`${result.created.length} de ${parsed.length} ideas importadas${result.skipped ? ` · ${result.skipped} duplicadas omitidas` : ''}.`)
+      const warning = sourceHeaders > 0 && sourceHeaders !== parsed.length
+        ? `El archivo contiene ${sourceHeaders} encabezados numerados y se pudieron preparar ${parsed.length} ideas.`
+        : ''
+      setIdeasTab('ideas')
+      setImportMessage('')
+      setImportDuplicates([])
+      setImportPreview({ fileName: file.name, ideas: parsed, warning })
+    } finally { setImporting(false) }
+  }
+  const confirmImport = async () => {
+    if (!importPreview) return
+    setImporting(true)
+    try {
+      const result = await saveIdeasMany(importPreview.ideas)
+      setImportMessage(`${result.created.length} de ${importPreview.ideas.length} ideas importadas${result.skipped ? ` · ${result.skipped} duplicadas omitidas` : ''}.`)
       setImportDuplicates(result.duplicates)
+      setImportPreview(null)
       setImportHistory(await window.planner.ideas.importHistory())
     } finally { setImporting(false) }
   }
@@ -394,6 +428,16 @@ export function IdeasView() {
     setSelectedOnly(false)
     setSelectedIds([])
     setPage(1)
+  }
+  const resetIdeaFilters = () => {
+    setStatusFilter('active')
+    setFamilyFilter('')
+    setQuery('')
+    setPage(1)
+    setSelectedIds([])
+    setSelectedOnly(false)
+    setClusterSelection(false)
+    if (ideas.length && activeSpace && scopedIdeas.length === 0) setActiveSpace(null)
   }
   const selectVisible = () => setSelectedIds(current => current.length === visibleIdeas.length ? [] : visibleIdeas.map(idea => idea.id))
   const bulkStatus = async (status: IdeaStatus) => {
@@ -470,15 +514,26 @@ export function IdeasView() {
     <div className="ideas-tabs" role="tablist"><button type="button" role="tab" aria-selected={ideasTab === 'ideas'} className={ideasTab === 'ideas' ? 'active' : ''} onClick={() => setIdeasTab('ideas')}>Ideas</button><button type="button" role="tab" aria-selected={ideasTab === 'imports'} className={ideasTab === 'imports' ? 'active' : ''} onClick={() => setIdeasTab('imports')}>Historial de importaciones <span>{importHistory.length}</span></button></div>
     {ideasTab === 'imports' && <section className="ideas-import-history"><header><div><span>ARCHIVOS LOCALES</span><h2>Historial de importaciones</h2></div><button type="button" className="settings-button" onClick={() => runSafely(async () => setImportHistory(await window.planner.ideas.importHistory()), 'No se pudo actualizar el historial')}>Actualizar</button></header>{importHistory.length ? <div className="ideas-import-history-list">{importHistory.map(run => <article key={run.id}><div><strong>{run.fileName}</strong><small>{new Date(run.importedAt).toLocaleString()} · {run.space || 'Todos los contenidos'}</small></div><div className="ideas-import-stats"><span>{run.total} detectadas</span><span>{run.created} nuevas</span><span>{run.skipped} duplicadas</span></div></article>)}</div> : <p className="ideas-import-history-empty">Todavía no hay importaciones registradas.</p>}</section>}
     {importMessage && <div className="ideas-import-result"><p className="ideas-import-message">{importMessage}</p>{importDuplicates.length > 0 && <details><summary>Ver {importDuplicates.length} coincidencias existentes</summary><ul>{importDuplicates.map((duplicate, index) => <li key={`${duplicate.title}-${index}`}><strong>{duplicate.title}</strong><span>ya existe como “{duplicate.existingTitle}”{duplicate.existingSourceName ? ` · ${duplicate.existingSourceName}` : ''}</span></li>)}</ul></details>}</div>}
+    {importPreview && importDuplicatePreview && <section className="ideas-import-preview" aria-label="Vista previa de importación">
+      <header><div><span>VISTA PREVIA</span><h2>{importPreview.fileName}</h2><p>Revisa qué se añadirá antes de guardar. Las coincidencias se vuelven a comprobar al importar.</p></div><button type="button" className="icon-button" aria-label="Cancelar importación" onClick={() => setImportPreview(null)}><X size={16} /></button></header>
+      {importPreview.warning && <p className="ideas-import-warning" role="status">{importPreview.warning}</p>}
+      <div className="ideas-import-preview-stats"><article><strong>{importPreview.ideas.length}</strong><span>ideas detectadas</span></article><article><strong>{importDuplicatePreview.newCount}</strong><span>nuevas</span></article><article><strong>{importDuplicatePreview.duplicates.length}</strong><span>duplicadas que se omitirán</span></article></div>
+      <details className="ideas-import-preview-list"><summary>Revisar {importPreview.ideas.length} ideas preparadas</summary><ul>{importPreview.ideas.map((idea, index) => <li key={`${index}-${idea.title}`}><strong>{idea.title || 'Idea sin título'}</strong><span>{idea.body.slice(0, 220)}{idea.body.length > 220 ? '…' : ''}</span></li>)}</ul></details>
+      {importDuplicatePreview.duplicates.length > 0 && <details className="ideas-import-preview-list"><summary>Ver {importDuplicatePreview.duplicates.length} coincidencias</summary><ul>{importDuplicatePreview.duplicates.map((duplicate, index) => <li key={`${index}-${duplicate.incomingTitle}`}><strong>{duplicate.incomingTitle}</strong><span>{duplicate.source === 'file' ? `Repetida en este archivo; primera entrada: “${duplicate.existingTitle}”` : `Ya existe como “${duplicate.existingTitle}”`}{duplicate.existingSourceName ? ` · ${duplicate.existingSourceName}` : ''}</span></li>)}</ul></details>}
+      <footer><button type="button" className="ghost-button" disabled={importing} onClick={() => setImportPreview(null)}>Cancelar</button><button type="button" className="save-button" disabled={importing} onClick={() => runSafely(confirmImport, 'No se pudo importar el archivo')}>{importing ? 'Importando…' : `Importar lote · ${importDuplicatePreview.newCount} nuevas`}</button></footer>
+    </section>}
     <div className="ideas-toolbar">{!selectedOnly && <div className="idea-status-filters" role="group" aria-label="Filtrar ideas por estado">{statusFilters.map(filter => <button type="button" key={filter.value} aria-pressed={statusFilter === filter.value} className={statusFilter === filter.value ? 'active' : ''} onClick={() => { setStatusFilter(filter.value); setPage(1); setSelectedIds([]); setSelectedOnly(false); setClusterSelection(false) }}>{filter.label} <span>{statusCount(filter.value)}</span></button>)}</div>}<span>{selectedOnly ? `${ideasInSpace.length} seleccionadas · filtros pausados` : `${ideasInSpace.length} ideas · página ${page} de ${pageCount}`}</span>{selectedOnly ? <button type="button" className="settings-button" onClick={clearClusterView}>Ver todas</button> : <button type="button" className="settings-button" onClick={selectVisible}>{selectedIds.length === visibleIdeas.length && visibleIdeas.length ? 'Quitar selección' : 'Seleccionar página'}</button>}</div>
     {!selectedOnly && <div className="ideas-family-filters" role="group" aria-label="Filtrar ideas por familia"><button type="button" className={!familyFilter ? 'active' : ''} onClick={() => setFamilyFilter('')}>Todas <span>{scopedIdeas.length}</span></button>{familyCounts.map(([family, count]) => <button type="button" key={family} className={familyFilter === family ? 'active' : ''} onClick={() => setFamilyFilter(family)}>{family} <span>{count}</span></button>)}</div>}
     <details className="idea-analysis-settings"><summary>Configuración del análisis local</summary>
+      <p className="idea-analysis-intro">Ajusta qué señales se comparan al encontrar ideas relacionadas. Estos cambios no editan tus ideas originales.</p>
       <details className="family-pattern-advanced"><summary>Avanzado · patrones de familia por fuente</summary><div className="family-pattern-field"><span>Configuración JSON</span><div className={`family-pattern-editor ${familyPatternsState.valid ? 'valid' : 'invalid'}`}><div className="family-pattern-tools"><button type="button" onMouseDown={event => event.preventDefault()} onClick={() => insertFamilyPair('[', ']')} title="Insertar corchetes">{'[ ]'}</button><button type="button" onMouseDown={event => event.preventDefault()} onClick={() => insertFamilyPair('{', '}')} title="Insertar llaves">{'{ }'}</button><button type="button" onMouseDown={event => event.preventDefault()} onClick={formatFamilyPatterns} disabled={!familyPatternsState.valid} title="Dar formato al JSON">Formatear</button></div><textarea aria-label="Configuración JSON" ref={familyPatternsRef} value={familyPatternsText} onChange={event => setFamilyPatternsText(event.target.value)} placeholder={'{\n  "TikTok": "^(HOOK|CTA)\\s*:",\n  "Newsletter": "^\\[\\w+\\]"\n}'} /><span className={familyPatternsState.valid ? 'family-pattern-badge valid' : 'family-pattern-badge invalid'}>{familyPatternsState.valid ? '✓ JSON válido' : '✕ JSON inválido'}</span></div><small>La clave es el nombre exacto de la fuente.</small><small>El valor es una regex; se retira del título lo que coincida.</small>{!familyPatternsState.valid && <small className="family-pattern-status invalid">{familyPatternsState.message}</small>}</div><div className="family-pattern-tester"><strong>Probar patrón</strong><div><input value={familyTestSource} onChange={event => { setFamilyTestSource(event.target.value); setFamilyTestResult(null) }} placeholder="Fuente" /><input value={familyTestTitle} onChange={event => { setFamilyTestTitle(event.target.value); setFamilyTestResult(null) }} placeholder="Pega un título de ejemplo" /><button type="button" className="settings-button" onClick={() => setFamilyTestResult(testFamilyPattern(familyTestTitle, familyTestSource, familyPatternsText))}>Probar</button></div>{familyTestResult && <small className={familyTestResult.ok ? 'family-test-result valid' : 'family-test-result invalid'}>{familyTestResult.message}{familyTestResult.title !== undefined && <><br /><strong>{familyTestResult.title}</strong></>}</small>}</div></details>
       <label>Términos que quieres ignorar<textarea value={ignoredTermsText} onChange={event => setIgnoredTermsText(event.target.value)} placeholder="ejemplo, ejemplo, ejemplo" /></label>
       <label>Prefijos editoriales que quieres ignorar<textarea value={analysisOptions.editorialPrefixes.join('\n')} onChange={event => setAnalysisOptions(current => ({ ...current, editorialPrefixes: event.target.value.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean) }))} placeholder={'ejemplo\nejemplo'} /></label>
       <div className="idea-analysis-options"><label><input type="checkbox" checked={analysisOptions.stripColonPrefixes} onChange={event => setAnalysisOptions(current => ({ ...current, stripColonPrefixes: event.target.checked }))} /> Quitar prefijo antes de dos puntos en títulos</label><label><input type="checkbox" checked={analysisOptions.stripBracketedText} onChange={event => setAnalysisOptions(current => ({ ...current, stripBracketedText: event.target.checked }))} /> Excluir texto entre corchetes</label><label><input type="checkbox" checked={analysisOptions.stripNumbers} onChange={event => setAnalysisOptions(current => ({ ...current, stripNumbers: event.target.checked }))} /> Excluir números de los embeddings</label><label><input type="checkbox" checked={analysisOptions.ignoreTitleNumbersInClusterNames} onChange={event => setAnalysisOptions(current => ({ ...current, ignoreTitleNumbersInClusterNames: event.target.checked }))} /> Ignorar números de títulos al nombrar clusters</label></div>
-      <div className="idea-analysis-numeric"><label>Longitud mínima de palabra<input type="number" min="1" max="10" value={analysisOptions.minTokenLength} onChange={event => setAnalysisOptions(current => ({ ...current, minTokenLength: Math.max(1, Math.min(10, Number(event.target.value) || 1)) }))} /></label><label>Umbral de términos repetidos (%)<input type="number" min="1" max="100" value={Math.round(analysisOptions.genericTermThreshold * 100)} onChange={event => setAnalysisOptions(current => ({ ...current, genericTermThreshold: Math.max(0.01, Math.min(1, (Number(event.target.value) || 1) / 100)) }))} /></label></div>
-      <div className="idea-analysis-preview"><strong>Excluir automáticamente ({automaticTerms.length})</strong><span>{automaticTerms.slice(0, 80).join(', ') || 'No se detectaron términos frecuentes'}{automaticTerms.length > 80 ? ', …' : ''}</span></div>
+      <details className="idea-analysis-advanced"><summary>Avanzado · sensibilidad y términos automáticos</summary><p>Úsalo solo si los grupos incluyen demasiadas coincidencias genéricas o dejan fuera ideas relacionadas.</p>
+        <div className="idea-analysis-numeric"><label>Longitud mínima de palabra<input type="number" min="1" max="10" value={analysisOptions.minTokenLength} onChange={event => setAnalysisOptions(current => ({ ...current, minTokenLength: Math.max(1, Math.min(10, Number(event.target.value) || 1)) }))} /></label><label>Umbral de términos repetidos (%)<input type="number" min="1" max="100" value={Math.round(analysisOptions.genericTermThreshold * 100)} onChange={event => setAnalysisOptions(current => ({ ...current, genericTermThreshold: Math.max(0.01, Math.min(1, (Number(event.target.value) || 1) / 100)) }))} /></label></div>
+        <div className="idea-analysis-preview"><strong>Excluir automáticamente ({automaticTerms.length})</strong><span>{automaticTerms.slice(0, 80).join(', ') || 'No se detectaron términos frecuentes'}{automaticTerms.length > 80 ? ', …' : ''}</span></div>
+      </details>
       <small>La configuración se guarda en este dispositivo. Los originales no se modifican; el siguiente análisis regenerará los vectores si cambian las reglas.</small>
     </details>
     {analysisRunning && analysisProgress && <div className="ideas-analysis-progress" role="status" aria-live="polite">
@@ -606,7 +661,7 @@ export function IdeasView() {
       <header><label className="idea-select" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(idea.id)} onChange={() => toggleSelected(idea.id)} /> {idea.priority !== 'normal' && <span className={'idea-priority ' + idea.priority}>{priorityLabels[idea.priority]}</span>}</label><div><button type="button" title="Editar idea" onClick={event => { event.stopPropagation(); edit(idea) }}><Pencil size={15} /></button><button type="button" title="Eliminar idea" className="idea-delete" onClick={event => { event.stopPropagation(); if (window.confirm('Eliminar esta idea?')) runSafely(() => removeIdea(idea.id), 'No se pudo eliminar la idea') }}><Trash2 size={15} /></button></div></header>
       {ideaFamily(idea.title, idea.sourceName).family && <span className="idea-family-chip">{ideaFamily(idea.title, idea.sourceName).family}</span>} {idea.status !== 'inbox' && <span className={'idea-status ' + idea.status}>{statusLabels[idea.status]}</span>}{(idea.combinedPostIds.length > 0 || idea.combinedPostId) && <span className="idea-combined-badge">{idea.combinedPostIds.length > 1 ? `${idea.combinedPostIds.length} combinaciones` : 'Combinada'}</span>}<h2>{ideaFamily(idea.title, idea.sourceName).title || 'Idea sin titulo'}</h2><p>{idea.body || 'Sin desarrollo todavia.'}</p>
       <footer>{idea.dueDate && <span><CalendarDays size={13} />{new Date(idea.dueDate).toLocaleDateString()}</span>}<small>{idea.space}</small><div className="idea-links">{(idea.combinedPostIds.length > 0 ? idea.combinedPostIds : (idea.combinedPostId ? [idea.combinedPostId] : [])).map((postId, index) => <button type="button" key={postId} onClick={event => { event.stopPropagation(); select(postId); setView('board') }} title="Abrir publicacion combinada"><ExternalLink size={13} /> {index === 0 ? 'Ver combinado' : `Ver combinado ${index + 1}`}</button>)}{idea.postId ? <button type="button" onClick={event => { event.stopPropagation(); select(idea.postId!); setView('board') }} title="Abrir publicacion individual"><ExternalLink size={13} /> Ver publicacion</button> : <button type="button" onClick={event => { event.stopPropagation(); runSafely(() => convert(idea), 'No se pudo convertir la idea') }}>Convertir <ArrowRight size={14} /></button>}</div></footer>
-    </article>)}</div> : <div className="ideas-empty"><Lightbulb size={34} /><strong>No hay ideas en este filtro</strong><span>Importa un archivo o cambia el estado seleccionado.</span><button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
+    </article>)}</div> : <div className="ideas-empty" aria-live="polite"><Lightbulb size={34} /><strong>{selectedOnly ? 'No hay ideas en la selección' : scopedIdeas.length === 0 ? activeSpace ? 'Este espacio aún no tiene ideas' : 'Aún no tienes ideas' : 'No hay ideas con estos filtros'}</strong><span>{selectedOnly ? 'Elige ideas de un grupo o vuelve a la lista completa.' : scopedIdeas.length === 0 ? 'Crea una idea o importa un archivo para empezar.' : 'Prueba otro estado, familia o término de búsqueda.'}</span>{selectedOnly ? <button type="button" className="settings-button" onClick={clearClusterView}>Volver a la lista</button> : scopedIdeas.length === 0 && ideas.length > 0 ? <button type="button" className="settings-button" onClick={resetIdeaFilters}>Ver todos los espacios</button> : scopedIdeas.length > 0 ? <button type="button" className="settings-button" onClick={resetIdeaFilters}>Quitar filtros</button> : null}<button className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button></div>}
     {ideasInSpace.length > 0 && <div className="ideas-pagination"><button disabled={page <= 1} onClick={() => setPage(current => current - 1)}>Anterior</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage(current => current + 1)}>Siguiente</button></div>}
     {draft && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setDraft(null) }}><form className="space-dialog idea-dialog" onSubmit={event => { event.preventDefault(); runSafely(save, 'No se pudo guardar la idea') }}><header><div><span>{draft.id ? 'EDITAR IDEA' : 'NUEVA IDEA'}</span><h2>{draft.title || 'Idea sin titulo'}</h2></div><button type="button" className="icon-button" onClick={() => setDraft(null)}><X size={18} /></button></header><label>Titulo<input autoFocus value={draft.title} maxLength={240} onChange={event => setDraft(current => current ? { ...current, title: event.target.value } : current)} placeholder="Describe la idea" /></label><label>Desarrollo<textarea value={draft.body} maxLength={20_000} onChange={event => setDraft(current => current ? { ...current, body: event.target.value } : current)} placeholder="Anota el enfoque, datos o una primera version" /></label><div className="idea-dialog-row"><label>Estado<select value={draft.status} onChange={event => setDraft(current => current ? { ...current, status: event.target.value as IdeaStatus } : current)}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Prioridad<select value={draft.priority} onChange={event => setDraft(current => current ? { ...current, priority: event.target.value as IdeaPriority } : current)}>{Object.entries(priorityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div><label>Espacio<input value={draft.space} maxLength={200} onChange={event => setDraft(current => current ? { ...current, space: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setDraft(null)}>Cancelar</button><button type="button" className="ghost-button" disabled={!draft.title.trim()} onClick={() => runSafely(saveAndConvert, 'No se pudo guardar y convertir la idea')}>Guardar y convertir</button><button className="save-button" disabled={!draft.title.trim()}>Guardar idea</button></footer></form></div>}
   </section>
