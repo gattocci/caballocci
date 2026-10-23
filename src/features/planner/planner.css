@@ -14,19 +14,70 @@
 .weekdays { position: sticky; top: 0; z-index: 3; background: #171c19; }
 .weekdays > span { padding: 11px 8px; color: #a7b1aa; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
 .month-grid { align-items: stretch; }
-.month-day { position: relative; height: 132px; min-width: 110px; padding: 8px; background: #131815; transition: background .15s ease; }
+.month-day { position: relative; height: 132px; min-height: 132px; min-width: 110px; padding: 8px; overflow: hidden; background: #131815; cursor: pointer; transition: background .15s ease; }
 .month-day:hover { background: #171e19; }
 .month-day.today { background: #1a1b17; }
-.month-day.today > b { box-shadow: 0 0 0 3px #ef654822; }
-.month-day > button:not(.month-day-more) { min-height: 25px; margin-top: 4px; padding: 5px 6px; border-left-width: 3px; border-radius: 4px; background: #222a25; color: #e0e7e2; font-size: 9px; }
-.month-day > button:not(.month-day-more):hover { background: #2b352e; }
-.month-day > button > span { color: #acb8af; }
+.month-grid .month-day > .month-day-date,
+.month-grid .month-day > .month-day-date:hover {
+  display: block;
+  width: max-content !important;
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: none !important;
+  box-shadow: none !important;
+  color: #b9c3bc;
+  font: 600 11px/1.5 'DM Mono', monospace;
+  text-align: left;
+  cursor: pointer;
+}
+.month-day-date:focus-visible { outline: 1px solid #d0a64b; outline-offset: 2px; }
+.month-day-date::before,
+.month-day-date::after { content: none !important; }
+.month-grid .month-day > .month-day-date[aria-expanded="true"] {
+  padding: 2px 8px !important;
+  border: 1px solid #694333 !important;
+  border-radius: 999px !important;
+  background: #34231d !important;
+  color: #f0a17c !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 0 2px #ef65481c !important;
+}
+.month-grid .month-day:has(> .month-day-date[aria-expanded="true"]) {
+  background: #191a16;
+  box-shadow: inset 0 0 0 1px #d0a64b4d;
+}
+.month-day-posts { min-height: 0; overflow: hidden; }
+.month-grid .month-day > .month-day-posts > button:not(.month-day-more) { display: block; width: 100%; height: 21px; min-height: 21px; margin-top: 3px; padding: 3px 5px; overflow: hidden; border: 0 !important; border-left: 3px solid var(--post-color) !important; border-radius: 0; background: #222a25; color: #e0e7e2; font-size: 9px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.month-day-posts > button:not(.month-day-more):hover { background: #2b352e; }
+.month-day-posts > button > span { margin-right: 5px; color: #acb8af; }
 .month-day.muted { opacity: 1; background: #101411; }
-.month-day.muted > b { color: #626e65; }
-.month-day.muted > button:not(.month-day-more) { color: #9da8a0; background: #1a201c; }
-.month-day > button.month-day-more { display: block; width: 100%; margin-top: 4px; padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: #d0a64b; font-size: 9px; text-align: left; cursor: pointer; }
-.month-day > button.month-day-more:hover { background: #25231b; color: #f0d6a8; }
-.month-day.expanded { z-index: 2; height: auto; min-height: 132px; overflow: visible; background: #1b231d; box-shadow: 0 8px 18px #0008; }
+.month-day.muted .month-day-date { color: #626e65; }
+.month-day.muted .month-day-posts > button:not(.month-day-more) { color: #9da8a0; background: #1a201c; }
+.month-day-posts > button.month-day-more { display: block; width: 100%; min-height: 18px; margin-top: 3px; padding: 2px 5px; border: 0; border-radius: 0; background: transparent; color: #d0a64b; font-size: 10px; font-weight: 700; line-height: 14px; text-align: left; cursor: pointer; }
+.month-day-posts > button.month-day-more:hover { background: #25231b; color: #f0d6a8; }
+.calendar-day-popover { position: fixed; z-index: 100; display: flex; flex-direction: column; width: min(320px, calc(100vw - 24px)); max-height: min(420px, calc(100vh - 24px)); overflow: hidden; border: 1px solid #3a463e; border-radius: 7px; background: #171d19; color: #e1e8e3; box-shadow: 0 14px 36px #000b; }
+.calendar-day-popover > header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid #303a33; }
+.calendar-day-popover > header strong { overflow: hidden; color: #e1e8e3; font-size: 11px; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+.calendar-day-popover > header button { flex: none; width: 24px; height: 24px; border: 1px solid #39453c; border-radius: 4px; background: #202721; color: #d7dfd9; font-size: 18px; line-height: 1; cursor: pointer; }
+.calendar-day-popover-list { min-height: 0; overflow-y: auto; padding: 6px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #465149 #171c18; }
+.calendar-day-popover-list > button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px; padding: 7px 8px; border: 0; border-left: 3px solid var(--post-color); border-radius: 3px; background: #202722; color: #e1e8e3; text-align: left; cursor: pointer; }
+.calendar-day-popover-list > button + button { margin-top: 4px; }
+.calendar-day-popover-list > button:hover { background: #2a332d; }
+.calendar-day-popover-list > button[aria-current="true"] { background: #29342c; box-shadow: inset 0 0 0 1px #526b58; }
+.calendar-day-popover-list time { flex: none; color: #bdc8c0; font: 10px 'DM Mono', monospace; }
+.calendar-day-popover-list > button > span { min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-day-popover-list > p { margin: 6px; color: #98a39c; font-size: 10px; }
+.board-day-switcher { z-index: 100; }
+.board-day-switcher.minimized { width: 42px; height: 42px; max-height: 42px; border-color: #594238; background: #1d1b17; }
+.board-day-switcher-trigger { display: grid; width: 100%; height: 100%; place-items: center; gap: 1px; padding: 4px; border: 0; background: transparent; color: #f0a17c; cursor: pointer; }
+.board-day-switcher-trigger span { color: #e7d8c9; font: 600 10px 'DM Mono', monospace; }
+.board-day-switcher-trigger:hover { background: #34231d; }
+.board-day-switcher.expanded { max-height: min(420px, calc(100vh - 24px)); }
 .calendar-empty { margin-bottom: 12px; }
 .calendar-empty strong { text-transform: capitalize; }
 .board-column { border-top-width: 3px; border-radius: 6px 6px 0 0; overflow: hidden; }
