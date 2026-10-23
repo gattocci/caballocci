@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format,
   isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths,
@@ -34,8 +35,49 @@ function PostCard({ post, onSelect, onDrag, onDelete, onUnschedule, note, now, o
   const distribution = post.distribution || []
   const published = distribution.filter(target => target.status === 'published').length
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number; bottom: number } | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    if (!actionsOpen || !menuAnchor || !menu) return
+    const { width, height } = menu.getBoundingClientRect()
+    const margin = 8
+    const left = Math.max(margin, Math.min(menuAnchor.right - width, window.innerWidth - width - margin))
+    const below = menuAnchor.bottom + 4
+    const top = below + height <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, menuAnchor.top - height - 4)
+    setMenuPosition({ top, left })
+  }, [actionsOpen, menuAnchor])
+  const closeActions = () => {
+    setActionsOpen(false)
+    setMenuAnchor(null)
+    setMenuPosition(null)
+  }
+  useEffect(() => {
+    if (!actionsOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && (menuRef.current?.contains(target) || triggerRef.current?.contains(target))) return
+      closeActions()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      closeActions()
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [actionsOpen])
   return <article className={'post-card' + (post.scheduledAt && new Date(post.scheduledAt).getTime() < now ? ' past' : '')} draggable onDragStart={onDrag} onClick={onSelect} style={{ '--post-color': post.color } as React.CSSProperties}>
-    <div className="card-top"><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}</div><button type="button" className="timeline-post-menu-trigger" aria-label={`Acciones para ${post.title || 'publicación'}`} aria-expanded={actionsOpen} onClick={event => { event.stopPropagation(); setActionsOpen(open => !open) }}><MoreHorizontal size={15} /></button>{actionsOpen && <div className="timeline-post-menu" onClick={event => event.stopPropagation()}><button type="button" onClick={() => { setActionsOpen(false); onSelect() }}><Pencil size={13} />Editar publicación</button><button type="button" className="timeline-unschedule-action" onClick={() => { setActionsOpen(false); onUnschedule() }}><CalendarDays size={13} />Quitar de la línea de tiempo</button><div className="timeline-color-picker"><span>Color de tarjeta</span><div>{postColors.map(color => <button type="button" key={color.value} aria-label={color.label} aria-pressed={post.color === color.value} title={color.label} style={{ backgroundColor: color.value }} onClick={() => onColor(color.value)} />)}</div></div><label className="timeline-note-input">Nota breve<input type="text" maxLength={120} value={note} placeholder="Añadir nota…" onChange={event => onNote(event.target.value)} /></label><button type="button" className="timeline-delete-action" onClick={() => { setActionsOpen(false); onDelete() }}><Trash2 size={13} />Eliminar definitivamente</button></div>}</div>
+    <div className="card-top"><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}</div><button ref={triggerRef} type="button" className="timeline-post-menu-trigger" aria-label={`Acciones para ${post.title || 'publicación'}`} aria-expanded={actionsOpen} onClick={event => { event.stopPropagation(); if (actionsOpen) closeActions(); else { const rect = event.currentTarget.getBoundingClientRect(); setMenuAnchor({ top: rect.top, right: rect.right, bottom: rect.bottom }); setMenuPosition(null); setActionsOpen(true) } }}><MoreHorizontal size={15} /></button></div>
+    {actionsOpen && menuAnchor && createPortal(<div ref={menuRef} className="timeline-post-menu" style={{ top: menuPosition?.top ?? 0, left: menuPosition?.left ?? 0, visibility: menuPosition ? 'visible' : 'hidden' }} onClick={event => event.stopPropagation()}><button type="button" onClick={() => { closeActions(); onSelect() }}><Pencil size={13} />Editar publicación</button><button type="button" className="timeline-unschedule-action" onClick={() => { closeActions(); onUnschedule() }}><CalendarDays size={13} />Quitar de la línea de tiempo</button><div className="timeline-color-picker"><span>Color de tarjeta</span><div>{postColors.map(color => <button type="button" key={color.value} aria-label={color.label} aria-pressed={post.color === color.value} title={color.label} style={{ backgroundColor: color.value }} onClick={() => onColor(color.value)} />)}</div></div><label className="timeline-note-input">Nota breve<input type="text" maxLength={120} value={note} placeholder="Añadir nota…" onChange={event => onNote(event.target.value)} /></label><button type="button" className="timeline-delete-action" onClick={() => { closeActions(); onDelete() }}><Trash2 size={13} />Eliminar definitivamente</button></div>, document.body)}
     <span className="type-label">{contentLabels[post.contentType]}</span>
     <h3>{post.title || 'Publicación sin título'}</h3>
     {note && <small className="timeline-card-note" title={note}>{note}</small>}
