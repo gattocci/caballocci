@@ -237,13 +237,13 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
   </section>
 }
 
-export function Editor({ initial, onClose }: { initial: Post | null; onClose(): void }) {
+export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; onClose(): void }) {
   const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
   const [draft, setDraft] = useState<PostInput>(() => {
     if (initial) return { ...initial }
-    try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return saved } catch { /* Ignore invalid drafts. */ }
-    return blankPost(activeSpace || 'Mi contenido')
+    try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return scheduledAtForNew ? { ...saved, scheduledAt: scheduledAtForNew, status: 'scheduled' } : saved } catch { /* Ignore invalid drafts. */ }
+    return { ...blankPost(activeSpace || 'Mi contenido'), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
   })
   const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'assistant' | 'external' | 'catalog'>('content')
   const [assistantIdea, setAssistantIdea] = useState('')

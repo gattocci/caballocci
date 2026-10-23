@@ -19,35 +19,60 @@ function fromLocalDateTimeInput(value: string) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-function PostCard({ post, onSelect, onDrag }: { post: Post; onSelect(): void; onDrag(): void }) {
+function PostCard({ post, onSelect, onDrag, onDelete, onUnschedule }: { post: Post; onSelect(): void; onDrag(): void; onDelete(): void; onUnschedule(): void }) {
   const distribution = post.distribution || []
   const published = distribution.filter(target => target.status === 'published').length
+  const [actionsOpen, setActionsOpen] = useState(false)
   return <article className="post-card" draggable onDragStart={onDrag} onClick={onSelect} style={{ '--post-color': post.color } as React.CSSProperties}>
-    <div className="card-top"><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}</div><MoreHorizontal size={15} /></div>
+    <div className="card-top"><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}</div><button type="button" className="timeline-post-menu-trigger" aria-label={`Acciones para ${post.title || 'publicación'}`} aria-expanded={actionsOpen} onClick={event => { event.stopPropagation(); setActionsOpen(open => !open) }}><MoreHorizontal size={15} /></button>{actionsOpen && <div className="timeline-post-menu" onClick={event => event.stopPropagation()}><button type="button" onClick={() => { setActionsOpen(false); onSelect() }}><Pencil size={13} />Editar publicación</button><button type="button" className="timeline-unschedule-action" onClick={() => { setActionsOpen(false); onUnschedule() }}><CalendarDays size={13} />Quitar de la línea de tiempo</button><button type="button" className="timeline-delete-action" onClick={() => { setActionsOpen(false); onDelete() }}><Trash2 size={13} />Eliminar definitivamente</button></div>}</div>
     <span className="type-label">{contentLabels[post.contentType]}</span>
     <h3>{post.title || 'Publicación sin título'}</h3>
     <footer><span><Clock3 size={12} />{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span><i>{distribution.length ? `${published}/${distribution.length} destinos` : statusMeta[post.status].label}</i></footer>
   </article>
 }
 
-export function Timeline() {
-  const { posts: allPosts, save, select, activeSpace, query } = usePlanner()
+export function Timeline({ onNewScheduled }: { onNewScheduled(scheduledAt: string): void }) {
+  const { posts: allPosts, save, remove, select, activeSpace, query } = usePlanner()
   const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
   const [anchor, setAnchor] = useState(new Date())
   const [periodDays, setPeriodDays] = useState<7 | 14>(() => {
     try { return localStorage.getItem('caballocci.timeline-range.all') === '14' ? 14 : 7 } catch { return 7 }
   })
   const [dragged, setDragged] = useState<string | null>(null)
+  const [newPostTime, setNewPostTime] = useState(() => {
+    try { return localStorage.getItem(`caballocci.timeline-time.${activeSpace || 'all'}`) || '10:00' } catch { return '10:00' }
+  })
+  const [addTarget, setAddTarget] = useState<{ day: string; label: string } | null>(null)
+  const [existingSearch, setExistingSearch] = useState('')
+  const [addError, setAddError] = useState('')
+  const [pendingDelete, setPendingDelete] = useState<Post | null>(null)
+  const [deleteError, setDeleteError] = useState('')
   const rangePreferenceKey = `caballocci.timeline-range.${activeSpace || 'all'}`
+  const timePreferenceKey = `caballocci.timeline-time.${activeSpace || 'all'}`
   useEffect(() => {
     try { setPeriodDays(localStorage.getItem(rangePreferenceKey) === '14' ? 14 : 7) } catch { setPeriodDays(7) }
   }, [rangePreferenceKey])
+  useEffect(() => {
+    try { setNewPostTime(localStorage.getItem(timePreferenceKey) || '10:00') } catch { setNewPostTime('10:00') }
+  }, [timePreferenceKey])
   const choosePeriod = (days: 7 | 14) => {
     setPeriodDays(days)
     try { localStorage.setItem(rangePreferenceKey, String(days)) } catch { /* Preferences are optional. */ }
   }
+  const scheduleForDay = (day: Date, time = newPostTime) => {
+    const [hours, minutes] = time.split(':').map(Number)
+    const date = new Date(day)
+    date.setHours(hours || 0, minutes || 0, 0, 0)
+    return date.toISOString()
+  }
+  const chooseTime = (time: string) => {
+    setNewPostTime(time)
+    try { localStorage.setItem(timePreferenceKey, time) } catch { /* Preferences are optional. */ }
+  }
+  const unschedule = (post: Post) => void runWithErrorReporting(() => save({ ...post, scheduledAt: null, status: post.status === 'scheduled' ? 'draft' : post.status }), 'No se pudo quitar la fecha de la publicación')
   const days = Array.from({ length: periodDays }, (_, i) => addDays(startOfWeek(anchor, { weekStartsOn: 1 }), i))
   const scheduled = posts.filter(p => p.scheduledAt)
+  const availablePosts = posts.filter(post => post.status !== 'archived' && post.status !== 'published' && postMatchesQuery(post, existingSearch))
   const rangeStart = days[0]
   const rangeEnd = addDays(days[periodDays - 1], 1)
   const visibleScheduled = scheduled.filter(post => post.scheduledAt && parseISO(post.scheduledAt) >= rangeStart && parseISO(post.scheduledAt) < rangeEnd)
@@ -75,9 +100,11 @@ export function Timeline() {
     <section className="timeline-outlook" aria-label="Carga de publicaciones de las próximas cuatro semanas"><span className="timeline-outlook-label">PRÓXIMAS CUATRO SEMANAS</span>{outlook.map((week, index) => <button type="button" key={week.start.toISOString()} aria-label={`Ver semana ${index + 1}, ${week.count} publicaciones`} onClick={() => { choosePeriod(7); setAnchor(week.start) }}><span>{index === 0 ? 'Esta semana' : `Semana ${index + 1}`}</span><b>{week.count}</b><small>{format(week.start, 'd MMM', { locale: es })} – {format(addDays(week.end, -1), 'd MMM', { locale: es })}</small><i style={{ '--week-load': `${Math.min(100, week.count * 14)}%` } as React.CSSProperties} /></button>)}</section>
     <div className="timeline-shell">
       <div className="timeline-legend"><span>PUBLICACIONES · {periodDays === 7 ? 'SEMANA' : '2 SEMANAS'}</span><span>{visibleScheduled.length} programadas</span></div>
-      <div className="timeline-scroll"><div className="timeline-grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(${periodDays === 7 ? 110 : 125}px, 1fr))` }}>{days.map(day => { const dayPosts = scheduled.filter(post => isSameDay(parseISO(post.scheduledAt!), day)); return <div key={day.toISOString()} className={'timeline-day ' + (isSameDay(day, new Date()) ? 'today' : '')} onDragOver={e => e.preventDefault()} onDrop={() => drop(day)}><header><span>{format(day, 'EEE', { locale: es })}</span><b>{format(day, 'd')}</b><small>{dayPosts.length}</small></header><div className="day-track">{dayPosts.map(post => <PostCard key={post.id} post={post} onSelect={() => select(post.id)} onDrag={() => setDragged(post.id)} />)}{!dayPosts.length && <span className="timeline-day-empty">Sin publicaciones</span>}</div></div> })}</div></div>
+      <div className="timeline-scroll"><div className="timeline-grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(${periodDays === 7 ? 110 : 125}px, 1fr))` }}>{days.map(day => { const dayPosts = scheduled.filter(post => isSameDay(parseISO(post.scheduledAt!), day)); const dayLabel = format(day, 'EEEE d MMMM', { locale: es }); return <div key={day.toISOString()} className={'timeline-day ' + (isSameDay(day, new Date()) ? 'today' : '')} onDragOver={e => e.preventDefault()} onDrop={() => drop(day)}><header><span>{format(day, 'EEE', { locale: es })}</span><b>{format(day, 'd')}</b><small>{dayPosts.length}</small><button type="button" aria-label={`Añadir publicación para ${dayLabel}`} title="Añadir publicación" onClick={() => { setAddTarget({ day: day.toISOString(), label: dayLabel }); setExistingSearch(''); setAddError('') }}><Plus size={13} /></button></header><div className="day-track">{dayPosts.map(post => <PostCard key={post.id} post={post} onSelect={() => select(post.id)} onDrag={() => setDragged(post.id)} onUnschedule={() => unschedule(post)} onDelete={() => { setPendingDelete(post); setDeleteError('') }} />)}{!dayPosts.length && <span className="timeline-day-empty">Sin publicaciones</span>}</div></div> })}</div></div>
     </div>
     <div className="timeline-footer"><div><strong>{visibleScheduled.length} programadas en esta vista</strong><small>Arrastra una tarjeta para cambiar su fecha</small></div><div className="mini-stats"><span><b>{posts.filter(p => p.status === 'draft').length}</b>Borradores</span><span><b>{posts.filter(p => p.status === 'review').length}</b>En revisión</span><span><b>{posts.filter(p => p.status === 'scheduled').length}</b>Programadas</span></div></div>
+    {addTarget && <div className="timeline-add-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setAddTarget(null) }}><section className="timeline-add-dialog" role="dialog" aria-modal="true" aria-labelledby="timeline-add-title"><header><div><h2 id="timeline-add-title">Añadir al {addTarget.label}</h2><p>Elige una hora y cómo quieres añadir la publicación.</p></div><button type="button" aria-label="Cerrar" onClick={() => setAddTarget(null)}>×</button></header><div className="timeline-add-actions"><label className="timeline-modal-time">Hora de publicación<input type="time" value={newPostTime} onChange={event => chooseTime(event.target.value || '10:00')} /><small>Tu última hora elegida queda guardada para este espacio.</small></label><div className="timeline-time-presets" role="group" aria-label="Horas sugeridas">{['09:00', '12:00', '15:00', '18:00'].map(time => <button type="button" key={time} aria-pressed={newPostTime === time} onClick={() => chooseTime(time)}>{time}</button>)}</div><button type="button" onClick={() => { const scheduledAt = scheduleForDay(new Date(addTarget.day)); setAddTarget(null); onNewScheduled(scheduledAt) }}><Plus size={16} /><span><b>Crear publicación nueva</b><small>Se abrirá el editor con la fecha y hora elegidas.</small></span></button><label>O añadir una publicación existente<input type="search" value={existingSearch} onChange={event => setExistingSearch(event.target.value)} placeholder="Buscar por título o contenido" /></label><div className="timeline-existing-list">{availablePosts.length ? availablePosts.map(post => <button type="button" key={post.id} onClick={() => { setAddError(''); void runWithErrorReporting(async () => { try { await save({ ...post, scheduledAt: scheduleForDay(new Date(addTarget.day)), status: 'scheduled' }); setAddTarget(null) } catch (error) { setAddError(error instanceof Error ? error.message : 'No se pudo añadir la publicación.'); reportAppError(error, 'No se pudo añadir la publicación') } }, 'No se pudo añadir la publicación') }}><span>{post.title || 'Publicación sin título'}</span><small>{statusMeta[post.status].label} · {contentLabels[post.contentType]}{post.scheduledAt ? ` · ${format(parseISO(post.scheduledAt), 'd MMM HH:mm', { locale: es })}` : ' · Sin fecha'}</small></button>) : <p>No hay publicaciones disponibles para añadir.</p>}</div>{addError && <p className="timeline-add-error" role="alert">{addError}</p>}</div></section></div>}
+    {pendingDelete && <div className="timeline-add-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPendingDelete(null) }}><section className="timeline-add-dialog timeline-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="timeline-delete-title"><header><div><h2 id="timeline-delete-title">¿Eliminar definitivamente esta publicación?</h2><p>“{pendingDelete.title || 'Publicación sin título'}” se borrará de toda la aplicación, incluidas sus colecciones. Si solo quieres quitarla de la planificación, elige “Quitar de la línea de tiempo”.</p></div><button type="button" aria-label="Cerrar" onClick={() => setPendingDelete(null)}>×</button></header>{deleteError && <p className="timeline-add-error" role="alert">{deleteError}</p>}<footer><button type="button" className="settings-button" onClick={() => setPendingDelete(null)}>Cancelar</button><button type="button" className="timeline-confirm-delete" onClick={() => { const post = pendingDelete; void runWithErrorReporting(async () => { try { await remove(post.id); setPendingDelete(null) } catch (error) { setDeleteError(error instanceof Error ? error.message : 'No se pudo eliminar la publicación.'); reportAppError(error, 'No se pudo eliminar la publicación') } }, 'No se pudo eliminar la publicación') }}><Trash2 size={14} /> Eliminar definitivamente</button></footer></section></div>}
   </section>
 }
 
