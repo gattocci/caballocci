@@ -53,6 +53,22 @@
   .visual-order-controls button:nth-of-type(2) { grid-column: 3; grid-row: 1; }
 }
 .media-import-error { margin: 0; color: #f09986; font-size: 10px; line-height: 15px; }
+.media-export-actions { display: flex; gap: 6px; }
+.media-phone-button,.media-export-destination { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #526553; background: #1c2921; color: #c8ddcc; padding: 0 10px; font-size: 9px; white-space: nowrap; cursor: pointer; }
+.media-phone-button { flex: 1; }
+.media-phone-button:hover:not(:disabled),.media-export-destination:hover:not(:disabled) { border-color: #8bc99d; color: #fff; background: #26382b; }
+.media-phone-button:disabled,.media-export-destination:disabled { opacity: .55; cursor: wait; }
+.media-export-note { color: #7f8c83; font-size: 9px; line-height: 14px; }
+.media-transfer-help { padding: 9px 10px; border: 1px solid #35443a; background: #171f19; color: #b8c5bc; }
+.media-transfer-help summary { color: #c4d8ca; font-size: 10px; font-weight: 650; cursor: pointer; }
+.media-transfer-help[open] summary { margin-bottom: 8px; }
+.media-transfer-help ol { display: grid; gap: 6px; margin: 0; padding-left: 18px; font-size: 9px; line-height: 14px; }
+.media-transfer-help p { margin: 8px 0; color: #8f9d93; font-size: 9px; line-height: 14px; }
+.media-transfer-help code { color: #d4e5d9; }
+.media-transfer-download { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; border: 1px solid #526553; background: #1c2921; color: #c8ddcc; padding: 0 8px; font-size: 9px; cursor: pointer; }
+.media-transfer-download:hover,.media-transfer-download:focus-visible { border-color: #8bc99d; color: #fff; }
+.media-export-feedback { margin: 0; color: #9fd3ad; font-size: 9px; line-height: 14px; overflow-wrap: anywhere; }
+.media-export-feedback.error { color: #f09986; }
 .media-folder-hint { display: flex; align-items: center; gap: 6px; margin: -7px 0 0; color: #7f8c83; font-size: 9px; line-height: 14px; }
 .preview-sequence { height: 32px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #9ba69e; font: 9px 'DM Mono',monospace; }
 .preview-sequence button { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid #343d37; background: #1a201c; color: #c2ccc5; cursor: pointer; }

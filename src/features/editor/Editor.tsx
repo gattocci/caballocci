@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, FileImage, FolderOpen, FolderPlus, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Smartphone, Sparkles, Trash2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
@@ -252,6 +252,9 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
   const [assistantMessage, setAssistantMessage] = useState('')
   const [noteItems, setNoteItems] = useState<NoteItem[]>(() => notesToItems(initial?.notes || ''))
   const [saving, setSaving] = useState(false)
+  const [phoneExportBusy, setPhoneExportBusy] = useState(false)
+  const [phoneExportMessage, setPhoneExportMessage] = useState('')
+  const [phoneExportError, setPhoneExportError] = useState(false)
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
   const [catalogConfig, setCatalogConfig] = useState<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite' }>({ configured: false, endpoint: '', createdBy: '', defaultKind: 'resource' })
   const [catalogToken, setCatalogToken] = useState('')
@@ -312,6 +315,42 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       setSaving(false)
     }
   }
+  const exportToPhone = async (chooseFolder = false) => {
+    if (!initial || !draft.id) return
+    setPhoneExportBusy(true)
+    setSaving(true)
+    setPhoneExportMessage('')
+    setPhoneExportError(false)
+    try {
+      let scanned: MediaAsset[]
+      try {
+        scanned = await window.planner.media.scanPostFolder(draft.id, draft.project || '')
+      } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? ` (${String((error as { code: unknown }).code)})` : ''
+        throw new Error(`No se pudo leer la carpeta de medios${code}.`)
+      }
+      const linkedIds = new Set((draft.media || []).map(asset => asset.id))
+      const exportDraft = { ...draft, media: [...draft.media || [], ...scanned.filter(asset => !linkedIds.has(asset.id))] }
+      setDraft(exportDraft)
+      const savedPost = await save(exportDraft)
+      const result = await window.planner.media.exportToPhone(savedPost.id, { chooseFolder })
+      if (!result) {
+        setPhoneExportMessage('Se guardaron los cambios, pero se canceló la exportación.')
+        return
+      }
+      const omitted = result.skipped.length ? ` · ${result.skipped.length} omitidos` : ''
+      const warnings = result.warnings.length ? ` · ${result.warnings.length} formato(s) pueden no ser aceptados por Instagram` : ''
+      const count = result.exported === 1 ? '1 archivo exportado' : `${result.exported} archivos exportados`
+      setPhoneExportMessage(`${count} a ${result.folderName}${omitted}${warnings}.`)
+    } catch (error) {
+      reportAppError(error, 'No se pudieron enviar los medios al celular')
+      setPhoneExportError(true)
+      setPhoneExportMessage(errorMessage(error))
+    } finally {
+      setPhoneExportBusy(false)
+      setSaving(false)
+    }
+  }
   useEffect(() => { if (!initial) localStorage.setItem(draftKey, JSON.stringify(draft)) }, [draft, draftKey, initial])
   const close = () => {
     const changed = !initial && Boolean(draft.title || draft.caption || draft.notes || draft.media?.length || draft.ideaBlocks?.length)
@@ -363,6 +402,20 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean))} placeholder="#contenido #campaña" /></label>
         <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); update('scheduledAt', scheduledAt); if (!scheduledAt && draft.status === 'scheduled') { update('status', 'approved'); setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.') } else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
+        <div className="media-export-actions"><button type="button" className="media-phone-button" disabled={!initial || !draft.id || saving || phoneExportBusy} onClick={() => void exportToPhone()}><Smartphone size={15} /> {phoneExportBusy ? 'Preparando…' : 'Guardar y preparar para el celular'}</button><button type="button" className="media-export-destination" disabled={!initial || !draft.id || saving || phoneExportBusy} onClick={() => void exportToPhone(true)}><FolderOpen size={15} /> Elegir destino</button></div>
+        <small className="media-export-note">{initial ? 'Prepara un álbum local por publicación; sincronízalo usando Syncthing u otro método.' : '¡Tenes que guardar la publicación, sino no podrás continuar!'}</small>
+        <details className="media-transfer-help">
+          <summary>¿Cómo paso estas carpetas a Android?</summary>
+          <ol>
+            <li>Instala Syncthing en tu PC y un cliente compatible en Android.</li>
+            <li>En ambos dispositivos, conéctalos usando el código QR o el identificador del otro dispositivo.</li>
+            <li>En el PC, añade como carpeta la ubicación elegida aquí y compártela con Android. Déjala en modo <strong>Solo enviar</strong>.</li>
+            <li>En Android, acepta la carpeta compartida y elige <code>Pictures/caballocci</code> como destino, en modo <strong>Solo recibir</strong>.</li>
+          </ol>
+          <p>Las publicaciones aparecerán como álbumes en la galería. La primera vez, revisa la configuración de carpeta en ambos dispositivos.</p>
+          <button type="button" className="media-transfer-download" onClick={() => void runWithErrorReporting(() => window.planner.system.openSyncthingDownloads(), 'No se pudo abrir la página de descarga de Syncthing')}><ExternalLink size={13} /> Descargar Syncthing para PC</button>
+        </details>
+        {phoneExportMessage && <p className={'media-export-feedback' + (phoneExportError ? ' error' : '')} role={phoneExportError ? 'alert' : 'status'}>{phoneExportMessage}</p>}
         <p className="media-folder-hint"><FolderOpen size={13} /> También puedes copiar imágenes directamente en esta carpeta y pulsar “Actualizar carpeta” en Vista previa.</p>
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}

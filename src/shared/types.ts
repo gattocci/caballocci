@@ -57,6 +57,13 @@ export interface MediaAsset {
   compressed?: boolean
 }
 
+export interface PhoneExportResult {
+  exported: number
+  skipped: Array<{ name: string; reason: 'document' | 'missing' | 'unsupported' }>
+  warnings: Array<{ name: string; reason: 'format-may-not-upload' }>
+  folderName: string
+}
+
 export interface IdeaBlock {
   id: string
   title: string
@@ -300,7 +307,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; imageUrl(id: string): string }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
@@ -309,6 +316,7 @@ export interface ElectronAPI {
     openWorkspace(): Promise<string>
     openSpaceFolder(space: string): Promise<string>
     openBackups(): Promise<string>
+    openSyncthingDownloads(): Promise<void>
     createBackup(): Promise<string>
   }
   updates: {

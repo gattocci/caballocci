@@ -4,6 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { PlannerDatabase } from './database'
+import { exportPostForPhone, type PhoneFile } from './media-export'
 import {
   validateArgumentCount,
   validateClipboardText,
@@ -51,6 +52,8 @@ const devServerUrl = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_UR
 const rendererFilePath = path.join(__dirname, '../dist/index.html')
 const rendererFileUrl = pathToFileURL(rendererFilePath).href
 const mediaScheme = 'caballocci-media'
+const phoneExportPreferenceKey = 'caballocci.phone-export-root'
+const syncthingDownloadsUrl = 'https://syncthing.net/downloads/'
 
 protocol.registerSchemesAsPrivileged([{
   scheme: mediaScheme,
@@ -150,6 +153,14 @@ function withoutArguments(callback: () => unknown) {
     validateNoArguments(args)
     return callback()
   }
+}
+
+function fileErrorCode(error: unknown) {
+  return error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : ''
+}
+
+function isPhonePresentationRole(value: unknown): value is NonNullable<PhoneFile['presentationRole']> {
+  return value === 'representative' || value === 'cover' || value === 'slide' || value === 'closing' || value === 'other'
 }
 
 function mapMediaAssets(value: unknown) {
@@ -936,12 +947,15 @@ app.whenReady().then(async () => {
     if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) throw new TypeError('Preferencias invalidas')
     const entries: Record<string, string> = {}
     for (const [key, value] of Object.entries(incoming as Record<string, unknown>)) {
+      if (key === phoneExportPreferenceKey) continue
       if (!/^caballocci\.[a-z0-9._-]+$/i.test(key) || typeof value !== 'string' || value.length > 2_000_000) continue
       entries[key] = value
     }
     const stored = database.listPreferences()
     database.savePreferences(entries)
-    return { ...stored, ...entries }
+    const synced = { ...stored, ...entries }
+    delete synced[phoneExportPreferenceKey]
+    return synced
   })
   handle('preferences:remove', args => {
     validateArgumentCount(args, 1)
@@ -976,6 +990,7 @@ app.whenReady().then(async () => {
     return shell.openPath(folder)
   })
   handle('system:open-backups', withoutArguments(() => { fs.mkdirSync(backupsDirectory, { recursive: true }); return shell.openPath(backupsDirectory) }))
+  handle('system:open-syncthing-downloads', withoutArguments(() => shell.openExternal(syncthingDownloadsUrl)))
   handle('system:create-backup', withoutArguments(() => database.createBackup('manual')))
   handle('updates:get-state', withoutArguments(() => updater.getState()))
   handle('updates:check', withoutArguments(() => updater.check()))
@@ -996,6 +1011,94 @@ app.whenReady().then(async () => {
     const folder = postId ? ensurePostMediaFolder(project || '', postId) : path.join(app.getPath('userData'), 'Media', 'Posts', 'General')
     if (!postId) fs.mkdirSync(folder, { recursive: true })
     return shell.openPath(folder)
+  })
+  handle('media:export-to-phone', async args => {
+    if (args.length < 1 || args.length > 2) throw new TypeError('Argumento IPC no valido: media.exportToPhone')
+    const postId = validateId(args[0], 'post.id')
+    const chooseFolder = args[1] === undefined ? false : (() => {
+      const options = args[1]
+      if (!options || typeof options !== 'object' || Array.isArray(options)) throw new TypeError('Opciones de exportación no válidas')
+      const value = (options as Record<string, unknown>).chooseFolder
+      if (value !== undefined && typeof value !== 'boolean') throw new TypeError('Opción chooseFolder no válida')
+      return value === true
+    })()
+    const row = database.getPost(postId)
+    if (!row) throw new Error('No se encontró la publicación.')
+    const post = mapPost(row)
+    const hasAvailableMedia = post.media.some(asset => {
+      if (asset.kind !== 'image' && asset.kind !== 'video') return false
+      const media = database.getMediaFile(String(asset.id || ''))
+      return Boolean(media && (fs.existsSync(media.path) || (media.archivePath && fs.existsSync(media.archivePath))))
+    })
+    if (!hasAvailableMedia) throw new Error('La publicación no tiene imágenes ni videos disponibles para exportar.')
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
+
+    const preferences = database.listPreferences()
+    let root = preferences[phoneExportPreferenceKey]
+    if (chooseFolder || !root || !path.isAbsolute(root)) {
+      const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
+      if (result.canceled || !result.filePaths[0]) return null
+      root = result.filePaths[0]
+      database.savePreferences({ [phoneExportPreferenceKey]: root })
+    }
+
+    if (post.media.some(asset => asset.compressed)) {
+      try {
+        restoreTargetMedia('post', postId)
+      } catch (error) {
+        const code = fileErrorCode(error)
+        throw new Error(`No se pudieron restaurar medios archivados${code ? ` (${code})` : ''}.`)
+      }
+    }
+    const skipped: Array<{ name: string; reason: 'document' | 'missing' | 'unsupported' }> = []
+    const files: PhoneFile[] = []
+    for (const asset of post.media) {
+      const name = String(asset.name || 'archivo')
+      if (asset.kind === 'document') {
+        skipped.push({ name, reason: 'document' })
+        continue
+      }
+      if (asset.kind !== 'image' && asset.kind !== 'video') {
+        skipped.push({ name, reason: 'unsupported' })
+        continue
+      }
+      const media = database.getMediaFile(String(asset.id || ''))
+      let available = false
+      if (media && fs.existsSync(media.path)) {
+        try { available = fs.statSync(media.path).isFile() } catch { available = false }
+      }
+      if (!media || !available) {
+        skipped.push({ name, reason: 'missing' })
+        continue
+      }
+      files.push({
+        name,
+        sourcePath: media.path,
+        ...(isPhonePresentationRole(asset.presentationRole) ? { presentationRole: asset.presentationRole } : {}),
+        sequence: typeof asset.sequence === 'number' ? asset.sequence : asset.sequence === null ? null : undefined,
+      })
+    }
+    if (!files.length) throw new Error('La publicación no tiene imágenes ni videos disponibles para exportar.')
+
+    let result
+    try {
+      result = exportPostForPhone(root, {
+        id: String(post.id),
+        title: String(post.title || ''),
+        caption: String(post.caption || ''),
+        hashtags: Array.isArray(post.hashtags) ? post.hashtags.map(String) : [],
+        mentions: Array.isArray(post.mentions) ? post.mentions.map(String) : [],
+        platforms: Array.isArray(post.platforms) ? post.platforms.map(String) : [],
+        scheduledAt: typeof post.scheduledAt === 'string' ? post.scheduledAt : null,
+      }, files)
+    } catch (error) {
+      const code = fileErrorCode(error)
+      throw new Error(`No se pudo completar la exportación${code ? ` (${code})` : ''}. Verifica los permisos y el espacio disponible en el destino, y que los archivos originales sigan disponibles.`)
+    }
+    result.skipped = skipped
+    const openError = await shell.openPath(path.join(root, result.folderName))
+    if (openError) throw new Error('Los medios se exportaron, pero no se pudo abrir su carpeta. Usa "Abrir carpeta" para localizar el destino.')
+    return result
   })
   handle('media:list', withoutArguments(() => database.listMedia()))
   handle('media:scan-post-folder', args => {

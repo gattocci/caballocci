@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('planner', {
     organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),
     reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
     openFolder: (postId?: string, project?: string) => ipcRenderer.invoke('media:open-folder', postId, project),
+    exportToPhone: (postId: string, options?: { chooseFolder?: boolean }) => ipcRenderer.invoke('media:export-to-phone', postId, options),
     imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
   files: { readText: () => ipcRenderer.invoke('files:read-text') },
@@ -112,6 +113,7 @@ contextBridge.exposeInMainWorld('planner', {
     openWorkspace: () => ipcRenderer.invoke('system:open-workspace'),
     openSpaceFolder: (space: string) => ipcRenderer.invoke('system:open-space-folder', space),
     openBackups: () => ipcRenderer.invoke('system:open-backups'),
+    openSyncthingDownloads: () => ipcRenderer.invoke('system:open-syncthing-downloads'),
     createBackup: () => ipcRenderer.invoke('system:create-backup'),
   },
   updates: {

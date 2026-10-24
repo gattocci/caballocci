@@ -18,12 +18,19 @@ Las actualizaciones posteriores se ofrecen dentro de **Acerca de / Actualizacion
 - Espacios para organizar, filtrar y renombrar proyectos.
 - Editor, vista previa y publicación manual.
 - Biblioteca multimedia local en modo copia o referencia.
+- Exportación de medios por publicación para transferirlos al celular con su orden de carrusel.
 - Mapa conceptual persistente para relacionar ideas, publicaciones y recursos generales.
 - Migraciones SQLite numeradas y transaccionales.
 - Backups fechados antes de migraciones e instalaciones de actualizaciones.
 - Actualizaciones desde GitHub Releases, siempre confirmadas por el usuario.
 
 Los datos viven fuera de la instalación, en el directorio userData de Electron. Reinstalar, actualizar o desinstalar la aplicación no elimina la base, la biblioteca multimedia ni los backups.
+
+## Enviar medios al celular
+
+Desde el editor, **Guardar y preparar para el celular** crea una carpeta legible por publicación con las imágenes y videos numerados en el orden de la vista previa, además de `caption.txt` y `manifest.json`. La primera exportación permite elegir una carpeta de destino; luego se reutiliza, y el botón **Elegir destino** permite cambiarla.
+
+Para sincronizarla con Android, puedes usar Syncthing: configura la carpeta de exportación del PC como **Send Only** y su destino `Pictures/caballocci/` en Android como **Receive Only**. Así cada publicación aparece como un álbum y borrar medios del celular no los elimina del PC. Caballocci no se conecta a Instagram ni transforma los archivos.
 
 ## Desarrollo en Windows
 
