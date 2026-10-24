@@ -10,3 +10,7 @@ ignore.md
 security.md
 
 testo/
+
+companion-apps/mobile-sync/android/.gradle/
+companion-apps/mobile-sync/android/app/build/
+companion-apps/mobile-sync/android/build/
