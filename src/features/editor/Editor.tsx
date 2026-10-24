@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Smartphone, Sparkles, Trash2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
+import { MobileAppDownload } from '../../components/MobileAppDownload'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { usePlanner } from '../../app/store'
 import type { CatalogSync, ContentRecord, ContentType, IdeaBlock, MediaAsset, Platform, Post, PostInput, PostStatus } from '../../shared/types'
@@ -253,6 +254,7 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
   const [noteItems, setNoteItems] = useState<NoteItem[]>(() => notesToItems(initial?.notes || ''))
   const [saving, setSaving] = useState(false)
   const [phoneExportBusy, setPhoneExportBusy] = useState(false)
+  const [phoneExportFolder, setPhoneExportFolder] = useState<string | null>(null)
   const [phoneExportMessage, setPhoneExportMessage] = useState('')
   const [phoneExportError, setPhoneExportError] = useState(false)
   const [externalRecord, setExternalRecord] = useState<ContentRecord | null>(null)
@@ -285,6 +287,11 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     }
     else setCatalogSync(null)
   }, [initial?.id])
+  useEffect(() => {
+    void window.planner.mobileSync.folder()
+      .then(setPhoneExportFolder)
+      .catch(error => reportAppError(error, 'No se pudo consultar la carpeta de exportación al celular'))
+  }, [])
   const update = <K extends keyof PostInput>(key: K, value: PostInput[K]) => setDraft(d => ({ ...d, [key]: value }))
   const updateNotes = (items: NoteItem[]) => { setNoteItems(items); update('notes', itemsToNotes(items)) }
   const formatPostTitle = (mode: 'upper' | 'lower' | 'title' | 'sentence') => update('title', formatTitle(draft.title, mode))
@@ -333,20 +340,37 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       const exportDraft = { ...draft, media: [...draft.media || [], ...scanned.filter(asset => !linkedIds.has(asset.id))] }
       setDraft(exportDraft)
       const savedPost = await save(exportDraft)
-      const result = await window.planner.media.exportToPhone(savedPost.id, { chooseFolder })
+      if (chooseFolder) {
+        const folder = await window.planner.mobileSync.chooseFolder()
+        if (!folder) {
+          setPhoneExportMessage('Se guardaron los cambios, pero no se cambió la carpeta compartida.')
+          return
+        }
+        setPhoneExportFolder(folder)
+        setPhoneExportMessage('Raíz compartida configurada. Pulsa “Guardar y enviar al celular” para añadir esta publicación al catálogo.')
+        return
+      }
+      const result = await window.planner.mobileSync.exportSelected([savedPost.id])
       if (!result) {
         setPhoneExportMessage('Se guardaron los cambios, pero se canceló la exportación.')
         return
       }
-      const omitted = result.skipped.length ? ` · ${result.skipped.length} omitidos` : ''
-      const warnings = result.warnings.length ? ` · ${result.warnings.length} formato(s) pueden no ser aceptados por Instagram` : ''
-      const count = result.exported === 1 ? '1 archivo exportado' : `${result.exported} archivos exportados`
-      setPhoneExportMessage(`${count} a ${result.folderName}${omitted}${warnings}.`)
+      setPhoneExportFolder(await window.planner.mobileSync.folder())
+      setPhoneExportMessage(result.publications
+        ? `Lote ${result.batch}: publicación añadida al catálogo (${result.destinations} destinos).`
+        : `No se exportó la publicación.${result.skipped[0] ? ` ${result.skipped[0].reason}` : ''}`)
     } catch (error) {
       reportAppError(error, 'No se pudieron enviar los medios al celular')
       setPhoneExportError(true)
       setPhoneExportMessage(errorMessage(error))
     } finally {
+      if (chooseFolder) {
+        try {
+          setPhoneExportFolder(await window.planner.mobileSync.folder())
+        } catch (error) {
+          reportAppError(error, 'No se pudo consultar la carpeta de exportación al celular')
+        }
+      }
       setPhoneExportBusy(false)
       setSaving(false)
     }
@@ -402,21 +426,56 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean))} placeholder="#contenido #campaña" /></label>
         <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); update('scheduledAt', scheduledAt); if (!scheduledAt && draft.status === 'scheduled') { update('status', 'approved'); setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.') } else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
-        <div className="media-export-actions"><button type="button" className="media-phone-button" disabled={!initial || !draft.id || saving || phoneExportBusy} onClick={() => void exportToPhone()}><Smartphone size={15} /> {phoneExportBusy ? 'Preparando…' : 'Guardar y preparar para el celular'}</button><button type="button" className="media-export-destination" disabled={!initial || !draft.id || saving || phoneExportBusy} onClick={() => void exportToPhone(true)}><FolderOpen size={15} /> Elegir destino</button></div>
-        <small className="media-export-note">{initial ? 'Prepara un álbum local por publicación; sincronízalo usando Syncthing u otro método.' : '¡Tenes que guardar la publicación, sino no podrás continuar!'}</small>
-        <details className="media-transfer-help">
-          <summary>¿Cómo paso estas carpetas a Android?</summary>
-          <ol>
-            <li>Instala Syncthing en tu PC y un cliente compatible en Android.</li>
-            <li>En ambos dispositivos, conéctalos usando el código QR o el identificador del otro dispositivo.</li>
-            <li>En el PC, añade como carpeta la ubicación elegida aquí y compártela con Android. Déjala en modo <strong>Solo enviar</strong>.</li>
-            <li>En Android, acepta la carpeta compartida y elige <code>Pictures/caballocci</code> como destino, en modo <strong>Solo recibir</strong>.</li>
-          </ol>
-          <p>Las publicaciones aparecerán como álbumes en la galería. La primera vez, revisa la configuración de carpeta en ambos dispositivos.</p>
-          <button type="button" className="media-transfer-download" onClick={() => void runWithErrorReporting(() => window.planner.system.openSyncthingDownloads(), 'No se pudo abrir la página de descarga de Syncthing')}><ExternalLink size={13} /> Descargar Syncthing para PC</button>
+        <details className="media-export-section" open>
+          <summary><Smartphone size={15} /> Enviar álbumes al celular</summary>
+          <div className="media-export-section-content">
+            <p className="media-export-note">Esta acción envía <strong>solo esta publicación</strong> al mismo catálogo que usa la app Android. Sus medios se exportan con la misma rutina y orden visual que en los envíos por lote; el álbum queda dentro de <code>pc-outbox/publications/</code> y se registra en <code>pc-outbox/catalog.json</code>.</p>
+            <p className="media-export-folder"><FolderOpen size={13} /><strong>{phoneExportFolder || 'Aún no elegiste una carpeta de destino'}</strong></p>
+            <div className="media-export-actions"><button type="button" className="media-phone-button" disabled={!initial || !draft.id || saving || phoneExportBusy} onClick={() => void exportToPhone()}><Smartphone size={15} /> {phoneExportBusy ? 'Enviando…' : 'Guardar y enviar al celular'}</button><button type="button" className="media-export-destination" disabled={saving || phoneExportBusy} onClick={() => void exportToPhone(true)}><FolderOpen size={15} /> Elegir raíz compartida</button></div>
+            <p className="media-export-note">La raíz compartida se configura una sola vez y se usa también en <strong>Acerca de / Actualizaciones</strong>; no hacen falta dos carpetas. Comparte la raíz como <strong>Enviar y recibir</strong> en Syncthing del PC y Android. En la app móvil selecciona esa raíz, no <code>pc-outbox/</code>.</p>
+            <details className="media-transfer-help">
+              <summary>Configurar el envío de álbumes con Syncthing</summary>
+              <ol>
+                <li>Instala Syncthing en el PC y un cliente compatible en Android; conecta los dispositivos con su QR o identificador.</li>
+                <li>En caballocci, pulsa <strong>Elegir raíz compartida</strong> para seleccionar la carpeta de Syncthing que se configura también en Acerca de / Actualizaciones.</li>
+                <li>En Syncthing del PC y Android, comparte/acepta esa misma raíz en modo <strong>Enviar y recibir</strong>. En Android, elige una ubicación local, por ejemplo <code>Pictures/Caballocci</code>; las rutas pueden ser distintas.</li>
+                <li>Pulsa <strong>Guardar y enviar al celular</strong>. caballocci crea el álbum bajo <code>pc-outbox/publications/</code> y actualiza el catálogo que lee la app.</li>
+              </ol>
+              <pre className="media-folder-tree">{`PC: Caballocci-Sync/              ← única raíz compartida
+└── pc-outbox/
+    ├── catalog.json
+    └── publications/
+        └── a-marketing-1-titulo-2026-10-24/ ← lote-espacio-orden-título-fecha
+            ├── 01-imagen.jpg
+            ├── caption.txt
+            └── manifest.json
+
+Android: Pictures/Caballocci/     ← ubicación local de esa raíz
+└── pc-outbox/publications/...     ← Syncthing replica catálogo y álbumes`}</pre>
+              <p>No crees las subcarpetas: caballocci las genera. El nombre sigue el formato <code>lote-espacio-orden-título-listo-fecha</code>: el orden es consecutivo dentro del espacio y no se reinicia al cambiar de tanda. Las carpetas marcadas con <code>listo</code> corresponden a publicaciones confirmadas como usadas, no necesariamente publicadas. La ubicación local de Android se elige al aceptar la carpeta en Syncthing.</p>
+              <button type="button" className="media-transfer-download" onClick={() => void runWithErrorReporting(() => window.planner.system.openSyncthingDownloads(), 'No se pudo abrir la página de descarga de Syncthing')}><ExternalLink size={13} /> Descargar Syncthing para PC</button>
+              <details className="media-mobile-app-help">
+                <summary>Usar la app Android de caballocci</summary>
+                <div>
+                  <p>La app muestra publicaciones por destino y permite devolver a caballocci las confirmaciones de uso. El editor, la selección del tablero y la exportación global comparten la raíz y el catálogo:</p>
+                  <ol>
+                    <li>Instala la app en Android con el APK oficial.</li>
+                    <li>En <strong>Acerca de / Actualizaciones → App Android de caballocci</strong>, configura la raíz compartida. Es la misma carpeta que aparece arriba; no configures otra raíz para el editor.</li>
+                    <li>Pulsa <strong>Exportar todas las publicaciones</strong>. caballocci recorre las publicaciones no archivadas con medios y al menos un destino cuyo estado no sea Publicado ni No aplica; genera <code>pc-outbox/catalog.json</code> y los álbumes que referencia.</li>
+                    <li>Configura esa raíz como <strong>Enviar y recibir</strong> en Syncthing del PC y Android, y selecciónala en la app móvil. Syncthing replica <code>pc-outbox/</code>; la app escribe las confirmaciones en <code>android-inbox/</code>.</li>
+                  </ol>
+                  <div className="media-mobile-app-actions">
+                    <MobileAppDownload className="media-transfer-download" label="Descargar app Android (APK)" />
+                    <span>La configuración se hace en Acerca de / Actualizaciones.</span>
+                  </div>
+                  <p>Si usas ambas opciones con la misma raíz, los álbumes exportados por separado quedan fuera de <code>pc-outbox/</code> y no aparecen en el catálogo móvil. Para que la app Android muestre una publicación, exporta desde Acerca de / Actualizaciones. No compartas la base de datos del PC.</p>
+                </div>
+              </details>
+            </details>
+            {phoneExportMessage && <p className={'media-export-feedback' + (phoneExportError ? ' error' : '')} role={phoneExportError ? 'alert' : 'status'}>{phoneExportMessage}</p>}
+            <p className="media-folder-hint"><FolderOpen size={13} /> También puedes copiar imágenes directamente en la carpeta de esta publicación y pulsar “Actualizar carpeta” en Vista previa.</p>
+          </div>
         </details>
-        {phoneExportMessage && <p className={'media-export-feedback' + (phoneExportError ? ' error' : '')} role={phoneExportError ? 'alert' : 'status'}>{phoneExportMessage}</p>}
-        <p className="media-folder-hint"><FolderOpen size={13} /> También puedes copiar imágenes directamente en esta carpeta y pulsar “Actualizar carpeta” en Vista previa.</p>
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
       {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}

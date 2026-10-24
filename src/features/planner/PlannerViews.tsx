@@ -5,7 +5,7 @@ import {
   isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths,
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Archive, ArchiveRestore, CalendarDays, ChevronLeft, ChevronRight, Clock3, FileImage, FileText, Film, FolderOpen, FolderPlus, GripVertical, List, Minimize2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CalendarDays, ChevronLeft, ChevronRight, Clock3, FileImage, FileText, Film, FolderOpen, FolderPlus, GripVertical, List, Minimize2, MoreHorizontal, Pencil, Plus, Smartphone, Trash2 } from 'lucide-react'
 import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { postColors } from '../../shared/postColors'
 import { PlatformMark, ViewHeading } from '../../components/layout/AppShell'
@@ -398,6 +398,9 @@ export function Board() {
   const [listPage, setListPage] = useState(0)
   const [bulkScheduleAt, setBulkScheduleAt] = useState('')
   const [bulkScheduleWarning, setBulkScheduleWarning] = useState('')
+  const [mobileExportBusy, setMobileExportBusy] = useState(false)
+  const [mobileExportMessage, setMobileExportMessage] = useState('')
+  const [mobileExportSkipped, setMobileExportSkipped] = useState<string[]>([])
   const [calendarMonth, setCalendarMonth] = useState(new Date())
   const [expandedCalendarDay, setExpandedCalendarDay] = useState<string | null>(null)
   const [calendarDefaultTime, setCalendarDefaultTime] = useState('10:00')
@@ -486,6 +489,21 @@ export function Board() {
       clear()
     }, 'No se pudieron programar las publicaciones seleccionadas')
   }
+  const exportSelectedToMobile = () => runWithErrorReporting(async () => {
+    const postIds = [...selected].filter(id => allPosts.some(post => post.id === id))
+    if (!postIds.length) return
+    setMobileExportBusy(true)
+    setMobileExportMessage('')
+    setMobileExportSkipped([])
+    try {
+      const report = await window.planner.mobileSync.exportSelected(postIds)
+      if (!report) return
+      setMobileExportMessage(`Lote ${report.batch}: ${report.publications} ${report.publications === 1 ? 'publicación' : 'publicaciones'} y ${report.destinations} ${report.destinations === 1 ? 'destino' : 'destinos'} añadidos al catálogo.`)
+      setMobileExportSkipped(report.skipped.map(item => `${item.title || item.postId}: ${item.reason}`))
+    } finally {
+      setMobileExportBusy(false)
+    }
+  }, 'No se pudo enviar la selección al celular')
   const scheduleDroppedPost = (event: React.DragEvent, day: Date) => {
     event.preventDefault()
     const post = allPosts.find(item => item.id === event.dataTransfer.getData('post'))
@@ -712,7 +730,8 @@ export function Board() {
       </section>
     </div>}
     {!selected.size && <p className="work-group-selection-hint">Para reunir publicaciones, marca las casillas de las tarjetas (pueden estar en distintas etapas) y elige una colección.</p>}
-    {selected.size > 0 && <div className="board-bulk-actions"><strong>{selected.size} seleccionadas</strong>{boardMode === 'list' && <div className="bulk-schedule-control"><label htmlFor="bulk-schedule-at">Fecha y hora</label><input id="bulk-schedule-at" type="datetime-local" value={bulkScheduleAt} onChange={event => { setBulkScheduleAt(event.target.value); setBulkScheduleWarning('') }} /><button type="button" disabled={!bulkScheduleAt} onClick={bulkSchedule}>Programar selección</button></div>}<button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button><button type="button" onClick={clear}>Cancelar</button>{bulkScheduleWarning && <span className="bulk-schedule-warning" role="alert">{bulkScheduleWarning}</span>}</div>}
+    {selected.size > 0 && <div className="board-bulk-actions"><strong>{selected.size} seleccionadas</strong><button type="button" disabled={mobileExportBusy} onClick={() => void exportSelectedToMobile()}><Smartphone size={14} /> {mobileExportBusy ? 'Enviando…' : 'Enviar selección al celular'}</button>{boardMode === 'list' && <div className="bulk-schedule-control"><label htmlFor="bulk-schedule-at">Fecha y hora</label><input id="bulk-schedule-at" type="datetime-local" value={bulkScheduleAt} onChange={event => { setBulkScheduleAt(event.target.value); setBulkScheduleWarning('') }} /><button type="button" disabled={!bulkScheduleAt} onClick={bulkSchedule}>Programar selección</button></div>}<button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button><button type="button" onClick={clear}>Cancelar</button>{bulkScheduleWarning && <span className="bulk-schedule-warning" role="alert">{bulkScheduleWarning}</span>}</div>}
+    {mobileExportMessage && <div className="work-group-export-message" role="status"><p>{mobileExportMessage}</p>{mobileExportSkipped.map((item, index) => <p key={`${index}-${item}`}>Omitida: {item}</p>)}</div>}
     {selected.size > 0 && <div className="board-bulk-actions work-group-membership-actions"><strong>{selected.size} publicaciones seleccionadas</strong>{workGroups.some(group => !group.archivedAt) && <><select aria-label="Colección de destino" value={membershipTargetGroupId} onChange={event => setMembershipTargetGroupId(event.target.value)}><option value="">Añadir a una colección…</option>{workGroups.filter(group => !group.archivedAt).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select><button type="button" disabled={!membershipTargetGroupId} onClick={() => void updateGroupMembership(membershipTargetGroupId, true)}>Añadir</button></>}{selectedWorkGroup && !selectedWorkGroup.archivedAt && selectedWorkGroup.postIds.some(id => selected.has(id)) && <button type="button" onClick={() => void updateGroupMembership(selectedWorkGroup.id, false)}>Quitar de esta colección</button>}<button type="button" onClick={() => openGroupForm()}>Crear colección con selección</button></div>}
     {archivedPosts.length > 0 && <section className="board-archived-posts"><header><div><strong>Publicaciones archivadas</strong><span>{archivedPosts.length}</span></div><button type="button" className="settings-button" onClick={() => setShowArchivedPosts(current => !current)}>{showArchivedPosts ? 'Ocultar' : 'Mostrar'}</button></header>{showArchivedPosts && <div className="board-archived-post-list">{archivedPosts.map(post => {
       const compressedCount = post.media.filter(asset => asset.compressed).length

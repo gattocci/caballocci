@@ -59,17 +59,38 @@
 .media-phone-button:hover:not(:disabled),.media-export-destination:hover:not(:disabled) { border-color: #8bc99d; color: #fff; background: #26382b; }
 .media-phone-button:disabled,.media-export-destination:disabled { opacity: .55; cursor: wait; }
 .media-export-note { color: #7f8c83; font-size: 9px; line-height: 14px; }
+.media-export-folder { display: flex; align-items: flex-start; gap: 7px; margin: -4px 0 0; padding: 8px; border: 1px solid #303a33; background: #111612; color: #a9d5b4; font-size: 9px; line-height: 14px; }
+.media-export-folder svg { flex: none; margin-top: 1px; }
+.media-export-folder strong { min-width: 0; overflow-wrap: anywhere; font: 9px/14px 'DM Mono',monospace; color: #d8e3da; }
+.media-export-section { border: 1px solid #35443a; background: #141a16; }
+.media-export-section>summary { display: flex; align-items: center; gap: 7px; padding: 10px; color: #c4d8ca; font-size: 10px; font-weight: 700; cursor: pointer; list-style: none; }
+.media-export-section>summary::-webkit-details-marker { display: none; }
+.media-export-section>summary::after { content: ""; width: 7px; height: 7px; margin: 0 2px 3px auto; border-right: 1px solid #aab5ad; border-bottom: 1px solid #aab5ad; transform: rotate(45deg); }
+.media-export-section[open]>summary::after { margin-bottom: -2px; transform: rotate(225deg); }
+.media-export-section>summary:focus-visible { outline: 2px solid #8bc99d; outline-offset: -2px; }
+.media-export-section-content { display: grid; gap: 9px; padding: 0 10px 10px; }
+.media-export-section-content>.media-export-note { margin: 0; }
 .media-transfer-help { padding: 9px 10px; border: 1px solid #35443a; background: #171f19; color: #b8c5bc; }
 .media-transfer-help summary { color: #c4d8ca; font-size: 10px; font-weight: 650; cursor: pointer; }
 .media-transfer-help[open] summary { margin-bottom: 8px; }
 .media-transfer-help ol { display: grid; gap: 6px; margin: 0; padding-left: 18px; font-size: 9px; line-height: 14px; }
 .media-transfer-help p { margin: 8px 0; color: #8f9d93; font-size: 9px; line-height: 14px; }
 .media-transfer-help code { color: #d4e5d9; }
+.media-folder-tree { margin: 9px 0; padding: 10px; overflow-x: auto; border: 1px solid #303a33; background: #111612; color: #bfcfc3; font: 9px/15px 'DM Mono',monospace; white-space: pre; }
+.media-folder-tree::first-line { color: #8fc79c; }
+.media-mobile-app-help { margin-top: 9px; padding-top: 9px; border-top: 1px solid #35443a; }
+.media-mobile-app-help summary { color: #c4d8ca; font-size: 10px; font-weight: 650; cursor: pointer; }
+.media-mobile-app-help[open] summary { margin-bottom: 8px; }
+.media-mobile-app-help>div>p { margin: 7px 0; color: #aebbb1; font-size: 9px; line-height: 14px; }
+.media-mobile-app-help ol { display: grid; gap: 6px; margin: 0; padding-left: 18px; color: #b8c5bc; font-size: 9px; line-height: 14px; }
+.media-mobile-app-help code { color: #d4e5d9; }
+.media-mobile-app-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 9px; }
+.media-mobile-app-actions>span { color: #8f9d93; font-size: 9px; line-height: 14px; }
 .media-transfer-download { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; border: 1px solid #526553; background: #1c2921; color: #c8ddcc; padding: 0 8px; font-size: 9px; cursor: pointer; }
 .media-transfer-download:hover,.media-transfer-download:focus-visible { border-color: #8bc99d; color: #fff; }
 .media-export-feedback { margin: 0; color: #9fd3ad; font-size: 9px; line-height: 14px; overflow-wrap: anywhere; }
 .media-export-feedback.error { color: #f09986; }
-.media-folder-hint { display: flex; align-items: center; gap: 6px; margin: -7px 0 0; color: #7f8c83; font-size: 9px; line-height: 14px; }
+.media-folder-hint { display: flex; align-items: center; gap: 6px; margin: 0; color: #7f8c83; font-size: 9px; line-height: 14px; }
 .preview-sequence { height: 32px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #9ba69e; font: 9px 'DM Mono',monospace; }
 .preview-sequence button { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid #343d37; background: #1a201c; color: #c2ccc5; cursor: pointer; }
 .preview-sequence button:hover { border-color: var(--accent); color: #fff; }

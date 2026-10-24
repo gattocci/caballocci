@@ -16,6 +16,10 @@ export interface PhonePost {
   mentions: string[]
   platforms: string[]
   scheduledAt: string | null
+  batch?: string
+  spaceName?: string
+  spaceOrder?: number
+  used?: boolean
 }
 
 export interface PhoneExportWarning {
@@ -83,6 +87,15 @@ function folderDate(scheduledAt: string | null) {
   return `${year}-${month}-${day}_${hour}${minute}`
 }
 
+export function phoneExportFolderName(post: Pick<PhonePost, 'title' | 'scheduledAt' | 'batch' | 'spaceName' | 'spaceOrder' | 'used'>) {
+  const date = folderDate(post.scheduledAt)
+  if (!post.batch) return `${date}_${slug(post.title)}`
+  const spaceOrder = Number.isSafeInteger(post.spaceOrder) && Number(post.spaceOrder) > 0
+    ? post.spaceOrder
+    : 1
+  return `${post.batch}-${slug(post.spaceName || 'General').slice(0, 16)}-${spaceOrder}-${slug(post.title)}${post.used ? '-listo' : ''}-${date}`
+}
+
 function availableFolderName(root: string, baseName: string, postId: string, previous: string[]) {
   const postSuffix = postId.replace(/[^a-z0-9_-]/gi, '').slice(0, 6) || 'post'
   let candidate = baseName
@@ -135,7 +148,7 @@ function unsupportedFormat(name: string) {
 export function exportPostForPhone(root: string, post: PhonePost, files: PhoneFile[]): PhoneExportResult {
   fs.mkdirSync(root, { recursive: true })
   const previous = findPreviousExports(root, post.id)
-  const baseName = `${folderDate(post.scheduledAt)}_${slug(post.title)}`
+  const baseName = phoneExportFolderName(post)
   const folderName = availableFolderName(root, baseName, post.id, previous)
   const destination = path.join(root, folderName)
   const staging = fs.mkdtempSync(path.join(root, '.caballocci-export-'))
@@ -162,6 +175,10 @@ export function exportPostForPhone(root: string, post: PhonePost, files: PhoneFi
       files: names,
       platforms: post.platforms,
       scheduledAt: post.scheduledAt,
+      ...(post.batch ? { batch: post.batch } : {}),
+      ...(post.spaceName ? { spaceName: post.spaceName } : {}),
+      ...(post.spaceOrder ? { spaceOrder: post.spaceOrder } : {}),
+      ...(post.used ? { used: true } : {}),
       exportedAt: new Date().toISOString(),
     }, null, 2), 'utf8')
 

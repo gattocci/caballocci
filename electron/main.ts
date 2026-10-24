@@ -4,7 +4,8 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { PlannerDatabase } from './database'
-import { exportPostForPhone, type PhoneFile } from './media-export'
+import { exportPostForPhone, phoneExportFolderName, type PhoneFile } from './media-export'
+import { importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMobileSpaceOrder, recordMobileBatch, writeMobileCatalog, type MobilePublication } from './mobile-sync'
 import {
   validateArgumentCount,
   validateClipboardText,
@@ -53,12 +54,50 @@ const rendererFilePath = path.join(__dirname, '../dist/index.html')
 const rendererFileUrl = pathToFileURL(rendererFilePath).href
 const mediaScheme = 'caballocci-media'
 const phoneExportPreferenceKey = 'caballocci.phone-export-root'
+const mobileSyncPreferenceKey = 'caballocci.mobile-sync-root'
+const syncthingUiPreferenceKey = 'caballocci.syncthing-ui-url'
+const defaultSyncthingUiUrl = 'http://127.0.0.1:8384'
 const syncthingDownloadsUrl = 'https://syncthing.net/downloads/'
+const mobileAppReleaseApiUrl = 'https://api.github.com/repos/gattocci/caballocci/releases/latest'
+
+async function findMobileAppReleaseAsset() {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 12_000)
+  try {
+    const response = await fetch(mobileAppReleaseApiUrl, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'caballocci-desktop' },
+      signal: controller.signal,
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`GitHub respondió con el estado ${response.status} al consultar la última versión.`)
+    const release: unknown = await response.json()
+    if (!release || typeof release !== 'object' || Array.isArray(release)) throw new Error('GitHub devolvió información de versión no válida.')
+    const assets = (release as Record<string, unknown>).assets
+    if (!Array.isArray(assets)) throw new Error('La última versión no contiene una lista de archivos válida.')
+    const asset = assets.find(value => value && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>).name === 'caballocci-android.apk')
+    if (!asset || typeof (asset as Record<string, unknown>).browser_download_url !== 'string') return null
+    const downloadUrl = new URL((asset as Record<string, unknown>).browser_download_url as string)
+    if (downloadUrl.protocol !== 'https:' || downloadUrl.hostname !== 'github.com') throw new Error('La dirección de descarga del APK no es de confianza.')
+    return downloadUrl.href
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: mediaScheme,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
 }])
+
+function validateSyncthingUiUrl(value: unknown) {
+  if (typeof value !== 'string' || value.length > 2_048) throw new TypeError('La dirección de Syncthing no es válida.')
+  let url: URL
+  try { url = new URL(value) } catch { throw new TypeError('Escribe una URL completa, por ejemplo http://127.0.0.1:8384.') }
+  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) {
+    throw new TypeError('La dirección debe usar HTTP o HTTPS y no incluir credenciales.')
+  }
+  return url.href
+}
 
 function isTrustedRendererUrl(candidate: string) {
   try {
@@ -69,6 +108,7 @@ function isTrustedRendererUrl(candidate: string) {
       const expected = new URL(devServerUrl)
       return actual.origin === expected.origin && actual.pathname === expected.pathname
     }
+
     return actual.href === rendererFileUrl
   } catch {
     return false
@@ -258,6 +298,231 @@ function parseJsonStringArray(value: unknown): string[] {
     const parsed = JSON.parse(String(value || '[]')) as unknown
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
   } catch { return [] }
+}
+
+function restoreTargetMedia(targetType: 'group' | 'post', targetId: string) {
+  let postIds: Set<string>
+  if (targetType === 'group') {
+    const group = database.listWorkGroups().find(item => String(item.id) === targetId)
+    if (!group) throw new Error('No se encontró la colección.')
+    postIds = new Set(Array.isArray(group.post_ids) ? group.post_ids.map(String) : [])
+  } else {
+    if (!database.getPost(targetId)) throw new Error('No se encontró la publicación.')
+    postIds = new Set([targetId])
+  }
+  const compressedIds = new Set(database.compressedMediaIds())
+  const assetIds = [...new Set([
+    ...database.compressedMediaIdsForTarget(targetType, targetId),
+    ...database.list()
+      .filter(post => postIds.has(String(post.id)))
+      .flatMap(post => mapMediaAssets(post.media))
+      .map(asset => String(asset.id))
+      .filter(id => compressedIds.has(id)),
+  ])]
+  return database.restoreMedia(assetIds, app.getPath('userData'))
+}
+
+interface MobileExportReport {
+  batch: string
+  publications: number
+  destinations: number
+  skipped: Array<{ postId: string; title: string; reason: string }>
+  catalogPath: string
+}
+
+function mobileSyncRoot() {
+  const preferences = database.listPreferences()
+  const root = preferences[mobileSyncPreferenceKey] || preferences[phoneExportPreferenceKey]
+  return root && path.isAbsolute(root) && fs.existsSync(root) ? root : null
+}
+
+async function exportMobilePublications(postIds?: string[], forceChooseFolder = false): Promise<MobileExportReport | null> {
+  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
+  let root = forceChooseFolder ? null : mobileSyncRoot()
+  if (!root) {
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
+    if (result.canceled || !result.filePaths[0]) return null
+    root = result.filePaths[0]
+    database.savePreferences({ [mobileSyncPreferenceKey]: root })
+  }
+
+  const selectedIds = postIds ? new Set(postIds) : null
+  const selectedRows = selectedIds
+    ? database.list().filter(row => selectedIds.has(String(row.id)))
+    : database.list()
+  const existingCatalogPath = path.join(root, 'pc-outbox', 'catalog.json')
+  let publications: MobilePublication[] = []
+  let exportedPublications: MobilePublication[] = []
+  if (selectedIds && fs.existsSync(existingCatalogPath)) {
+    const existing = JSON.parse(fs.readFileSync(existingCatalogPath, 'utf8')) as {
+      schema?: unknown
+      version?: unknown
+      publications?: unknown
+    }
+    if (existing.schema !== 'caballocci.mobile-sync.catalog' || existing.version !== 1 || !Array.isArray(existing.publications)) {
+      throw new TypeError('El catálogo móvil existente no tiene un formato compatible; no se modificó.')
+    }
+    publications = existing.publications as MobilePublication[]
+  }
+
+  const importedUsage = database.listMobileUsage()
+  const usedTargets = new Set(importedUsage.map(event => `${String(event.post_id)}\u0000${String(event.target_id)}`))
+  const batch = nextMobileBatch(root)
+  const exportedPostIds = new Set<string>()
+  const skipped: MobileExportReport['skipped'] = []
+  const publicationsRoot = path.join(root, 'pc-outbox', 'publications')
+  fs.mkdirSync(publicationsRoot, { recursive: true })
+
+  for (const postRow of selectedRows) {
+    const post = mapPost(postRow)
+    if (post.status === 'archived') {
+      skipped.push({ postId: String(post.id), title: String(post.title || ''), reason: 'La publicación está archivada.' })
+      continue
+    }
+    const targets = (post.distribution as Array<{ id: string; name: string; status: string; scheduledAt?: string | null }>)
+      .filter(target => target.status !== 'published' && target.status !== 'not_applicable')
+    if (!targets.length) {
+      skipped.push({ postId: String(post.id), title: String(post.title || ''), reason: 'No tiene destinos pendientes de uso.' })
+      continue
+    }
+    if (post.media.some(asset => asset.compressed)) restoreTargetMedia('post', String(post.id))
+    const currentPost = mapPost(database.getPost(String(post.id)) || postRow)
+    const files: PhoneFile[] = []
+    for (const asset of currentPost.media) {
+      if (asset.kind !== 'image' && asset.kind !== 'video') continue
+      const media = database.getMediaFile(String(asset.id || ''))
+      if (!media || !fs.existsSync(media.path) || !fs.statSync(media.path).isFile()) continue
+      files.push({
+        name: String(asset.name || 'archivo'),
+        sourcePath: media.path,
+        ...(isPhonePresentationRole(asset.presentationRole) ? { presentationRole: asset.presentationRole } : {}),
+        sequence: typeof asset.sequence === 'number' ? asset.sequence : asset.sequence === null ? null : undefined,
+      })
+    }
+    if (!files.length) {
+      skipped.push({ postId: String(post.id), title: String(post.title || ''), reason: 'No hay imágenes o videos disponibles.' })
+      continue
+    }
+    const postId = String(post.id)
+    const used = targets.some(target => usedTargets.has(`${postId}\u0000${String(target.id)}`))
+    const spaceName = String(post.project || 'General')
+    const spaceOrder = nextMobileSpaceOrder(root, spaceName)
+    const exportResult = exportPostForPhone(publicationsRoot, {
+      id: postId,
+      title: String(post.title || ''),
+      caption: String(post.caption || ''),
+      hashtags: Array.isArray(post.hashtags) ? post.hashtags.map(String) : [],
+      mentions: Array.isArray(post.mentions) ? post.mentions.map(String) : [],
+      platforms: Array.isArray(post.platforms) ? post.platforms.map(String) : [],
+      scheduledAt: typeof post.scheduledAt === 'string' ? post.scheduledAt : null,
+      batch,
+      spaceName,
+      spaceOrder,
+      used,
+    }, files)
+    const exportFolder = path.join(publicationsRoot, exportResult.folderName)
+    exportedPostIds.add(postId)
+    for (const target of targets) {
+      exportedPublications.push({
+        postId,
+        targetId: String(target.id),
+        targetName: String(target.name || target.id),
+        manifestPath: path.relative(root, path.join(exportFolder, 'manifest.json')).split(path.sep).join('/'),
+        captionPath: path.relative(root, path.join(exportFolder, 'caption.txt')).split(path.sep).join('/'),
+        scheduledAt: target.scheduledAt === null
+          ? null
+          : typeof target.scheduledAt === 'string'
+            ? target.scheduledAt
+            : typeof post.scheduledAt === 'string' ? post.scheduledAt : null,
+        used: usedTargets.has(`${postId}\u0000${String(target.id)}`),
+        batch,
+      })
+    }
+  }
+  publications = selectedIds
+    ? mergeMobilePublications(publications, exportedPublications)
+    : exportedPublications
+  writeMobileCatalog(root, publications)
+  recordMobileBatch(root, batch, [...exportedPostIds])
+  return {
+    batch,
+    publications: exportedPostIds.size,
+    destinations: publications.filter(item => item.batch === batch).length,
+    skipped,
+    catalogPath: path.join(root, 'pc-outbox', 'catalog.json'),
+  }
+}
+
+function updateMobileCatalogAfterUsage(root: string) {
+  const catalogPath = path.join(root, 'pc-outbox', 'catalog.json')
+  if (!fs.existsSync(catalogPath)) return
+  const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as {
+    schema?: unknown
+    version?: unknown
+    publications?: unknown
+  }
+  if (catalog.schema !== 'caballocci.mobile-sync.catalog' || catalog.version !== 1 || !Array.isArray(catalog.publications)) {
+    throw new TypeError('El catálogo móvil no tiene un formato compatible; no se actualizaron sus estados.')
+  }
+  const usedTargets = new Set(database.listMobileUsage().map(event => `${String(event.post_id)}\u0000${String(event.target_id)}`))
+  const publications = catalog.publications as MobilePublication[]
+  const directoryRenames: Array<{ from: string; to: string }> = []
+  const publicationRoot = path.join(root, 'pc-outbox', 'publications')
+  if (fs.existsSync(publicationRoot)) {
+    for (const entry of fs.readdirSync(publicationRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const directory = path.join(publicationRoot, entry.name)
+      const manifestPath = path.join(directory, 'manifest.json')
+      if (!fs.existsSync(manifestPath)) continue
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
+        postId?: unknown
+        title?: unknown
+        scheduledAt?: unknown
+        batch?: unknown
+        spaceName?: unknown
+        spaceOrder?: unknown
+      }
+      const postId = String(manifest.postId || '')
+      if (!postId || !publications.some(item => item.postId === postId && usedTargets.has(`${postId}\u0000${item.targetId}`))) continue
+      const batch = typeof manifest.batch === 'string' ? manifest.batch : ''
+      if (!batch) continue
+      const albumName = {
+        title: typeof manifest.title === 'string' ? manifest.title : '',
+        scheduledAt: typeof manifest.scheduledAt === 'string' ? manifest.scheduledAt : null,
+        batch,
+        spaceName: typeof manifest.spaceName === 'string' ? manifest.spaceName : 'General',
+        spaceOrder: typeof manifest.spaceOrder === 'number' ? manifest.spaceOrder : 1,
+      }
+      const previousBaseName = phoneExportFolderName({ ...albumName, used: false })
+      const nextBaseName = phoneExportFolderName({
+        ...albumName,
+        used: true,
+      })
+      const collisionSuffix = entry.name.startsWith(previousBaseName) ? entry.name.slice(previousBaseName.length) : ''
+      const nextName = `${nextBaseName}${collisionSuffix}`
+      if (nextName === entry.name) continue
+      const destination = path.join(publicationRoot, nextName)
+      if (fs.existsSync(destination)) throw new Error(`No se puede marcar el álbum como listo porque ya existe ${nextName}.`)
+      fs.renameSync(directory, destination)
+      directoryRenames.push({ from: directory, to: destination })
+      const oldPrefix = `pc-outbox/publications/${entry.name}/`
+      const newPrefix = `pc-outbox/publications/${nextName}/`
+      for (const item of publications) {
+        if (item.postId !== postId) continue
+        item.manifestPath = item.manifestPath.replace(oldPrefix, newPrefix)
+        item.captionPath = item.captionPath.replace(oldPrefix, newPrefix)
+      }
+    }
+  }
+  for (const item of publications) item.used = usedTargets.has(`${item.postId}\u0000${item.targetId}`)
+  try {
+    writeMobileCatalog(root, publications)
+  } catch (error) {
+    for (const rename of directoryRenames.reverse()) {
+      if (fs.existsSync(rename.to) && !fs.existsSync(rename.from)) fs.renameSync(rename.to, rename.from)
+    }
+    throw error
+  }
 }
 
 function mapIdeaNeighbor(row: Record<string, unknown>) {
@@ -626,27 +891,6 @@ app.whenReady().then(async () => {
       dataDirectory,
     )
   }
-  const restoreTargetMedia = (targetType: 'group' | 'post', targetId: string) => {
-    let postIds: Set<string>
-    if (targetType === 'group') {
-      const group = database.listWorkGroups().find(item => String(item.id) === targetId)
-      if (!group) throw new Error('No se encontró la colección.')
-      postIds = new Set(Array.isArray(group.post_ids) ? group.post_ids.map(String) : [])
-    } else {
-      if (!database.getPost(targetId)) throw new Error('No se encontró la publicación.')
-      postIds = new Set([targetId])
-    }
-    const compressedIds = new Set(database.compressedMediaIds())
-    const assetIds = [...new Set([
-      ...database.compressedMediaIdsForTarget(targetType, targetId),
-      ...database.list()
-      .filter(post => postIds.has(String(post.id)))
-      .flatMap(post => mapMediaAssets(post.media))
-      .map(asset => String(asset.id))
-      .filter(id => compressedIds.has(id)),
-    ])]
-    return database.restoreMedia(assetIds, dataDirectory)
-  }
   handle('work-groups:compress-media', args => {
     validateArgumentCount(args, 1)
     const id = validateId(args[0], 'workGroup.id')
@@ -991,6 +1235,18 @@ app.whenReady().then(async () => {
   })
   handle('system:open-backups', withoutArguments(() => { fs.mkdirSync(backupsDirectory, { recursive: true }); return shell.openPath(backupsDirectory) }))
   handle('system:open-syncthing-downloads', withoutArguments(() => shell.openExternal(syncthingDownloadsUrl)))
+  handle('system:open-syncthing-ui', args => {
+    validateArgumentCount(args, 1)
+    const url = validateSyncthingUiUrl(args[0])
+    database.savePreferences({ [syncthingUiPreferenceKey]: url })
+    return shell.openExternal(url)
+  })
+  handle('system:open-mobile-app-download', withoutArguments(async () => {
+    const downloadUrl = await findMobileAppReleaseAsset()
+    if (!downloadUrl) return { available: false }
+    await shell.openExternal(downloadUrl)
+    return { available: true }
+  }))
   handle('system:create-backup', withoutArguments(() => database.createBackup('manual')))
   handle('updates:get-state', withoutArguments(() => updater.getState()))
   handle('updates:check', withoutArguments(() => updater.check()))
@@ -1012,6 +1268,9 @@ app.whenReady().then(async () => {
     if (!postId) fs.mkdirSync(folder, { recursive: true })
     return shell.openPath(folder)
   })
+  handle('media:phone-export-folder', withoutArguments(() => {
+    return mobileSyncRoot()
+  }))
   handle('media:export-to-phone', async args => {
     if (args.length < 1 || args.length > 2) throw new TypeError('Argumento IPC no valido: media.exportToPhone')
     const postId = validateId(args[0], 'post.id')
@@ -1022,83 +1281,82 @@ app.whenReady().then(async () => {
       if (value !== undefined && typeof value !== 'boolean') throw new TypeError('Opción chooseFolder no válida')
       return value === true
     })()
-    const row = database.getPost(postId)
-    if (!row) throw new Error('No se encontró la publicación.')
-    const post = mapPost(row)
-    const hasAvailableMedia = post.media.some(asset => {
-      if (asset.kind !== 'image' && asset.kind !== 'video') return false
-      const media = database.getMediaFile(String(asset.id || ''))
-      return Boolean(media && (fs.existsSync(media.path) || (media.archivePath && fs.existsSync(media.archivePath))))
-    })
-    if (!hasAvailableMedia) throw new Error('La publicación no tiene imágenes ni videos disponibles para exportar.')
+    return exportMobilePublications([postId], chooseFolder)
+  })
+  handle('mobile-sync:choose-folder', async args => {
+    validateNoArguments(args)
     if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
-
-    const preferences = database.listPreferences()
-    let root = preferences[phoneExportPreferenceKey]
-    if (chooseFolder || !root || !path.isAbsolute(root)) {
-      const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
-      if (result.canceled || !result.filePaths[0]) return null
-      root = result.filePaths[0]
-      database.savePreferences({ [phoneExportPreferenceKey]: root })
+    const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })
+    if (result.canceled || !result.filePaths[0]) return null
+    const root = result.filePaths[0]
+    database.savePreferences({ [mobileSyncPreferenceKey]: root })
+    return root
+  })
+  handle('mobile-sync:folder', args => {
+    validateNoArguments(args)
+    return mobileSyncRoot()
+  })
+  handle('mobile-sync:export', async args => {
+    validateNoArguments(args)
+    return exportMobilePublications()
+  })
+  handle('mobile-sync:export-selected', async args => {
+    validateArgumentCount(args, 1)
+    if (!Array.isArray(args[0]) || args[0].length < 1 || args[0].length > 2_000) {
+      throw new TypeError('Selecciona entre 1 y 2000 publicaciones para exportar.')
     }
-
-    if (post.media.some(asset => asset.compressed)) {
-      try {
-        restoreTargetMedia('post', postId)
-      } catch (error) {
-        const code = fileErrorCode(error)
-        throw new Error(`No se pudieron restaurar medios archivados${code ? ` (${code})` : ''}.`)
+    const postIds = args[0].map((id, index) => validateId(id, `postIds[${index}]`))
+    if (new Set(postIds).size !== postIds.length) throw new TypeError('La selección contiene publicaciones repetidas.')
+    return exportMobilePublications(postIds)
+  })
+  handle('mobile-sync:import', args => {
+    validateNoArguments(args)
+    const root = mobileSyncRoot()
+    if (!root) throw new Error('Primero elige la carpeta compartida de Syncthing.')
+    const report = importMobileUsageFiles(root, (postId, targetId) => {
+      const post = database.getPost(postId)
+      if (!post) return false
+      const platforms = JSON.parse(String(post.platforms || '[]')) as unknown[]
+      const parsedTargets = JSON.parse(String(post.distribution_json || '[]')) as unknown[]
+      const targets = parsedTargets.length ? parsedTargets : platforms.map(id => ({ id }))
+      return targets.some(target => typeof target === 'object' && target !== null && String((target as Record<string, unknown>).id || '') === targetId)
+    }, event => database.recordMobileUsage({
+      eventId: event.eventId,
+      postId: event.postId,
+      targetId: event.targetId,
+      action: event.action,
+      usedAt: event.usedAt,
+      deviceId: event.deviceId,
+      version: event.version,
+    }))
+    updateMobileCatalogAfterUsage(root)
+    return report
+  })
+  handle('mobile-sync:history', args => {
+    validateNoArguments(args)
+    return database.listMobileUsage().slice(-100).reverse().map(event => {
+      const postId = String(event.post_id)
+      const targetId = String(event.target_id)
+      const post = database.getPost(postId)
+      let targetName = targetId
+      if (post) {
+        try {
+          const targets = JSON.parse(String(post.distribution_json || '[]')) as Array<Record<string, unknown>>
+          targetName = String(targets.find(target => String(target.id || '') === targetId)?.name || targetId)
+        } catch {
+          targetName = targetId
+        }
       }
-    }
-    const skipped: Array<{ name: string; reason: 'document' | 'missing' | 'unsupported' }> = []
-    const files: PhoneFile[] = []
-    for (const asset of post.media) {
-      const name = String(asset.name || 'archivo')
-      if (asset.kind === 'document') {
-        skipped.push({ name, reason: 'document' })
-        continue
+      return {
+        eventId: String(event.event_id),
+        postId,
+        postTitle: post ? String(post.title || '') : 'Publicación eliminada',
+        targetId,
+        targetName,
+        usedAt: String(event.used_at),
+        deviceId: String(event.device_id),
       }
-      if (asset.kind !== 'image' && asset.kind !== 'video') {
-        skipped.push({ name, reason: 'unsupported' })
-        continue
-      }
-      const media = database.getMediaFile(String(asset.id || ''))
-      let available = false
-      if (media && fs.existsSync(media.path)) {
-        try { available = fs.statSync(media.path).isFile() } catch { available = false }
-      }
-      if (!media || !available) {
-        skipped.push({ name, reason: 'missing' })
-        continue
-      }
-      files.push({
-        name,
-        sourcePath: media.path,
-        ...(isPhonePresentationRole(asset.presentationRole) ? { presentationRole: asset.presentationRole } : {}),
-        sequence: typeof asset.sequence === 'number' ? asset.sequence : asset.sequence === null ? null : undefined,
-      })
-    }
-    if (!files.length) throw new Error('La publicación no tiene imágenes ni videos disponibles para exportar.')
-
-    let result
-    try {
-      result = exportPostForPhone(root, {
-        id: String(post.id),
-        title: String(post.title || ''),
-        caption: String(post.caption || ''),
-        hashtags: Array.isArray(post.hashtags) ? post.hashtags.map(String) : [],
-        mentions: Array.isArray(post.mentions) ? post.mentions.map(String) : [],
-        platforms: Array.isArray(post.platforms) ? post.platforms.map(String) : [],
-        scheduledAt: typeof post.scheduledAt === 'string' ? post.scheduledAt : null,
-      }, files)
-    } catch (error) {
-      const code = fileErrorCode(error)
-      throw new Error(`No se pudo completar la exportación${code ? ` (${code})` : ''}. Verifica los permisos y el espacio disponible en el destino, y que los archivos originales sigan disponibles.`)
-    }
-    result.skipped = skipped
-    const openError = await shell.openPath(path.join(root, result.folderName))
-    if (openError) throw new Error('Los medios se exportaron, pero no se pudo abrir su carpeta. Usa "Abrir carpeta" para localizar el destino.')
-    return result
+    })
   })
   handle('media:list', withoutArguments(() => database.listMedia()))
   handle('media:scan-post-folder', args => {

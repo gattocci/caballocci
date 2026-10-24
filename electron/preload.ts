@@ -4,6 +4,14 @@ import type { IdeaAnalysisProgress } from './database/types'
 let clusterRequestSequence = 0
 
 contextBridge.exposeInMainWorld('planner', {
+  mobileSync: {
+    folder: () => ipcRenderer.invoke('mobile-sync:folder'),
+    chooseFolder: () => ipcRenderer.invoke('mobile-sync:choose-folder'),
+    exportCatalog: () => ipcRenderer.invoke('mobile-sync:export'),
+    exportSelected: (postIds: string[]) => ipcRenderer.invoke('mobile-sync:export-selected', postIds),
+    importEvents: () => ipcRenderer.invoke('mobile-sync:import'),
+    history: () => ipcRenderer.invoke('mobile-sync:history'),
+  },
   posts: {
     list: () => ipcRenderer.invoke('posts:list'),
     save: (post: unknown) => ipcRenderer.invoke('posts:save', post),
@@ -102,6 +110,7 @@ contextBridge.exposeInMainWorld('planner', {
     organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),
     reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
     openFolder: (postId?: string, project?: string) => ipcRenderer.invoke('media:open-folder', postId, project),
+    phoneExportFolder: () => ipcRenderer.invoke('media:phone-export-folder'),
     exportToPhone: (postId: string, options?: { chooseFolder?: boolean }) => ipcRenderer.invoke('media:export-to-phone', postId, options),
     imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
@@ -114,6 +123,8 @@ contextBridge.exposeInMainWorld('planner', {
     openSpaceFolder: (space: string) => ipcRenderer.invoke('system:open-space-folder', space),
     openBackups: () => ipcRenderer.invoke('system:open-backups'),
     openSyncthingDownloads: () => ipcRenderer.invoke('system:open-syncthing-downloads'),
+    openSyncthingUi: (url: string) => ipcRenderer.invoke('system:open-syncthing-ui', url),
+    openMobileAppDownload: () => ipcRenderer.invoke('system:open-mobile-app-download'),
     createBackup: () => ipcRenderer.invoke('system:create-backup'),
   },
   updates: {

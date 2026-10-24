@@ -17,6 +17,7 @@ import { SourceImportRepository } from './database/source-import-repository'
 import { IdeaPostWorkflowRepository } from './database/idea-post-workflow-repository'
 import { WorkGroupsRepository } from './database/work-groups-repository'
 import { MediaCompressionRepository } from './database/media-compression-repository'
+import { MobileSyncRepository } from './database/mobile-sync-repository'
 import type { MediaCompressionCandidate } from './database/media-compression-repository'
 import { runMigrations } from './database/migration-runner'
 import { seedDatabase } from './database/seed'
@@ -38,6 +39,7 @@ export class PlannerDatabase {
   private ideaPostWorkflows!: IdeaPostWorkflowRepository
   private workGroups!: WorkGroupsRepository
   private mediaCompression!: MediaCompressionRepository
+  private mobileSync!: MobileSyncRepository
 
   constructor(
     private readonly filePath: string,
@@ -58,6 +60,7 @@ export class PlannerDatabase {
     this.posts = new PostsRepository(this.db, () => this.persist(), (type, entity, entityId, payload, at) => this.recordEvent(type, entity, entityId, payload, at))
     this.workGroups = new WorkGroupsRepository(this.db, () => this.persist())
     this.mediaCompression = new MediaCompressionRepository(this.db, () => this.persist())
+    this.mobileSync = new MobileSyncRepository(this.db, () => this.persist())
     this.ideas = new IdeasRepository(this.db, () => this.persist(), (title, body) => this.ideaHash(title, body), (type, entity, entityId, payload, at) => this.recordEvent(type, entity, entityId, payload, at))
     this.analysis = new AnalysisRepository(
       this.db,
@@ -170,6 +173,12 @@ export class PlannerDatabase {
   }
 
   getPost(id: string): Row | undefined { return this.posts.get(id) }
+
+  listMobileUsage(): Row[] { return this.mobileSync.listUsage() }
+  hasMobileUsageEvent(eventId: string): boolean { return this.mobileSync.hasEvent(eventId) }
+  recordMobileUsage(event: { eventId: string; postId: string; targetId: string; action: 'used'; usedAt: string; deviceId: string; version: number }) {
+    return this.mobileSync.recordUsage(event)
+  }
 
   getCatalogConfig(scope = ''): Row | undefined { return this.catalog.getConfig(scope) }
   saveCatalogConfig(input: Row): Row { return this.catalog.saveConfig(input) }

@@ -64,6 +64,31 @@ export interface PhoneExportResult {
   folderName: string
 }
 
+export interface MobileImportReport {
+  imported: number
+  duplicates: number
+  invalid: Array<{ file: string; reason: string }>
+  unknown: Array<{ file: string; postId: string; targetId: string }>
+}
+
+export interface MobileExportReport {
+  batch: string
+  publications: number
+  destinations: number
+  skipped: Array<{ postId: string; title: string; reason: string }>
+  catalogPath: string
+}
+
+export interface MobileUsageRecord {
+  eventId: string
+  postId: string
+  postTitle: string
+  targetId: string
+  targetName: string
+  usedAt: string
+  deviceId: string
+}
+
 export interface IdeaBlock {
   id: string
   title: string
@@ -227,6 +252,14 @@ export interface ExportColumn { header: string; source: string; order: number }
 export interface ExportProfile { id: string; name: string; appliesToContentType: string; columns: ExportColumn[]; createdAt: string; updatedAt: string }
 
 export interface ElectronAPI {
+  mobileSync: {
+    folder(): Promise<string | null>
+    chooseFolder(): Promise<string | null>
+    exportCatalog(): Promise<MobileExportReport | null>
+    exportSelected(postIds: string[]): Promise<MobileExportReport | null>
+    importEvents(): Promise<MobileImportReport>
+    history(): Promise<MobileUsageRecord[]>
+  }
   posts: {
     list(): Promise<Post[]>
     save(post: PostInput): Promise<Post>
@@ -307,7 +340,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
@@ -317,6 +350,8 @@ export interface ElectronAPI {
     openSpaceFolder(space: string): Promise<string>
     openBackups(): Promise<string>
     openSyncthingDownloads(): Promise<void>
+    openSyncthingUi(url: string): Promise<void>
+    openMobileAppDownload(): Promise<{ available: boolean }>
     createBackup(): Promise<string>
   }
   updates: {

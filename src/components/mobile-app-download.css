@@ -1,0 +1,7 @@
+.mobile-apk-download{display:grid;justify-items:start;gap:5px;min-width:0}
+.mobile-apk-download button:disabled{opacity:.65;cursor:wait}
+.mobile-apk-spinner{animation:mobile-apk-spin 1s linear infinite}
+.mobile-apk-feedback{margin:0;font-size:9px;line-height:14px;overflow-wrap:anywhere}
+.mobile-apk-feedback.checking,.mobile-apk-feedback.opened{color:#9fd3ad}
+.mobile-apk-feedback.unavailable,.mobile-apk-feedback.error{color:#f09986}
+@keyframes mobile-apk-spin{to{transform:rotate(360deg)}}

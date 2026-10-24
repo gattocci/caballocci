@@ -318,4 +318,17 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS compressed_media_archive_idx ON compressed_media_assets(archive_id);
     `,
   },
+  {
+    version: 27,
+    name: 'mobile_sync_usage_events',
+    up: `
+      CREATE TABLE IF NOT EXISTS mobile_usage_events (
+        event_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, target_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action = 'used'), used_at TEXT NOT NULL,
+        device_id TEXT NOT NULL, format_version INTEGER NOT NULL, imported_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS mobile_usage_post_target_idx
+        ON mobile_usage_events(post_id,target_id,used_at);
+    `,
+  },
 ]

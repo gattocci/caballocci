@@ -15,6 +15,10 @@ const { exportPostForPhone, orderPhoneFiles } = require('../../dist-electron/med
     mentions: string[]
     platforms: string[]
     scheduledAt: string | null
+    batch?: string
+    spaceName?: string
+    spaceOrder?: number
+    used?: boolean
   }, files: Array<{ name: string; sourcePath: string; sequence?: number | null }>): {
     exported: number
     skipped: Array<{ name: string; reason: string }>
@@ -113,6 +117,29 @@ test('uses a post ID suffix for distinct posts with the same date and title', t 
 
   assert.equal(first.folderName, 'sin-fecha_mismo-titulo')
   assert.equal(second.folderName, 'sin-fecha_mismo-titulo-post-b')
+})
+
+test('adds batch and ready marker to exported album names and manifest', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'caballocci-phone-batch-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const sourcePath = path.join(root, 'source.png')
+  fs.writeFileSync(sourcePath, 'image')
+
+  const result = exportPostForPhone(root, { ...post('post-123', 'Café & Día'), batch: 'ab', spaceName: 'Marketing Sur', spaceOrder: 3, used: true }, [
+    { name: 'photo.png', sourcePath },
+  ])
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, result.folderName, 'manifest.json'), 'utf8')) as {
+    batch: string
+    spaceName: string
+    spaceOrder: number
+    used: boolean
+  }
+
+  assert.equal(result.folderName, 'ab-marketing-sur-3-cafe-dia-listo-sin-fecha')
+  assert.equal(manifest.batch, 'ab')
+  assert.equal(manifest.spaceName, 'Marketing Sur')
+  assert.equal(manifest.spaceOrder, 3)
+  assert.equal(manifest.used, true)
 })
 
 test('keeps an existing export intact when a staged copy fails', t => {
