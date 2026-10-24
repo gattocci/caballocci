@@ -9,7 +9,48 @@ permissions:
   contents: write
 
 jobs:
+  build-mobile-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: companion-apps/mobile-sync/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v4.2.2
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install mobile dependencies
+        working-directory: companion-apps/mobile-sync
+        run: npm ci
+
+      - name: Build Android APK
+        working-directory: companion-apps/mobile-sync
+        run: |
+          npm run build
+          npx cap sync android
+          cd android
+          bash gradlew --no-daemon assembleDebug
+
+      - name: Preserve Android APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: caballocci-android-apk
+          path: companion-apps/mobile-sync/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
   release-windows:
+    needs: build-mobile-apk
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -42,16 +83,24 @@ jobs:
       - name: Verify update artifacts
         run: node scripts/verify-release.mjs --artifacts
 
+      - name: Download Android APK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: caballocci-android-apk
+          path: android-apk
+
       - name: Publish GitHub Release and update assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = node -p "require('./package.json').version"
+          Copy-Item android-apk/app-debug.apk caballocci-android.apk
           gh release create "${{ github.ref_name }}" `
             "release/caballocci-Setup-$version-x64.exe" `
             "release/caballocci-Setup-$version-x64.exe.blockmap" `
             "release/latest.yml" `
+            "caballocci-android.apk" `
             --title "caballocci $version" --generate-notes
 
       - name: Preserve artifacts in workflow run
@@ -62,4 +111,5 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest.yml
+            caballocci-android.apk
           if-no-files-found: error

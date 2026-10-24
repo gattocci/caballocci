@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Idea, IdeaAnalysisOptions, IdeaCluster, IdeaInput, IdeaNeighbor, Post, PostInput, PostStatus } from '../shared/types'
+import type { Idea, IdeaAnalysisOptions, IdeaAnalysisProgress, IdeaCluster, IdeaInput, IdeaNeighbor, Post, PostInput, PostStatus, WorkGroup, WorkGroupInput } from '../shared/types'
 
 export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'sources' | 'about'
 
@@ -22,6 +22,7 @@ export function ideaMatchesQuery(idea: Idea, query: string) {
 interface PlannerState {
   posts: Post[]
   ideas: Idea[]
+  workGroups: WorkGroup[]
   loading: boolean
   loadError: string | null
   view: PlannerView
@@ -33,6 +34,10 @@ interface PlannerState {
   hiddenSpaces: string[]
   load(): Promise<void>
   save(post: PostInput): Promise<Post>
+  saveWorkGroup(group: WorkGroupInput): Promise<WorkGroup>
+  setWorkGroupPosts(id: string, postIds: string[]): Promise<WorkGroup>
+  setWorkGroupArchived(id: string, archived: boolean): Promise<WorkGroup>
+  removeWorkGroup(id: string): Promise<void>
   remove(id: string): Promise<void>
   move(id: string, status: PostStatus): Promise<void>
   saveIdea(idea: IdeaInput): Promise<Idea>
@@ -43,7 +48,7 @@ interface PlannerState {
   uncombinePost(id: string): Promise<{ ideas: Idea[]; post: Post }>
   ideaNeighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
   refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaCluster[]>
+  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
   previewIdeaAnalysis(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
   listIdeaClusters(): Promise<IdeaCluster[]>
   setView(view: PlannerView): void
@@ -68,6 +73,7 @@ function readStoredSpaces() {
 export const usePlanner = create<PlannerState>((set, get) => ({
   posts: [],
   ideas: [],
+  workGroups: [],
   loading: true,
   loadError: null,
   view: 'timeline',
@@ -86,10 +92,11 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   load: async () => {
     try {
       if (!window.planner) throw new Error('La API de Electron no esta disponible. Inicia la aplicacion con npm.cmd run dev.')
-      const [posts, ideas] = await Promise.all([window.planner.posts.list(), window.planner.ideas.list()])
+      const [posts, ideas, workGroups] = await Promise.all([window.planner.posts.list(), window.planner.ideas.list(), window.planner.workGroups.list()])
       set(state => ({
         posts,
         ideas,
+        workGroups,
         loading: false,
         loadError: null,
         selectedId: state.selectedId && posts.some(post => post.id === state.selectedId) ? state.selectedId : null,
@@ -104,10 +111,30 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     set({ posts: [...get().posts.filter((item) => item.id !== saved.id), saved] })
     return saved
   },
+  saveWorkGroup: async (group) => {
+    const saved = await window.planner.workGroups.save(group)
+    set({ workGroups: [...get().workGroups.filter(item => item.id !== saved.id), saved] })
+    return saved
+  },
+  setWorkGroupPosts: async (id, postIds) => {
+    const saved = await window.planner.workGroups.setPosts(id, postIds)
+    set({ workGroups: [...get().workGroups.filter(item => item.id !== saved.id), saved] })
+    return saved
+  },
+  setWorkGroupArchived: async (id, archived) => {
+    const saved = await window.planner.workGroups.setArchived(id, archived)
+    set({ workGroups: [...get().workGroups.filter(item => item.id !== saved.id), saved] })
+    return saved
+  },
+  removeWorkGroup: async (id) => {
+    await window.planner.workGroups.remove(id)
+    set({ workGroups: get().workGroups.filter(group => group.id !== id) })
+  },
   remove: async (id) => {
     await window.planner.posts.remove(id)
     set({
       posts: get().posts.filter((post) => post.id !== id),
+      workGroups: get().workGroups.map(group => ({ ...group, postIds: group.postIds.filter(postId => postId !== id) })),
       ideas: get().ideas.map(idea => {
         if (idea.postId === id) return { ...idea, postId: null, status: 'ready' }
         if (idea.combinedPostIds.includes(id) || idea.combinedPostId === id) {
@@ -167,7 +194,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   },
   ideaNeighbors: (id, limit, ignoredTerms, options) => window.planner.ideas.neighbors(id, limit, ignoredTerms, options),
   refreshEmbeddings: (ids, ignoredTerms, options) => window.planner.ideas.refreshEmbeddings(ids, ignoredTerms, options),
-  proposeClusters: async (threshold, ignoredTerms, options) => window.planner.ideas.clusters(threshold, ignoredTerms, options),
+  proposeClusters: async (threshold, ignoredTerms, options, onProgress) => window.planner.ideas.clusters(threshold, ignoredTerms, options, onProgress),
   previewIdeaAnalysis: (ignoredTerms, options) => window.planner.ideas.analysisPreview(ignoredTerms, options),
   listIdeaClusters: () => window.planner.ideas.clustersList(),
   setView: (view) => set({ view }),

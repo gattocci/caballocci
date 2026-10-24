@@ -18,12 +18,21 @@ Las actualizaciones posteriores se ofrecen dentro de **Acerca de / Actualizacion
 - Espacios para organizar, filtrar y renombrar proyectos.
 - Editor, vista previa y publicación manual.
 - Biblioteca multimedia local en modo copia o referencia.
+- Exportación de medios por publicación para transferirlos al celular con su orden de carrusel.
 - Mapa conceptual persistente para relacionar ideas, publicaciones y recursos generales.
 - Migraciones SQLite numeradas y transaccionales.
 - Backups fechados antes de migraciones e instalaciones de actualizaciones.
 - Actualizaciones desde GitHub Releases, siempre confirmadas por el usuario.
 
 Los datos viven fuera de la instalación, en el directorio userData de Electron. Reinstalar, actualizar o desinstalar la aplicación no elimina la base, la biblioteca multimedia ni los backups.
+
+## Enviar medios al celular
+
+Desde el editor puedes enviar la publicación abierta; en el tablero puedes seleccionar varias y enviarlas en una tanda. Ambas acciones exportan al catálogo compartido de la app Android: los álbumes quedan en `pc-outbox/publications/` y se registran en `pc-outbox/catalog.json`. **Acerca de / Actualizaciones → Exportar todas las publicaciones** envía en una tanda todas las publicaciones elegibles. Las carpetas siguen el formato `lote-espacio-orden-titulo[-listo]-fecha`: el lote usa una letra secuencial (`a`…`z`, `aa`, `ab`…) y el ordinal continúa por espacio entre tandas. `listo` indica que Android confirmó el uso de al menos un destino; no significa que se haya publicado en redes.
+
+Los tres flujos usan una única raíz compartida de Syncthing, configurada desde el editor o desde **Acerca de / Actualizaciones**. Debe estar en modo **Enviar y recibir en ambos dispositivos**: el PC envía el catálogo y Android devuelve confirmaciones en `android-inbox/<dispositivo>/`. El flujo es **exportar en caballocci → recibir y marcar en Android → importar en caballocci**. No sincronices la base SQLite activa. Consulta [Sincronización móvil](docs/MOBILE-SYNC.md) para los pasos y formatos.
+
+La exportación de medios por publicación continúa disponible y no marca destinos como usados. La confirmación móvil significa que una persona marcó el destino como usado; no verifica que la red social haya publicado el contenido.
 
 ## Desarrollo en Windows
 
@@ -53,6 +62,7 @@ El instalador NSIS x64 y sus metadatos se generan en **release/**. Esa carpeta e
 - [Versionado y publicación](docs/RELEASING.md)
 - [Firma de código de Windows](docs/CODE-SIGNING.md)
 - [Migraciones y protección de datos](docs/DATA-MIGRATIONS.md)
+- [Aplicación móvil y sincronización](docs/MOBILE-SYNC.md)
 - [Iconos e instalador](docs/BRANDING.md)
 - [Política y modelo de seguridad](SECURITY.md)
 

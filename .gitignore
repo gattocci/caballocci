@@ -11,6 +11,16 @@ security.md
 
 testo/
 
+# Editor
+.vscode/
+
+# Android / Gradle build outputs
 companion-apps/mobile-sync/android/.gradle/
 companion-apps/mobile-sync/android/app/build/
 companion-apps/mobile-sync/android/build/
+
+# Android Studio project-local files
+companion-apps/mobile-sync/android/.idea/
+
+# TypeScript build cache
+tsconfig.app.tsbuildinfo

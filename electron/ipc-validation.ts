@@ -51,6 +51,8 @@ function mediaAsset(value: unknown, index: number) {
     kind: enumValue(asset.kind, `media[${index}].kind`, mediaKinds),
     size,
     mode: enumValue(asset.mode, `media[${index}].mode`, mediaModes),
+    ...(asset.presentationRole === undefined ? {} : { presentationRole: enumValue(asset.presentationRole, `media[${index}].presentationRole`, ['representative', 'cover', 'slide', 'closing', 'other'] as const) }),
+    ...(asset.sequence === undefined ? {} : { sequence: asset.sequence === null ? null : typeof asset.sequence === 'number' && Number.isInteger(asset.sequence) && asset.sequence >= 0 && asset.sequence <= 10000 ? asset.sequence : invalid(`media[${index}].sequence`) }),
   }
 }
 
@@ -315,6 +317,24 @@ export function validateExportProfileInput(value: unknown): Record<string, unkno
   }
   const id = optionalId(profile.id, 'exportProfile.id'); if (id) validated.id = id
   return validated
+}
+
+export function validateWorkGroupInput(value: unknown): Record<string, unknown> {
+  const group = record(value, 'workGroup')
+  const validated: Record<string, unknown> = {
+    name: text(group.name, 'workGroup.name', 120, false).trim(),
+    description: text(group.description ?? '', 'workGroup.description', 2_000).trim(),
+  }
+  const id = optionalId(group.id, 'workGroup.id')
+  if (id) validated.id = id
+  return validated
+}
+
+export function validateWorkGroupPostIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 2_000) invalid('workGroup.postIds')
+  const ids = value.map((item, index) => text(item, `workGroup.postIds[${index}]`, 128, false))
+  if (new Set(ids).size !== ids.length) invalid('workGroup.postIds')
+  return ids
 }
 
 export function validateOptionalPostStatus(value: unknown, field: string): string | undefined {

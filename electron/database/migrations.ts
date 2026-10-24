@@ -286,5 +286,49 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idea_import_runs_date_idx ON idea_import_runs(imported_at);
     `,
   },
+  {
+    version: 25,
+    name: 'persistent_work_groups',
+    up: `
+      CREATE TABLE IF NOT EXISTS work_groups (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+        archived_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS work_group_posts (
+        group_id TEXT NOT NULL, post_id TEXT NOT NULL, added_at TEXT NOT NULL,
+        PRIMARY KEY (group_id, post_id)
+      );
+      CREATE INDEX IF NOT EXISTS work_group_posts_post_idx ON work_group_posts(post_id);
+    `,
+  },
+  {
+    version: 26,
+    name: 'managed_media_compression',
+    up: `
+      CREATE TABLE IF NOT EXISTS media_compression_archives (
+        id TEXT PRIMARY KEY, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
+        archive_path TEXT NOT NULL, compressed_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS media_compression_target_idx
+        ON media_compression_archives(target_type,target_id);
+      CREATE TABLE IF NOT EXISTS compressed_media_assets (
+        asset_id TEXT PRIMARY KEY, archive_id TEXT NOT NULL, entry_name TEXT NOT NULL,
+        original_path TEXT NOT NULL, original_mode TEXT NOT NULL, size INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS compressed_media_archive_idx ON compressed_media_assets(archive_id);
+    `,
+  },
+  {
+    version: 27,
+    name: 'mobile_sync_usage_events',
+    up: `
+      CREATE TABLE IF NOT EXISTS mobile_usage_events (
+        event_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, target_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action = 'used'), used_at TEXT NOT NULL,
+        device_id TEXT NOT NULL, format_version INTEGER NOT NULL, imported_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS mobile_usage_post_target_idx
+        ON mobile_usage_events(post_id,target_id,used_at);
+    `,
+  },
 ]
-

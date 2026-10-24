@@ -55,7 +55,7 @@ export class PostsRepository {
         const tags = this.parseTags(idea.tags).filter(tag => tag.toLocaleLowerCase() !== 'combinada'); if (remaining) tags.push('combinada')
         this.db.run('UPDATE ideas SET combined_post_id = ?, tags = ?, updated_at = ? WHERE id = ?', [remaining?.post_id ? String(remaining.post_id) : null, JSON.stringify(tags), now, String(idea.id)])
       }
-      this.db.run('DELETE FROM posts WHERE id = ?', [id]); this.db.run('DELETE FROM post_ideas WHERE post_id = ?', [id]); this.event('post_deleted', 'post', id, {}, now); this.db.run('COMMIT'); this.persist()
+      this.db.run('DELETE FROM posts WHERE id = ?', [id]); this.db.run('DELETE FROM post_ideas WHERE post_id = ?', [id]); this.db.run('DELETE FROM work_group_posts WHERE post_id = ?', [id]); this.event('post_deleted', 'post', id, {}, now); this.db.run('COMMIT'); this.persist()
     } catch (error) { this.db.run('ROLLBACK'); throw error }
   }
 

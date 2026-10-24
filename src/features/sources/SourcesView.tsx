@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check, Database, Download, Play, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { usePlanner } from '../../app/store'
+import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { ViewHeading } from '../../components/layout/AppShell'
 import type { ContentRecord, ContentTypeTemplate, ExportProfile, ImportReport, Source, SourceDefinition } from '../../shared/types'
 import './sources.css'
@@ -43,8 +44,9 @@ function parseRecord(text: string, label: string): Record<string, unknown> {
 
 function EnrichmentEditor({ record, template, onSave }: { record: ContentRecord; template: ContentTypeTemplate | undefined; onSave(record: ContentRecord, value: Record<string, unknown>): void }) {
   const [draft, setDraft] = useState<Record<string, unknown>>(record.enriched)
+  const [jsonError, setJsonError] = useState('')
   useEffect(() => setDraft(record.enriched), [record])
-  if (!template?.fields.length) return <details className="advanced-enrichment"><summary>Editar JSON avanzado</summary><textarea defaultValue={JSON.stringify(record.enriched, null, 2)} onBlur={event => { try { const value = JSON.parse(event.target.value) as unknown; if (typeof value === 'object' && value && !Array.isArray(value)) onSave(record, value as Record<string, unknown>) } catch { /* The JSON editor preserves its invalid value for correction. */ } }} aria-label={`Enriquecimiento de ${record.externalRef}`} /></details>
+  if (!template?.fields.length) return <details className="advanced-enrichment"><summary>Editar JSON avanzado</summary><textarea defaultValue={JSON.stringify(record.enriched, null, 2)} onBlur={event => { try { const value = JSON.parse(event.target.value) as unknown; if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('El valor debe ser un objeto JSON.'); setJsonError(''); onSave(record, value as Record<string, unknown>) } catch (error) { setJsonError(error instanceof Error ? error.message : 'JSON no válido. Revisa el formato e inténtalo de nuevo.') } }} aria-label={`Enriquecimiento de ${record.externalRef}`} aria-invalid={Boolean(jsonError)} aria-describedby={jsonError ? `enrichment-error-${record.id}` : undefined} />{jsonError && <small className="field-error" id={`enrichment-error-${record.id}`} role="alert">{jsonError}</small>}</details>
   return <div className="enrichment-fields">{template.fields.map(field => <label key={field.key}>{field.label}{field.type === 'textarea' ? <textarea value={String(draft[field.key] || '')} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} /> : <input value={String(draft[field.key] || '')} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} />}</label>)}<button className="settings-button" onClick={() => onSave(record, draft)}><Save size={13} /> Guardar</button></div>
 }
 
@@ -87,8 +89,8 @@ export function SourcesView() {
     const [nextTemplates, nextProfiles] = await Promise.all([window.planner.contentTypeTemplates.list(), window.planner.exportProfiles.list()])
     setTemplates(nextTemplates); setProfiles(nextProfiles); if (!selectedProfileId && nextProfiles[0]) setSelectedProfileId(nextProfiles[0].id)
   }
-  useEffect(() => { void loadSources() }, [])
-  useEffect(() => { void loadConfiguration() }, [])
+  useEffect(() => { void loadSources().catch(error => reportAppError(error, 'No se pudieron cargar las fuentes')) }, [])
+  useEffect(() => { void loadConfiguration().catch(error => reportAppError(error, 'No se pudo cargar la configuración de fuentes')) }, [])
   useEffect(() => {
     const profile = profiles.find(item => item.id === selectedProfileId)
     if (!profile) return
@@ -97,12 +99,20 @@ export function SourcesView() {
   }, [profiles, selectedProfileId])
   useEffect(() => {
     if (!selected) return
+    let active = true
+    setDefinition(null)
+    setDefinitionDraft(emptyDefinition)
+    setContentRecords([])
+    setPreview(null)
+    setMessage('')
     setSourceDraft({ name: selected.name, baseUrl: selected.baseUrl, method: selected.method, format: selected.format, recordsPath: selected.recordsPath || '', bodyTemplate: selected.bodyTemplate || '', authType: selected.authType, maxRecords: selected.maxRecords, targetProject: selected.targetProject, importMode: selected.importMode, initialStatus: selected.initialStatus })
     void Promise.all([window.planner.sourceDefinitions.list(selected.id), window.planner.contentRecords.list(selected.id)]).then(([items, records]) => {
+      if (!active) return
       const next = items[0] || null; setDefinition(next)
       setContentRecords(records)
       if (next) setDefinitionDraft({ externalRef: next.fieldMap.externalRef, title: next.fieldMap.title, sourceKindField: next.fieldMap.sourceKindField, hashFields: (next.fieldMap.hashFields || []).join(', '), contentTypeMapText: JSON.stringify(next.contentTypeMap, null, 2), customDefaultsText: JSON.stringify(next.customFieldDefaults, null, 2) })
-    })
+    }).catch(error => { if (active) { reportAppError(error, 'No se pudo cargar la configuración de la fuente'); setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'No se pudo cargar la fuente') } })
+    return () => { active = false }
   }, [selectedId])
 
   const createSource = () => { setSelectedId(null); setSourceDraft(emptySource); setHeadersText('{}'); setAuthText('{}'); setDefinition(null); setContentRecords([]); setPreview(null); setMessage(''); setConnectionSample(''); setRequestDetails(''); setMappingSuggestion(null) }
@@ -111,7 +121,7 @@ export function SourcesView() {
     try {
       const saved = await window.planner.sources.save({ ...sourceDraft, id: selectedId || undefined, headers: parseObject(headersText, 'Headers'), authConfig: parseAuth(authText, sourceDraft.authType) })
       await loadSources(); setSelectedId(saved.id); setMessage('Fuente guardada')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo guardar la fuente') } finally { setBusy(false) }
+    } catch (error) { reportAppError(error, 'No se pudo guardar la fuente'); setMessage(error instanceof Error ? error.message : 'No se pudo guardar la fuente') } finally { setBusy(false) }
   }
   const applyDestination = async () => {
     if (!selectedId) return
@@ -124,7 +134,7 @@ export function SourcesView() {
       setContentRecords(await window.planner.contentRecords.list(saved.id))
       setMessageTone('success')
       setMessage(`Destino aplicado en ${sourceDraft.targetProject}: ${result.postsMoved} publicaciones movidas, ${result.postsCreated} creadas, ${result.ideasMoved} ideas movidas y ${result.ideasCreated} creadas`)
-    } catch (error) { setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'No se pudo aplicar el destino') } finally { setBusy(false) }
+    } catch (error) { reportAppError(error, 'No se pudo aplicar el destino'); setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'No se pudo aplicar el destino') } finally { setBusy(false) }
   }
   const testSource = async () => {
     setBusy(true); setMessageTone('pending'); setMessage('Probando conexion...'); setConnectionSample(''); setRequestDetails('')
@@ -141,6 +151,7 @@ export function SourcesView() {
         await loadSources(); setSelectedId(saved.id); setMessage('Conexion correcta y configuracion guardada')
       }
     } catch (error) {
+      reportAppError(error, 'Falló la conexión con la fuente')
       setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'La conexion fallo')
     } finally { setBusy(false) }
   }
@@ -150,19 +161,19 @@ export function SourcesView() {
     try {
       const saved = await window.planner.sourceDefinitions.save({ id: definition?.id, sourceId: selectedId, fieldMap: { externalRef: definitionDraft.externalRef, title: definitionDraft.title, sourceKindField: definitionDraft.sourceKindField }, hashFields: definitionDraft.hashFields.split(',').map(item => item.trim()).filter(Boolean), contentTypeMap: parseObject(definitionDraft.contentTypeMapText, 'Mapa de tipos'), customFieldDefaults: parseRecord(definitionDraft.customDefaultsText, 'Valores iniciales') })
       setDefinition(saved); setMessage('Mapeo guardado')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo guardar el mapeo') } finally { setBusy(false) }
+    } catch (error) { reportAppError(error, 'No se pudo guardar el mapeo'); setMessage(error instanceof Error ? error.message : 'No se pudo guardar el mapeo') } finally { setBusy(false) }
   }
   const runPreview = async () => {
     if (!selectedId || !definition) return
     setBusy(true); setMessage('Consultando fuente...')
     try { setPreview(await window.planner.imports.preview(selectedId, definition.id)); setMessage('Preview listo') }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo importar') } finally { setBusy(false) }
+    catch (error) { reportAppError(error, 'No se pudo preparar la importación'); setMessage(error instanceof Error ? error.message : 'No se pudo importar') } finally { setBusy(false) }
   }
   const confirmImport = async () => {
     if (!preview) return
     setBusy(true)
     try { const report = await window.planner.imports.confirm(preview.previewId); await reloadPlanner(); setContentRecords(selectedId ? await window.planner.contentRecords.list(selectedId) : []); setMessage(`Importacion confirmada: ${report.new} nuevos, ${report.updated} actualizados y ${report.unchanged} revisados en ${sourceDraft.targetProject}`); setPreview(null) }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo confirmar') } finally { setBusy(false) }
+    catch (error) { reportAppError(error, 'No se pudo confirmar la importación'); setMessage(error instanceof Error ? error.message : 'No se pudo confirmar') } finally { setBusy(false) }
   }
   const saveEnriched = async (record: ContentRecord, value: Record<string, unknown> | string) => {
     try {
@@ -170,7 +181,7 @@ export function SourcesView() {
       if (typeof enriched !== 'object' || enriched === null || Array.isArray(enriched)) throw new Error('El enriquecimiento debe ser un objeto JSON')
       const saved = await window.planner.contentRecords.saveEnriched({ id: record.id, enriched: enriched as Record<string, unknown> })
       setContentRecords(current => current.map(item => item.id === saved.id ? saved : item)); setMessage('Enriquecimiento guardado')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo guardar el enriquecimiento') }
+    } catch (error) { reportAppError(error, 'No se pudo guardar el enriquecimiento'); setMessage(error instanceof Error ? error.message : 'No se pudo guardar el enriquecimiento') }
   }
   const saveTemplate = async () => {
     try {
@@ -178,7 +189,7 @@ export function SourcesView() {
       if (!Array.isArray(fields)) throw new Error('Los campos deben ser un array JSON')
       const saved = await window.planner.contentTypeTemplates.save({ contentType: templateType, fields: fields as ContentTypeTemplate['fields'] })
       setTemplates(current => [...current.filter(item => item.id !== saved.id && item.contentType !== saved.contentType), saved]); setMessage('Plantilla guardada')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo guardar la plantilla') }
+    } catch (error) { reportAppError(error, 'No se pudo guardar la plantilla'); setMessage(error instanceof Error ? error.message : 'No se pudo guardar la plantilla') }
   }
   const saveProfile = async () => {
     try {
@@ -186,7 +197,7 @@ export function SourcesView() {
       if (!Array.isArray(columns)) throw new Error('Las columnas deben ser un array JSON')
       const saved = await window.planner.exportProfiles.save({ id: selectedProfileId || undefined, name: profileName, appliesToContentType: 'all', columns: columns as ExportProfile['columns'] })
       setProfiles(current => [...current.filter(item => item.id !== saved.id), saved]); setSelectedProfileId(saved.id); setMessage('Perfil de exportacion guardado')
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo guardar el perfil') }
+    } catch (error) { reportAppError(error, 'No se pudo guardar el perfil'); setMessage(error instanceof Error ? error.message : 'No se pudo guardar el perfil') }
   }
   const applyBlockRecipe = () => {
     const count = Math.max(0, Math.min(30, Math.trunc(ideaColumns) || 0))
@@ -203,7 +214,7 @@ export function SourcesView() {
       if (!option || columns.some(column => typeof column === 'object' && column !== null && (column as { source?: unknown }).source === option[1])) return
       const nextOrder = columns.length
       setProfileColumnsText(JSON.stringify([...columns, { header: option[0], source: option[1], order: nextOrder }], null, 2))
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo agregar el campo') }
+    } catch (error) { reportAppError(error, 'No se pudo agregar el campo de exportación'); setMessage(error instanceof Error ? error.message : 'No se pudo agregar el campo') }
   }
   const downloadCsv = async () => {
     if (!selectedProfileId) return
@@ -211,16 +222,16 @@ export function SourcesView() {
       const result = await window.planner.exports.csv(exportScope === 'source' ? selectedId : null, selectedProfileId, deltaOnly, exportProject.trim() || undefined, exportStatus === 'all' ? undefined : exportStatus)
       const url = URL.createObjectURL(new Blob([result.csv], { type: 'text/csv;charset=utf-8' })); const link = document.createElement('a')
       link.href = url; link.download = result.filename; link.click(); URL.revokeObjectURL(url); setMessage(`CSV exportado: ${result.count} filas${result.delta ? ` de ${result.total} con cambios` : ''}`)
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'No se pudo exportar el CSV') }
+    } catch (error) { reportAppError(error, 'No se pudo exportar el CSV'); setMessage(error instanceof Error ? error.message : 'No se pudo exportar el CSV') }
   }
   const columns = useMemo(() => Array.from(new Set(preview?.records.flatMap(record => Object.keys(record)) || [])).slice(0, 8), [preview])
 
   return <section className="workspace sources-workspace">
-    <ViewHeading title="Fuentes externas" subtitle="Consulta datos externos, mapealos y traelos al planner."><button className="new-button" onClick={createSource}><Plus size={16} /> Nueva fuente</button><button className="icon-button" title="Actualizar fuentes" onClick={() => void loadSources()}><RefreshCw size={16} /></button></ViewHeading>
+    <ViewHeading title="Fuentes externas" subtitle="Consulta datos externos, mapéalos y tráelos al planificador."><button type="button" className="new-button" onClick={createSource}><Plus size={16} /> Nueva fuente</button><button type="button" className="icon-button" aria-label="Actualizar fuentes" title="Actualizar fuentes" onClick={() => void runWithErrorReporting(loadSources, 'No se pudieron actualizar las fuentes')}><RefreshCw size={16} /></button></ViewHeading>
     <div className="sources-layout">
-      <aside className="sources-list"><span className="sources-label">FUENTES CONFIGURADAS</span>{sources.map(source => <button key={source.id} className={selectedId === source.id ? 'source-item active' : 'source-item'} onClick={() => setSelectedId(source.id)}><Database size={15} /><span><strong>{source.name}</strong><small>{source.method} · {source.format}</small></span></button>)}{!sources.length && <p className="sources-empty">Todavia no hay fuentes.</p>}</aside>
+      <aside className="sources-list"><span className="sources-label">FUENTES CONFIGURADAS <small>{sources.length}</small></span>{sources.map(source => <button type="button" key={source.id} aria-pressed={selectedId === source.id} className={selectedId === source.id ? 'source-item active' : 'source-item'} onClick={() => setSelectedId(source.id)}><Database size={15} /><span><strong>{source.name}</strong><small>{source.method} · {source.format}</small></span></button>)}{!sources.length && <div className="sources-empty"><strong>Crea tu primera fuente</strong><p>Conecta una API o archivo compatible y define qué datos quieres importar.</p><button type="button" className="settings-button" onClick={createSource}><Plus size={14} /> Nueva fuente</button></div>}</aside>
       <div className="source-editor">
-        <section className="source-panel"><header><div><span>CONEXION</span><h2>{selected ? selected.name : 'Nueva fuente'}</h2>{selected && <small className="source-config-status">Configuracion guardada · {selected.method} · {selected.format} · {selected.authType === 'none' ? 'sin autenticacion' : selected.authType}{selected.hasStoredHeaders ? ' · headers protegidos' : ''}{selected.hasStoredAuth ? ' · credenciales protegidas' : ''}</small>}</div>{selected && <button className="icon-button" title="Eliminar fuente" onClick={async () => { if (window.confirm('Eliminar esta fuente y sus registros importados?')) { await window.planner.sources.remove(selected.id); createSource(); await loadSources() } }}><Trash2 size={16} /></button>}</header>
+        <section className="source-panel"><header><div><span>CONEXION</span><h2>{selected ? selected.name : 'Nueva fuente'}</h2>{selected && <small className="source-config-status">Configuracion guardada · {selected.method} · {selected.format} · {selected.authType === 'none' ? 'sin autenticacion' : selected.authType}{selected.hasStoredHeaders ? ' · headers protegidos' : ''}{selected.hasStoredAuth ? ' · credenciales protegidas' : ''}</small>}</div>{selected && <button className="icon-button" title="Eliminar fuente" onClick={() => void runWithErrorReporting(async () => { if (window.confirm('Eliminar esta fuente y sus registros importados?')) { await window.planner.sources.remove(selected.id); createSource(); await loadSources() } }, 'No se pudo eliminar la fuente')}><Trash2 size={16} /></button>}</header>
           <div className="source-grid"><label>Nombre<input value={sourceDraft.name} onChange={event => setSourceDraft({ ...sourceDraft, name: event.target.value })} placeholder="Resource API" /></label><label>URL<input value={sourceDraft.baseUrl} onChange={event => setSourceDraft({ ...sourceDraft, baseUrl: event.target.value })} placeholder="https://..." /></label><label>Metodo<select value={sourceDraft.method} onChange={event => setSourceDraft({ ...sourceDraft, method: event.target.value as 'GET' | 'POST' })}><option>GET</option><option>POST</option></select></label><label>Formato<select value={sourceDraft.format} onChange={event => setSourceDraft({ ...sourceDraft, format: event.target.value as 'json' | 'ndjson' | 'csv' })}><option value="json">JSON</option><option value="ndjson">NDJSON</option><option value="csv">CSV</option></select></label><label>Autenticacion<select value={sourceDraft.authType} onChange={event => setSourceDraft({ ...sourceDraft, authType: event.target.value as Source['authType'] })}><option value="none">Ninguna</option><option value="bearer">Bearer token</option><option value="apiKey">API key</option><option value="basic">Basic</option></select></label><label>Ruta de registros<input value={sourceDraft.recordsPath} onChange={event => setSourceDraft({ ...sourceDraft, recordsPath: event.target.value })} placeholder="data.items (opcional)" /></label><label>Maximo de registros<input type="number" min="1" max="10000" value={sourceDraft.maxRecords} onChange={event => setSourceDraft({ ...sourceDraft, maxRecords: Number(event.target.value) })} /></label></div>
           <div className="source-grid"><label>Proyecto / espacio destino<input value={sourceDraft.targetProject} onChange={event => setSourceDraft({ ...sourceDraft, targetProject: event.target.value })} placeholder="Mi contenido" /></label><label>Destino<select value={sourceDraft.importMode} onChange={event => setSourceDraft({ ...sourceDraft, importMode: event.target.value as Source['importMode'] })}><option value="post">Publicaciones</option><option value="idea">Ideas</option><option value="both">Publicaciones e ideas</option></select></label><label>Estado inicial<select value={sourceDraft.initialStatus} onChange={event => setSourceDraft({ ...sourceDraft, initialStatus: event.target.value as Source['initialStatus'] })}><option value="idea">Idea</option><option value="draft">Borrador</option><option value="review">Revision</option><option value="approved">Aprobado</option></select></label></div>
           <div className="source-grid"><label>Headers JSON<textarea value={headersText} onChange={event => setHeadersText(event.target.value)} placeholder={'{"Authorization":"Bearer ..."}'} /></label><label>Auth JSON<textarea value={authText} onChange={event => setAuthText(event.target.value)} placeholder={'{"token":"..."} o token directo'} /></label></div><label>Body JSON para POST<textarea value={sourceDraft.bodyTemplate} onChange={event => setSourceDraft({ ...sourceDraft, bodyTemplate: event.target.value })} placeholder="{ }" /></label>

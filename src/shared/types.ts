@@ -32,12 +32,61 @@ export interface Post {
   updatedAt: string
 }
 
+export interface WorkGroup {
+  id: string
+  name: string
+  description: string
+  archivedAt: string | null
+  postIds: string[]
+  compressedMediaCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description'> & { id?: string }
+
 export interface MediaAsset {
   id: string
   name: string
   kind: 'image' | 'video' | 'document'
   size: number
   mode: 'copy' | 'reference'
+  presentationRole?: 'representative' | 'cover' | 'slide' | 'closing' | 'other'
+  sequence?: number | null
+  groupName?: string
+  compressed?: boolean
+}
+
+export interface PhoneExportResult {
+  exported: number
+  skipped: Array<{ name: string; reason: 'document' | 'missing' | 'unsupported' }>
+  warnings: Array<{ name: string; reason: 'format-may-not-upload' }>
+  folderName: string
+}
+
+export interface MobileImportReport {
+  imported: number
+  duplicates: number
+  invalid: Array<{ file: string; reason: string }>
+  unknown: Array<{ file: string; postId: string; targetId: string }>
+}
+
+export interface MobileExportReport {
+  batch: string
+  publications: number
+  destinations: number
+  skipped: Array<{ postId: string; title: string; reason: string }>
+  catalogPath: string
+}
+
+export interface MobileUsageRecord {
+  eventId: string
+  postId: string
+  postTitle: string
+  targetId: string
+  targetName: string
+  usedAt: string
+  deviceId: string
 }
 
 export interface IdeaBlock {
@@ -76,7 +125,9 @@ export interface IdeaAnalysisOptions {
   minTokenLength: number
   genericTermThreshold: number
 }
-export interface IdeaCluster { id: string; name: string; ideaIds: string[]; algorithm?: string; calculatedAt?: string }
+export interface IdeaClusterComparison { ideaId: string; score: number }
+export interface IdeaCluster { id: string; name: string; ideaIds: string[]; memberScores?: number[]; memberComparisons?: IdeaClusterComparison[][]; threshold?: number; neighborLimit?: number; model?: string; algorithm?: string; calculatedAt?: string }
+export interface IdeaAnalysisProgress { stage: 'loading-model' | 'embeddings' | 'comparing' | 'grouping' | 'saving' | 'done'; completed: number; total: number }
 
 export type IdeaInput = Omit<Idea, 'id' | 'createdAt' | 'updatedAt' | 'postId' | 'combinedPostId' | 'combinedPostIds'> & { id?: string; postId?: string | null; combinedPostId?: string | null; combinedPostIds?: string[] }
 
@@ -117,13 +168,15 @@ export type ConceptMapFolderInput = Omit<ConceptMapFolder, 'id' | 'createdAt' | 
 
 export interface DashboardStats { total: number; scheduled: number; drafts: number; published: number }
 
-export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error'
 
 export interface UpdateState {
   status: UpdateStatus
   message: string
   installedVersion: string
   availableVersion: string | null
+  releaseNotes: string | null
+  releaseUrl: string | null
   percent: number | null
   transferred: number | null
   total: number | null
@@ -199,12 +252,31 @@ export interface ExportColumn { header: string; source: string; order: number }
 export interface ExportProfile { id: string; name: string; appliesToContentType: string; columns: ExportColumn[]; createdAt: string; updatedAt: string }
 
 export interface ElectronAPI {
+  mobileSync: {
+    folder(): Promise<string | null>
+    chooseFolder(): Promise<string | null>
+    exportCatalog(): Promise<MobileExportReport | null>
+    exportSelected(postIds: string[]): Promise<MobileExportReport | null>
+    importEvents(): Promise<MobileImportReport>
+    history(): Promise<MobileUsageRecord[]>
+  }
   posts: {
     list(): Promise<Post[]>
     save(post: PostInput): Promise<Post>
     remove(id: string): Promise<void>
     reassignProject(fromProject: string, toProject: string): Promise<void>
     uncombine(id: string): Promise<{ ideas: Idea[]; post: Post }>
+  }
+  workGroups: {
+    list(): Promise<WorkGroup[]>
+    save(group: WorkGroupInput): Promise<WorkGroup>
+    setPosts(id: string, postIds: string[]): Promise<WorkGroup>
+    setArchived(id: string, archived: boolean): Promise<WorkGroup>
+    remove(id: string): Promise<void>
+    compressMedia(id: string): Promise<{ compressed: number; skipped: number; releasedBytes: number }>
+    restoreMedia(id: string): Promise<{ restored: number }>
+    compressPostMedia(id: string): Promise<{ compressed: number; skipped: number; releasedBytes: number }>
+    restorePostMedia(id: string): Promise<{ restored: number }>
   }
   catalog: {
     config(scope?: string): Promise<{ configured: boolean; endpoint: string; createdBy: string; defaultKind: 'resource' | 'resource_lite'; scope?: string }>
@@ -255,7 +327,7 @@ export interface ElectronAPI {
     combine(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>
     neighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
     refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaCluster[]>
+    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
     analysisPreview(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
     clustersList(): Promise<IdeaCluster[]>
   }
@@ -268,7 +340,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string): Promise<MediaAsset[]>; reveal(id: string): Promise<void>; openFolder(postId?: string): Promise<void>; imageUrl(id: string): string }
+  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
@@ -277,6 +349,9 @@ export interface ElectronAPI {
     openWorkspace(): Promise<string>
     openSpaceFolder(space: string): Promise<string>
     openBackups(): Promise<string>
+    openSyncthingDownloads(): Promise<void>
+    openSyncthingUi(url: string): Promise<void>
+    openMobileAppDownload(): Promise<{ available: boolean }>
     createBackup(): Promise<string>
   }
   updates: {
@@ -284,6 +359,7 @@ export interface ElectronAPI {
     check(): Promise<UpdateState>
     download(): Promise<UpdateState>
     install(): Promise<boolean>
+    openReleaseNotes(): Promise<void>
     onStateChange(listener: (state: UpdateState) => void): () => void
   }
 }

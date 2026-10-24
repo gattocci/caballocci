@@ -1,12 +1,34 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { IdeaAnalysisProgress } from './database/types'
+
+let clusterRequestSequence = 0
 
 contextBridge.exposeInMainWorld('planner', {
+  mobileSync: {
+    folder: () => ipcRenderer.invoke('mobile-sync:folder'),
+    chooseFolder: () => ipcRenderer.invoke('mobile-sync:choose-folder'),
+    exportCatalog: () => ipcRenderer.invoke('mobile-sync:export'),
+    exportSelected: (postIds: string[]) => ipcRenderer.invoke('mobile-sync:export-selected', postIds),
+    importEvents: () => ipcRenderer.invoke('mobile-sync:import'),
+    history: () => ipcRenderer.invoke('mobile-sync:history'),
+  },
   posts: {
     list: () => ipcRenderer.invoke('posts:list'),
     save: (post: unknown) => ipcRenderer.invoke('posts:save', post),
     remove: (id: string) => ipcRenderer.invoke('posts:remove', id),
     reassignProject: (fromProject: string, toProject: string) => ipcRenderer.invoke('posts:reassign-project', fromProject, toProject),
     uncombine: (id: string) => ipcRenderer.invoke('posts:uncombine', id),
+  },
+  workGroups: {
+    list: () => ipcRenderer.invoke('work-groups:list'),
+    save: (group: unknown) => ipcRenderer.invoke('work-groups:save', group),
+    setPosts: (id: string, postIds: string[]) => ipcRenderer.invoke('work-groups:set-posts', id, postIds),
+    setArchived: (id: string, archived: boolean) => ipcRenderer.invoke('work-groups:set-archived', id, archived),
+    remove: (id: string) => ipcRenderer.invoke('work-groups:remove', id),
+    compressMedia: (id: string) => ipcRenderer.invoke('work-groups:compress-media', id),
+    restoreMedia: (id: string) => ipcRenderer.invoke('work-groups:restore-media', id),
+    compressPostMedia: (id: string) => ipcRenderer.invoke('posts:compress-media', id),
+    restorePostMedia: (id: string) => ipcRenderer.invoke('posts:restore-media', id),
   },
   catalog: {
     config: (scope?: string) => ipcRenderer.invoke('catalog:config', scope),
@@ -57,7 +79,18 @@ contextBridge.exposeInMainWorld('planner', {
     combine: (ids: string[]) => ipcRenderer.invoke('ideas:combine', ids),
     neighbors: (id: string, limit?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:neighbors', id, limit, ignoredTerms, options),
     refreshEmbeddings: (ids?: string[], ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:embeddings-refresh', ids, ignoredTerms, options),
-    clusters: (threshold?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options),
+    clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, onProgress?: (progress: IdeaAnalysisProgress) => void) => {
+      const requestId = `${Date.now()}-${++clusterRequestSequence}-${Math.random().toString(36).slice(2)}`
+      const listener = (_event: Electron.IpcRendererEvent, update: IdeaAnalysisProgress & { requestId: string }) => {
+        if (update.requestId === requestId) onProgress?.(update)
+      }
+      ipcRenderer.on('ideas:clusters:progress', listener)
+      try {
+        return await ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options, requestId)
+      } finally {
+        ipcRenderer.removeListener('ideas:clusters:progress', listener)
+      }
+    },
     analysisPreview: (ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:analysis-preview', ignoredTerms, options),
     clustersList: () => ipcRenderer.invoke('ideas:clusters-list'),
   },
@@ -72,9 +105,13 @@ contextBridge.exposeInMainWorld('planner', {
   },
   media: {
     list: () => ipcRenderer.invoke('media:list'),
-    choose: (mode: 'copy' | 'reference', postId?: string) => ipcRenderer.invoke('media:choose', mode, postId),
+    choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
+    scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),
+    organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),
     reveal: (id: string) => ipcRenderer.invoke('media:reveal', id),
-    openFolder: (postId?: string) => ipcRenderer.invoke('media:open-folder', postId),
+    openFolder: (postId?: string, project?: string) => ipcRenderer.invoke('media:open-folder', postId, project),
+    phoneExportFolder: () => ipcRenderer.invoke('media:phone-export-folder'),
+    exportToPhone: (postId: string, options?: { chooseFolder?: boolean }) => ipcRenderer.invoke('media:export-to-phone', postId, options),
     imageUrl: (id: string) => `caballocci-media://asset/${encodeURIComponent(id)}`,
   },
   files: { readText: () => ipcRenderer.invoke('files:read-text') },
@@ -85,6 +122,9 @@ contextBridge.exposeInMainWorld('planner', {
     openWorkspace: () => ipcRenderer.invoke('system:open-workspace'),
     openSpaceFolder: (space: string) => ipcRenderer.invoke('system:open-space-folder', space),
     openBackups: () => ipcRenderer.invoke('system:open-backups'),
+    openSyncthingDownloads: () => ipcRenderer.invoke('system:open-syncthing-downloads'),
+    openSyncthingUi: (url: string) => ipcRenderer.invoke('system:open-syncthing-ui', url),
+    openMobileAppDownload: () => ipcRenderer.invoke('system:open-mobile-app-download'),
     createBackup: () => ipcRenderer.invoke('system:create-backup'),
   },
   updates: {
@@ -92,6 +132,7 @@ contextBridge.exposeInMainWorld('planner', {
     check: () => ipcRenderer.invoke('updates:check'),
     download: () => ipcRenderer.invoke('updates:download'),
     install: () => ipcRenderer.invoke('updates:install'),
+    openReleaseNotes: () => ipcRenderer.invoke('updates:open-release-notes'),
     onStateChange: (listener: (state: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, state: unknown) => listener(state)
       ipcRenderer.on('updates:state', handler)
