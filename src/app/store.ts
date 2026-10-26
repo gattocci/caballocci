@@ -108,7 +108,9 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   },
   save: async (post) => {
     const saved = await window.planner.posts.save(post)
-    set({ posts: [...get().posts.filter((item) => item.id !== saved.id), saved] })
+    set(state => ({ posts: state.posts.some(item => item.id === saved.id)
+      ? state.posts.map(item => item.id === saved.id ? saved : item)
+      : [...state.posts, saved] }))
     return saved
   },
   saveWorkGroup: async (group) => {

@@ -31,6 +31,70 @@ function timeUntil(value: string, now: number) {
   return minutes < 0 ? `Hace ${amount}` : `En ${amount}`
 }
 
+type BoardCardDetailLevel = 'hidden' | 'discreet' | 'full'
+type MobilePublicationState = { configured: boolean; currentPostIds: string[]; previouslyExportedPostIds: string[] }
+
+function MobileCardStatus({ state, postId, detailLevel }: { state: MobilePublicationState | null; postId: string; detailLevel: BoardCardDetailLevel }) {
+  if (detailLevel === 'hidden') return null
+  if (!state || !state.configured) {
+    if (detailLevel === 'discreet') return null
+    return <span className="board-mobile-state unknown"><Smartphone size={11} /> {state ? 'Sin configurar' : 'Consultando'}</span>
+  }
+  const current = state.currentPostIds.includes(postId)
+  const previous = !current && state.previouslyExportedPostIds.includes(postId)
+  const label = current ? 'En catálogo móvil' : previous ? 'Exportada antes' : 'No exportada'
+  const kind = current ? 'current' : previous ? 'previous' : 'never'
+  const title = current
+    ? 'Esta publicación tiene al menos un destino en el catálogo móvil.'
+    : previous
+      ? 'Se exportó al celular antes, pero ya no está en el catálogo actual.'
+      : 'Esta publicación nunca se ha exportado al celular.'
+  if (detailLevel === 'discreet') return <span className={`board-mobile-state ${kind} discreet`} title={title} aria-label={label}><Smartphone size={11} /></span>
+  return <span className={`board-mobile-state ${kind}`} title={title}><Smartphone size={11} /> {label}</span>
+}
+
+function BoardCardColorPicker({ post, onColor }: { post: Post; onColor(color: string): void }) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const optionsRef = useRef<HTMLDivElement>(null)
+  const defaultColor = postColors[0].value
+  const close = () => { setOpen(false); setPosition(null) }
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Node && (triggerRef.current?.contains(target) || optionsRef.current?.contains(target))) return
+      close()
+    }
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+  const toggle = () => {
+    if (open) { close(); return }
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const width = 145
+    const height = 94
+    const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
+    const top = rect.bottom + height + 8 <= window.innerHeight ? rect.bottom + 5 : Math.max(8, rect.top - height - 5)
+    setPosition({ top, left })
+    setOpen(true)
+  }
+  return <div className="board-card-color-picker" onClick={event => event.stopPropagation()}>
+    <button ref={triggerRef} type="button" className="board-card-color-trigger" aria-label="Cambiar color de tarjeta" aria-expanded={open} title="Color de tarjeta" style={{ backgroundColor: post.color }} onClick={toggle} />
+    {open && position && createPortal(<div ref={optionsRef} className="board-card-color-options" role="group" aria-label="Colores de tarjeta" style={{ top: position.top, left: position.left }} onClick={event => event.stopPropagation()}>
+      {postColors.map(color => <button type="button" key={color.value} aria-label={color.label} title={color.label} aria-pressed={post.color === color.value} style={{ backgroundColor: color.value }} onClick={() => { onColor(color.value); setOpen(false) }} />)}
+      <button type="button" className="board-card-color-reset" aria-label="Usar color predeterminado" title="Color predeterminado" aria-pressed={post.color === defaultColor} onClick={() => { onColor(defaultColor); close() }}>Predeterminado</button>
+    </div>, document.body)}
+  </div>
+}
+
 function PostCard({ post, onSelect, onDrag, onDelete, onUnschedule, note, now, onColor, onNote }: { post: Post; onSelect(): void; onDrag(): void; onDelete(): void; onUnschedule(): void; note: string; now: number; onColor(color: string): void; onNote(note: string): void }) {
   const distribution = post.distribution || []
   const published = distribution.filter(target => target.status === 'published').length
@@ -382,10 +446,16 @@ export function BoardDaySwitcher() {
 }
 
 export function Board() {
-  const { posts: allPosts, workGroups, move, select, activeSpace, query, setQuery, saveWorkGroup, setWorkGroupPosts, setWorkGroupArchived, removeWorkGroup } = usePlanner()
+  const { posts: allPosts, workGroups, move, select, save, activeSpace, query, setQuery, saveWorkGroup, setWorkGroupPosts, setWorkGroupArchived, removeWorkGroup } = usePlanner()
   const [visiblePerColumn, setVisiblePerColumn] = useState(30)
   const [boardMode, setBoardMode] = useState<'kanban' | 'list' | 'calendar'>(() => {
     try { return (localStorage.getItem('caballocci.board-view.all') as 'kanban' | 'list' | 'calendar') || 'kanban' } catch { return 'kanban' }
+  })
+  const [boardCardDetailLevel, setBoardCardDetailLevel] = useState<BoardCardDetailLevel>(() => {
+    try {
+      const saved = localStorage.getItem('caballocci.board-card-details')
+      return saved === 'hidden' || saved === 'full' ? saved : 'discreet'
+    } catch { return 'discreet' }
   })
   const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(new Set())
   const [listStatus, setListStatus] = useState('')
@@ -401,7 +471,7 @@ export function Board() {
   const [mobileExportBusy, setMobileExportBusy] = useState(false)
   const [mobileExportMessage, setMobileExportMessage] = useState('')
   const [mobileExportSkipped, setMobileExportSkipped] = useState<string[]>([])
-  const [mobilePublicationState, setMobilePublicationState] = useState<{ configured: boolean; currentPostIds: string[]; previouslyExportedPostIds: string[] } | null>(null)
+  const [mobilePublicationState, setMobilePublicationState] = useState<MobilePublicationState | null>(null)
   const [calendarMonth, setCalendarMonth] = useState(new Date())
   const [expandedCalendarDay, setExpandedCalendarDay] = useState<string | null>(null)
   const [calendarDefaultTime, setCalendarDefaultTime] = useState('10:00')
@@ -431,6 +501,13 @@ export function Board() {
       reportAppError(error, 'No se pudo consultar el estado de envíos al celular')
     }
   }
+  const changePostCardColor = (post: Post, color: string) => runWithErrorReporting(async () => {
+    const targets = selected.size > 1 && selected.has(post.id) ? [...selected] : [post.id]
+    for (const id of targets) {
+      const target = allPosts.find(item => item.id === id)
+      if (target) await save({ ...target, color })
+    }
+  }, 'No se pudo cambiar el color de las tarjetas')
   useEffect(() => { void refreshMobilePublicationState() }, [])
   useEffect(() => {
     setGroupDeleteMode('group')
@@ -438,8 +515,6 @@ export function Board() {
   }, [pendingGroupAction?.group.id])
   const availableGroups = workGroups.filter(group => showArchivedGroups || !group.archivedAt)
   const selectedWorkGroup = workGroups.find(group => group.id === selectedWorkGroupId) || null
-  const currentMobilePostIds = useMemo(() => new Set(mobilePublicationState?.currentPostIds || []), [mobilePublicationState?.currentPostIds])
-  const previouslyExportedPostIds = useMemo(() => new Set(mobilePublicationState?.previouslyExportedPostIds || []), [mobilePublicationState?.previouslyExportedPostIds])
   const boardPreferenceKey = `caballocci.board-view.${activeSpace || 'all'}`
   useEffect(() => {
     try {
@@ -451,6 +526,10 @@ export function Board() {
     setBoardMode(mode)
     try { localStorage.setItem(boardPreferenceKey, mode) } catch { /* Preferences are optional. */ }
     clear()
+  }
+  const changeBoardCardDetailLevel = (level: BoardCardDetailLevel) => {
+    setBoardCardDetailLevel(level)
+    try { localStorage.setItem('caballocci.board-card-details', level) } catch { /* Preferences are optional. */ }
   }
   const matchingPosts = (selectedWorkGroup
     ? allPosts.filter(post => selectedWorkGroup.postIds.includes(post.id))
@@ -644,7 +723,7 @@ export function Board() {
       if (membershipTargetGroupId === selectedWorkGroup.id) setMembershipTargetGroupId('')
     }
   }
-  return <section className={`workspace board-mode-${boardMode}`}><ViewHeading title="Tablero de contenido" subtitle="Gestiona publicaciones por etapas, en lista o por fecha."><div className="segmented board-mode-switch" role="group" aria-label="Vista del tablero"><button type="button" aria-pressed={boardMode === 'kanban'} className={boardMode === 'kanban' ? 'active' : ''} onClick={() => changeBoardMode('kanban')}>Kanban</button><button type="button" aria-pressed={boardMode === 'list'} className={boardMode === 'list' ? 'active' : ''} onClick={() => changeBoardMode('list')}><List size={13} /> Lista</button><button type="button" aria-pressed={boardMode === 'calendar'} className={boardMode === 'calendar' ? 'active' : ''} onClick={() => changeBoardMode('calendar')}><CalendarDays size={13} /> Calendario</button></div>{boardMode === 'kanban' && <button className="settings-button" type="button" disabled={visiblePerColumn >= 100} onClick={() => setVisiblePerColumn(current => Math.min(100, current + 30))}>{visiblePerColumn >= 100 ? 'Límite de tarjetas' : `Cargar ${Math.min(30, 100 - visiblePerColumn)} más por etapa`}</button>}</ViewHeading>
+  return <section className={`workspace board-mode-${boardMode}`}><ViewHeading title="Tablero de contenido" subtitle="Gestiona publicaciones por etapas, en lista o por fecha."><div className="segmented board-mode-switch" role="group" aria-label="Vista del tablero"><button type="button" aria-pressed={boardMode === 'kanban'} className={boardMode === 'kanban' ? 'active' : ''} onClick={() => changeBoardMode('kanban')}>Kanban</button><button type="button" aria-pressed={boardMode === 'list'} className={boardMode === 'list' ? 'active' : ''} onClick={() => changeBoardMode('list')}><List size={13} /> Lista</button><button type="button" aria-pressed={boardMode === 'calendar'} className={boardMode === 'calendar' ? 'active' : ''} onClick={() => changeBoardMode('calendar')}><CalendarDays size={13} /> Calendario</button></div>{boardMode === 'kanban' && <button className="settings-button" type="button" disabled={visiblePerColumn >= 100} onClick={() => setVisiblePerColumn(current => Math.min(100, current + 30))}>{visiblePerColumn >= 100 ? 'Límite de tarjetas' : `Cargar ${Math.min(30, 100 - visiblePerColumn)} más por etapa`}</button>}{boardMode === 'kanban' && <label className="board-card-detail-control">Detalles técnicos<select aria-label="Nivel de detalles técnicos en las tarjetas" value={boardCardDetailLevel} onChange={event => changeBoardCardDetailLevel(event.target.value as BoardCardDetailLevel)}><option value="discreet">Discretos</option><option value="full">Completos</option><option value="hidden">Ocultos</option></select></label>}</ViewHeading>
     <div className="work-group-toolbar">
       <div className="work-group-picker"><label htmlFor="work-group-filter">Colección</label><select id="work-group-filter" value={selectedWorkGroupId} onChange={event => { const id = event.target.value; setSelectedWorkGroupId(id); setMediaCompressionMessage(''); if (id && !workGroups.find(group => group.id === id)?.archivedAt) setMembershipTargetGroupId(id) }}><option value="">Todas las publicaciones</option>{availableGroups.map(group => <option key={group.id} value={group.id}>{group.name}{group.archivedAt ? ' · Archivada' : ''} · {format(parseISO(group.createdAt), 'd MMM yyyy', { locale: es })} ({group.postIds.length})</option>)}</select></div>
       <button type="button" className="settings-button" onClick={toggleArchivedGroups}>{showArchivedGroups ? 'Ocultar archivadas' : 'Ver archivadas'}</button>
@@ -753,7 +832,7 @@ export function Board() {
     {compressedPosts.length > 0 && <section className="board-archived-posts"><header><div><strong>Medios comprimidos</strong><span>{compressedPosts.length}</span></div><button type="button" className="settings-button" onClick={() => setShowCompressedPosts(current => !current)}>{showCompressedPosts ? 'Ocultar' : 'Mostrar'}</button></header>{showCompressedPosts && <div className="board-archived-post-list">{compressedPosts.map(post => <article key={post.id}><div className="board-archived-post-title"><strong>{post.title || 'Publicación sin título'}</strong><span>{post.media.filter(asset => asset.compressed).length} medios dentro de archivo ZIP · {statusMeta[post.status].label}</span></div><div><button type="button" className="settings-button" onClick={() => void restorePostMedia(post)}><ArchiveRestore size={13} /> Restaurar medios</button></div></article>)}</div>}</section>}
     {archivedCount > 0 && <p className="board-archive-note">{archivedCount} publicaciones archivadas no se muestran en el tablero.</p>}
     {!visibleBoardPosts.length && <div className="planner-empty-inline board-empty" role="status"><strong>{selectedWorkGroup && !posts.length ? 'Esta colección todavía no tiene publicaciones visibles' : query.trim() && posts.length === 0 ? 'No hay publicaciones que coincidan con la búsqueda' : archivedCount ? 'Todas las publicaciones de este espacio están archivadas' : 'Este espacio aún no tiene publicaciones'}</strong><span>{selectedWorkGroup && !posts.length ? 'Selecciona publicaciones del tablero y añádelas a esta colección.' : query.trim() && posts.length === 0 ? 'Limpia la búsqueda para volver a ver el tablero.' : 'Crea una publicación o convierte una idea para empezar.'}</span>{query.trim() && posts.length === 0 && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
-    {boardMode === 'kanban' && <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = columnPosts.map(post => post.id); const collapsed = collapsedColumns.has(status); return <div className={'board-column' + (collapsed ? ' collapsed' : '')} key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expandir' : 'Contraer'} ${statusMeta[status].label}`} onClick={() => setCollapsedColumns(current => { const next = new Set(current); if (next.has(status)) next.delete(status); else next.add(status); return next })}><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em><ChevronRight size={13} /></button></header>{!collapsed && <div className="board-stack">{visiblePosts.map(post => <article className={selected.has(post.id) ? 'selected' : ''} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div>{!mobilePublicationState ? <span className="board-mobile-state unknown"><Smartphone size={11} /> Consultando</span> : !mobilePublicationState.configured ? <span className="board-mobile-state unknown" title="Configura la carpeta compartida para consultar este estado"><Smartphone size={11} /> Sin configurar</span> : currentMobilePostIds.has(post.id) ? <span className="board-mobile-state current" title="Esta publicación tiene al menos un destino en el catálogo móvil"><Smartphone size={11} /> En catálogo</span> : previouslyExportedPostIds.has(post.id) ? <span className="board-mobile-state previous" title="Se exportó al celular antes, pero ya no está en el catálogo actual"><Smartphone size={11} /> Exportada antes</span> : <span className="board-mobile-state never" title="Esta publicación nunca se ha exportado al celular"><Smartphone size={11} /> No exportada</span>}<h3>{post.title || 'Publicación sin título'}</h3>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{!columnPosts.length && <p className="board-column-empty">Sin publicaciones en esta etapa</p>}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} más, carga más tarjetas para verlas</small>}</div>}</div> })}</div>}
+    {boardMode === 'kanban' && <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = columnPosts.map(post => post.id); const collapsed = collapsedColumns.has(status); return <div className={'board-column' + (collapsed ? ' collapsed' : '')} key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expandir' : 'Contraer'} ${statusMeta[status].label}`} onClick={() => setCollapsedColumns(current => { const next = new Set(current); if (next.has(status)) next.delete(status); else next.add(status); return next })}><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em><ChevronRight size={13} /></button></header>{!collapsed && <div className="board-stack">{visiblePosts.map(post => <article className={(selected.has(post.id) ? 'selected' : '') + (post.color !== postColors[0].value ? ' has-custom-color' : '')} style={{ '--post-color': post.color } as React.CSSProperties} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span className="board-content-type">{contentLabels[post.contentType]}</span>{selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => changePostCardColor(post, color)} />}</div><MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /><h3>{post.title || 'Publicación sin título'}</h3>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{!columnPosts.length && <p className="board-column-empty">Sin publicaciones en esta etapa</p>}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} más, carga más tarjetas para verlas</small>}</div>}</div> })}</div>}
   </section>
 }
 
