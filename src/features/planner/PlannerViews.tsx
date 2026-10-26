@@ -560,7 +560,9 @@ export function Board() {
   useEffect(() => { setListPage(0); clear() }, [listStatus, listFormat, listGroup, listFrom, listTo, clear])
   useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clear() }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [clear])
   const bulkMove = (status: Post['status']) => runWithErrorReporting(async () => {
-    for (const id of selected) if (allPosts.some(item => item.id === id)) await move(id, status)
+    const targets = [...selected].filter(id => allPosts.some(item => item.id === id))
+    for (const id of targets) await move(id, status)
+    usePlanner.getState().groupRecentUndoActions(targets.length, `Mover ${targets.length} publicaciones a ${statusMeta[status].label}`)
     clear()
   }, 'No se pudieron actualizar las publicaciones seleccionadas')
   const bulkSchedule = () => {
@@ -570,10 +572,12 @@ export function Board() {
       return
     }
     void runWithErrorReporting(async () => {
-      for (const id of selected) {
+      const targets = [...selected].filter(id => allPosts.some(post => post.id === id))
+      for (const id of targets) {
         const post = allPosts.find(item => item.id === id)
         if (post) await usePlanner.getState().save({ ...post, scheduledAt, status: 'scheduled' })
       }
+      usePlanner.getState().groupRecentUndoActions(targets.length, `Programar ${targets.length} publicaciones`)
       setBulkScheduleAt('')
       setBulkScheduleWarning('')
       clear()
@@ -624,7 +628,7 @@ export function Board() {
           name: groupName.trim(),
           description: groupDescription.trim(),
         })
-        if (!editingGroupId && selected.size) await setWorkGroupPosts(group.id, [...selected])
+        if (!editingGroupId && selected.size) await setWorkGroupPosts(group.id, [...selected], { recordHistory: false })
         setSelectedWorkGroupId(group.id)
         setMembershipTargetGroupId(group.id)
         setGroupFormOpen(false)
@@ -658,7 +662,7 @@ export function Board() {
             await usePlanner.getState().remove(id)
           }
           if (!postIds.length && group.compressedMediaCount) await window.planner.workGroups.restoreMedia(group.id)
-          await removeWorkGroup(group.id)
+          await removeWorkGroup(group.id, { recordHistory: postIds.length === 0 })
           await usePlanner.getState().load()
           setSelectedWorkGroupId('')
           if (membershipTargetGroupId === group.id) setMembershipTargetGroupId('')

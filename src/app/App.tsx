@@ -12,7 +12,7 @@ import { postMatchesQuery, usePlanner } from './store'
 import { AppErrorBoundary, GlobalErrorCenter } from '../components/layout/GlobalErrorCenter'
 
 function AppContent() {
-  const { load, loading, loadError, view, posts, selectedId, select, query, activeSpace, setView } = usePlanner()
+  const { load, loading, loadError, view, posts, selectedId, select, query, activeSpace, setView, undoHistory, redoHistory, undoNotice, undoSavedChange, redoSavedChange, clearUndoNotice } = usePlanner()
   const [creating, setCreating] = useState(false)
   const [scheduledAtForNew, setScheduledAtForNew] = useState<string | null>(null)
   const previousView = useRef(view)
@@ -48,6 +48,27 @@ function AppContent() {
     }
     previousView.current = view
   }, [view, selectedId, creating, select])
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+      const key = event.key.toLocaleLowerCase()
+      if (key !== 'z' && key !== 'y') return
+      if (document.querySelector('.editor')) return
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+      const redoing = key === 'y' || (key === 'z' && event.shiftKey)
+      if (redoing ? !redoHistory.length : !undoHistory.length) return
+      event.preventDefault()
+      void (redoing ? redoSavedChange() : undoSavedChange()).catch(error => reportAppError(error, 'No se pudo deshacer el cambio guardado'))
+    }
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
+  }, [redoHistory.length, redoSavedChange, undoHistory.length, undoSavedChange])
+  useEffect(() => {
+    if (!undoNotice) return
+    const timeout = window.setTimeout(clearUndoNotice, 2100)
+    return () => window.clearTimeout(timeout)
+  }, [undoNotice, clearUndoNotice])
   const filtered = useMemo(() => {
     const inSpace = activeSpace ? posts.filter(post => post.project === activeSpace) : posts
     return inSpace.filter(post => postMatchesQuery(post, query))
@@ -61,7 +82,7 @@ function AppContent() {
   }
   if (loading) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><p>Preparando tu espacio local...</p></div>
   if (loadError) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><strong>No se pudo abrir el workspace</strong><p>{loadError}</p><button className="save-button" onClick={() => void load()}>Reintentar</button></div>
-  return <div className="app"><AppErrorBoundary><Sidebar /></AppErrorBoundary><main><AppErrorBoundary><Topbar onNew={() => { select(null); setScheduledAtForNew(null); setCreating(true) }} onSearchSubmit={() => openSearchResult()} /></AppErrorBoundary><div className="content"><AppErrorBoundary key={view}>{query && view !== 'about' && view !== 'concept-map' && view !== 'sources' && <div className="search-result"><div className="search-result-summary"><Search size={16} />{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} para "{query}"</div>{filtered.length > 0 && <div className="search-result-list">{filtered.slice(0, 6).map(post => <button key={post.id} onClick={() => openSearchResult(post.id)}><span>{post.title || 'Publicacion sin titulo'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</div>}{filtered.length === 0 && <span className="search-result-empty">No encontramos una publicación con ese texto.</span>}</div>}{view === 'timeline' && <Timeline onNewScheduled={scheduledAt => { select(null); setScheduledAtForNew(scheduledAt); setCreating(true) }} />}{view === 'calendar' && <CalendarView />}{view === 'board' && <Board />}{view === 'ideas' && <IdeasView />}{view === 'concept-map' && <ConceptMap />}{view === 'library' && <LibraryView />}{view === 'sources' && <SourcesView />}{view === 'about' && <AboutUpdates />}</AppErrorBoundary></div></main>{(creating || selected) && <AppErrorBoundary key={selected?.id || 'new'}><Editor initial={selected} scheduledAtForNew={scheduledAtForNew} onClose={() => { setCreating(false); setScheduledAtForNew(null); select(null) }} /></AppErrorBoundary>}{(view === 'board' || view === 'calendar') && selected && <AppErrorBoundary key="planner-day-switcher"><BoardDaySwitcher /></AppErrorBoundary>}</div>
+  return <div className="app">{undoNotice && <div className="global-undo-notice" role="status" aria-live="polite">{undoNotice}</div>}<AppErrorBoundary><Sidebar /></AppErrorBoundary><main><AppErrorBoundary><Topbar onNew={() => { select(null); setScheduledAtForNew(null); setCreating(true) }} onSearchSubmit={() => openSearchResult()} /></AppErrorBoundary><div className="content"><AppErrorBoundary key={view}>{query && view !== 'about' && view !== 'concept-map' && view !== 'sources' && <div className="search-result"><div className="search-result-summary"><Search size={16} />{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} para "{query}"</div>{filtered.length > 0 && <div className="search-result-list">{filtered.slice(0, 6).map(post => <button key={post.id} onClick={() => openSearchResult(post.id)}><span>{post.title || 'Publicacion sin titulo'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</div>}{filtered.length === 0 && <span className="search-result-empty">No encontramos una publicación con ese texto.</span>}</div>}{view === 'timeline' && <Timeline onNewScheduled={scheduledAt => { select(null); setScheduledAtForNew(scheduledAt); setCreating(true) }} />}{view === 'calendar' && <CalendarView />}{view === 'board' && <Board />}{view === 'ideas' && <IdeasView />}{view === 'concept-map' && <ConceptMap />}{view === 'library' && <LibraryView />}{view === 'sources' && <SourcesView />}{view === 'about' && <AboutUpdates />}</AppErrorBoundary></div></main>{(creating || selected) && <AppErrorBoundary key={selected?.id || 'new'}><Editor initial={selected} scheduledAtForNew={scheduledAtForNew} onClose={() => { setCreating(false); setScheduledAtForNew(null); select(null) }} /></AppErrorBoundary>}{(view === 'board' || view === 'calendar') && selected && <AppErrorBoundary key="planner-day-switcher"><BoardDaySwitcher /></AppErrorBoundary>}</div>
 }
 
 export default function App() {

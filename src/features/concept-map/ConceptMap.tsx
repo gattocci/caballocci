@@ -95,7 +95,7 @@ export function ConceptMap() {
       setResourceOpen(false)
     }, 'No se pudo crear el recurso')
   }
-  const createIdea = () => runSafely(async () => { if (!ideaTitle.trim()) return; const idea = await saveIdea({ space: activeSpace || 'Mi contenido', title: ideaTitle.trim(), body: ideaBody.trim(), tags: [], media: [], status: 'inbox', priority: 'normal', dueDate: null }); await addNode('idea', idea.id, idea.title, idea.body); setIdeaTitle(''); setIdeaBody(''); setIdeaOpen(false) }, 'No se pudo crear la idea en el mapa')
+  const createIdea = () => runSafely(async () => { if (!ideaTitle.trim()) return; const idea = await saveIdea({ space: activeSpace || 'Mi contenido', title: ideaTitle.trim(), body: ideaBody.trim(), tags: [], media: [], status: 'inbox', priority: 'normal', dueDate: null }, { recordHistory: false }); await addNode('idea', idea.id, idea.title, idea.body); setIdeaTitle(''); setIdeaBody(''); setIdeaOpen(false) }, 'No se pudo crear la idea en el mapa')
   const createFolder = () => runSafely(async () => { if (!folderName.trim()) return; const folder = await window.planner.conceptMap.saveFolder({ parentId: activeFolderId, name: folderName.trim() }); setFolders(current => [...current, folder]); setFolderName(''); setFolderOpen(false) }, 'No se pudo crear la carpeta')
   const deleteActiveFolder = () => runSafely(async () => { if (!activeFolderId || !window.confirm('Eliminar esta carpeta? Sus nodos y subcarpetas subiran al nivel anterior.')) return; const result = await window.planner.conceptMap.removeFolder(activeFolderId); await reload(); setActiveFolderId(result.parentId) }, 'No se pudo eliminar la carpeta')
   const selectNode = (id: string) => runSafely(async () => {

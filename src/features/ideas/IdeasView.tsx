@@ -166,7 +166,7 @@ function exploratoryDuplicateKey(idea: Idea) {
 }
 
 export function IdeasView() {
-  const { ideas, activeSpace, setActiveSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query, setQuery, selectedIdeaId, selectIdea } = usePlanner()
+  const { ideas, activeSpace, setActiveSpace, saveIdea, saveIdeasMany, removeIdea, convertIdea, combineIdeas, ideaNeighbors, proposeClusters, select, setView, query, setQuery, selectedIdeaId, selectIdea, groupRecentUndoActions } = usePlanner()
   const [draft, setDraft] = useState<IdeaInput | null>(null)
   const runSafely = (action: () => Promise<unknown>, context: string) => { void runWithErrorReporting(action, context) }
   useEffect(() => {
@@ -442,13 +442,16 @@ export function IdeasView() {
   const selectVisible = () => setSelectedIds(current => current.length === visibleIdeas.length ? [] : visibleIdeas.map(idea => idea.id))
   const bulkStatus = async (status: IdeaStatus) => {
     if (!selectedIds.length) return
-    for (const id of selectedIds) { const idea = ideas.find(item => item.id === id); if (idea) await saveIdea({ ...idea, status }) }
+    let changed = 0
+    for (const id of selectedIds) { const idea = ideas.find(item => item.id === id); if (idea) { await saveIdea({ ...idea, status }); changed += 1 } }
+    groupRecentUndoActions(changed, `Cambiar estado de ${changed} ideas`)
     setSelectedIds([])
     setClusterSelection(false)
   }
   const developClusterSelection = async (cluster: IdeaCluster) => {
     const count = await developSelectedClusterIdeas(cluster, ideas, selectedIds, saveIdea)
     if (!count) return
+    groupRecentUndoActions(count, `Desarrollar ${count} ideas`)
     setAnalysisMessage(`${count} ${count === 1 ? 'idea pasó' : 'ideas pasaron'} a En desarrollo.`)
   }
   const bulkConvert = async () => {

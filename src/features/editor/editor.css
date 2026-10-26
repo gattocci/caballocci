@@ -540,3 +540,7 @@
 .external-data details { border: 1px solid #323a35; background: #101411; }
 .external-data summary { padding: 10px; cursor: pointer; color: #d7ded9; font-size: 10px; }
 .external-data pre { max-height: 310px; overflow: auto; margin: 0; padding: 10px; border-top: 1px solid #323a35; color: #b9c8bd; font: 10px/15px 'DM Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.undo-notice { position: absolute; z-index: 2; right: 20px; bottom: 78px; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 40px); padding: 7px 10px; border: 1px solid #3b4940; border-radius: 999px; background: #202923f2; color: #d5e3d9; box-shadow: 0 5px 18px #0005; font-size: 10px; line-height: 14px; pointer-events: none; animation: undo-notice-life 1.7s ease both; }
+.undo-notice.redo { border-color: #414b55; background: #22272df2; color: #d8e0e8; }
+@keyframes undo-notice-life { 0% { opacity: 0; transform: translateY(7px) scale(.97); } 12% { opacity: 1; transform: translateY(0) scale(1); } 88% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-3px) scale(.99); } }
+@media (prefers-reduced-motion: reduce) { .undo-notice { animation: none; } }

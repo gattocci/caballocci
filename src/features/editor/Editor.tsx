@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Smartphone, Sparkles, Trash2, X } from 'lucide-react'
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
+import { useUndoableState, type UndoableChange } from '../../app/useUndoableState'
 import { usePlanner } from '../../app/store'
 import type { CatalogSync, ContentRecord, ContentType, IdeaBlock, MediaAsset, Platform, Post, PostInput, PostStatus } from '../../shared/types'
 import './editor.css'
@@ -270,21 +271,21 @@ function Preview({ draft, onMediaChange, onError }: { draft: PostInput; onMediaC
   </div>
 }
 
-function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks: IdeaBlock[]): void }) {
-  const add = () => onChange([...blocks, { id: crypto.randomUUID(), title: '', text: '' }])
-  const update = (id: string, patch: Partial<IdeaBlock>) => onChange(blocks.map(block => block.id === id ? { ...block, ...patch } : block))
+function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks: IdeaBlock[], change: UndoableChange): void }) {
+  const add = () => onChange([...blocks, { id: crypto.randomUUID(), title: '', text: '' }], { label: 'Añadir diapositiva' })
+  const update = (id: string, patch: Partial<IdeaBlock>, change: UndoableChange) => onChange(blocks.map(block => block.id === id ? { ...block, ...patch } : block), change)
   const format = (id: string, mode: 'upper' | 'lower' | 'title' | 'sentence') => {
     const block = blocks.find(item => item.id === id)
-    if (block) update(id, { title: formatTitle(block.title, mode) })
+    if (block) update(id, { title: formatTitle(block.title, mode) }, { label: 'Formatear título de diapositiva' })
   }
-  const remove = (id: string) => onChange(blocks.filter(block => block.id !== id))
+  const remove = (id: string) => onChange(blocks.filter(block => block.id !== id), { label: 'Eliminar diapositiva' })
   const move = (index: number, offset: -1 | 1) => {
     const target = index + offset
     if (target < 0 || target >= blocks.length) return
     const reordered = [...blocks]
     const [block] = reordered.splice(index, 1)
     reordered.splice(target, 0, block)
-    onChange(reordered)
+    onChange(reordered, { label: offset < 0 ? 'Subir diapositiva' : 'Bajar diapositiva' })
   }
 
   return <section className="idea-blocks">
@@ -296,9 +297,9 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
         <button type="button" title="Bajar idea" aria-label="Bajar idea" disabled={index === blocks.length - 1} onClick={() => move(index, 1)}><ChevronDown size={15} /></button>
         <button type="button" title="Eliminar idea" aria-label="Eliminar idea" onClick={() => remove(block.id)}><Trash2 size={14} /></button>
       </div></header>
-      <label>Título<input value={block.title} maxLength={160} onChange={event => update(block.id, { title: event.target.value })} placeholder="Ej. Apertura, argumento, cierre" /></label>
+      <label>Título<input data-undo-control value={block.title} maxLength={160} onChange={event => update(block.id, { title: event.target.value }, { label: 'Editar título de diapositiva', groupKey: `slide:${block.id}:title` })} placeholder="Ej. Apertura, argumento, cierre" /></label>
       <div className="title-format-actions"><span>Formato rápido</span><button type="button" onClick={() => format(block.id, 'upper')}>MAYÚS</button><button type="button" onClick={() => format(block.id, 'lower')}>minús</button><button type="button" onClick={() => format(block.id, 'title')}>Título</button><button type="button" onClick={() => format(block.id, 'sentence')}>Oración</button></div>
-      <label>Texto<textarea value={block.text} maxLength={10_000} onChange={event => update(block.id, { text: event.target.value })} placeholder="Texto que luego irá en la imagen" /></label>
+      <label>Texto<textarea data-undo-control value={block.text} maxLength={10_000} onChange={event => update(block.id, { text: event.target.value }, { label: 'Editar texto de diapositiva', groupKey: `slide:${block.id}:text` })} placeholder="Texto que luego irá en la imagen" /></label>
     </article>)}
   </section>
 }
@@ -306,17 +307,27 @@ function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks
 export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; onClose(): void }) {
   const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
-  const [draft, setDraft] = useState<PostInput>(() => {
+  const initialDraft = useState<PostInput>(() => {
     if (initial) return { ...initial }
     try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return scheduledAtForNew ? { ...saved, scheduledAt: scheduledAtForNew, status: 'scheduled' } : saved } catch { /* Ignore invalid drafts. */ }
     return { ...blankPost(activeSpace || 'Mi contenido'), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
-  })
+  })[0]
+  const { value: draft, setValue: setDraft, undo, redo, canUndo, canRedo } = useUndoableState<PostInput>(initialDraft)
   const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'assistant' | 'external' | 'catalog'>('content')
   const [assistantIdea, setAssistantIdea] = useState('')
   const [assistantTitles, setAssistantTitles] = useState('')
   const [assistantMaster, setAssistantMaster] = useState('')
   const [assistantMessage, setAssistantMessage] = useState('')
   const [noteItems, setNoteItems] = useState<NoteItem[]>(() => notesToItems(initial?.notes || ''))
+  const [historyNotice, setHistoryNotice] = useState<{ id: string; text: string; direction: 'undo' | 'redo' } | null>(null)
+  const showHistoryNotice = (direction: 'undo' | 'redo', label: string) => setHistoryNotice({ id: crypto.randomUUID(), text: `${direction === 'undo' ? 'Deshecho' : 'Rehecho'}: ${label}`, direction })
+  const undoDraft = () => { const previous = undo(); if (previous) { setNoteItems(notesToItems(previous.value.notes || '')); showHistoryNotice('undo', previous.label) } }
+  const redoDraft = () => { const next = redo(); if (next) { setNoteItems(notesToItems(next.value.notes || '')); showHistoryNotice('redo', next.label) } }
+  useEffect(() => {
+    if (!historyNotice) return
+    const timeout = window.setTimeout(() => setHistoryNotice(null), 1700)
+    return () => window.clearTimeout(timeout)
+  }, [historyNotice])
   const [saving, setSaving] = useState(false)
   const [phoneExportBusy, setPhoneExportBusy] = useState(false)
   const [phoneExportFolder, setPhoneExportFolder] = useState<string | null>(null)
@@ -357,9 +368,12 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       .then(setPhoneExportFolder)
       .catch(error => reportAppError(error, 'No se pudo consultar la carpeta de exportación al celular'))
   }, [])
-  const update = <K extends keyof PostInput>(key: K, value: PostInput[K]) => setDraft(d => ({ ...d, [key]: value }))
-  const updateNotes = (items: NoteItem[]) => { setNoteItems(items); update('notes', itemsToNotes(items)) }
-  const formatPostTitle = (mode: 'upper' | 'lower' | 'title' | 'sentence') => update('title', formatTitle(draft.title, mode))
+  const update = <K extends keyof PostInput>(key: K, value: PostInput[K], change?: UndoableChange) => {
+    const labels: Partial<Record<keyof PostInput, string>> = { title: 'Editar título', caption: 'Editar texto', notes: 'Editar notas', hashtags: 'Editar hashtags', project: 'Editar proyecto', scheduledAt: 'Cambiar fecha', status: 'Cambiar estado', contentType: 'Cambiar formato', distribution: 'Cambiar distribución', media: 'Cambiar medios', ideaBlocks: 'Editar diapositivas' }
+    setDraft(d => ({ ...d, [key]: value }), change || { label: labels[key] || 'Editar publicación' })
+  }
+  const updateNotes = (items: NoteItem[], change: UndoableChange = { label: 'Editar notas' }) => { setNoteItems(items); update('notes', itemsToNotes(items), change) }
+  const formatPostTitle = (mode: 'upper' | 'lower' | 'title' | 'sentence') => update('title', formatTitle(draft.title, mode), { label: 'Formatear título' })
   const togglePlatform = (platform: Platform) => {
     const enabled = draft.platforms.includes(platform)
     const platforms = enabled ? draft.platforms.filter(p => p !== platform) : [...draft.platforms, platform]
@@ -367,13 +381,13 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     const distribution = enabled
       ? existing.map(target => target.id === platform ? { ...target, status: 'not_applicable' as const } : target)
       : [...existing.filter(target => target.id !== platform), { id: platform, name: getPlatformMeta(platform).label, status: 'pending' as const }]
-    setDraft(d => ({ ...d, platforms, distribution }))
+    setDraft(d => ({ ...d, platforms, distribution }), { label: 'Cambiar destinos' })
   }
   const [platformOptions, setPlatformOptions] = useState<string[]>(() => { try { const saved = JSON.parse(localStorage.getItem('caballocci.platforms') || '') as string[]; return saved.length ? saved : ['instagram', 'facebook', 'x'] } catch { return ['instagram', 'facebook', 'x'] } })
   const [newPlatformName, setNewPlatformName] = useState('')
   const [addingPlatform, setAddingPlatform] = useState(false)
   const [scheduleWarning, setScheduleWarning] = useState('')
-  const addPlatform = () => { const name = newPlatformName.trim(); const id = name.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); if (!name || !id || platformOptions.includes(id)) return; const next = [...platformOptions, id]; setPlatformOptions(next); localStorage.setItem('caballocci.platforms', JSON.stringify(next)); setDraft(d => ({ ...d, platforms: d.platforms.includes(id) ? d.platforms : [...d.platforms, id], distribution: [...(d.distribution || []), { id, name, status: 'pending' as const }] })); setNewPlatformName(''); setAddingPlatform(false) }
+  const addPlatform = () => { const name = newPlatformName.trim(); const id = name.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); if (!name || !id || platformOptions.includes(id)) return; const next = [...platformOptions, id]; setPlatformOptions(next); localStorage.setItem('caballocci.platforms', JSON.stringify(next)); setDraft(d => ({ ...d, platforms: d.platforms.includes(id) ? d.platforms : [...d.platforms, id], distribution: [...(d.distribution || []), { id, name, status: 'pending' as const }] }), { label: 'Añadir destino' }); setNewPlatformName(''); setAddingPlatform(false) }
   const submit = async () => {
     setSaving(true)
     try {
@@ -403,7 +417,7 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       }
       const linkedIds = new Set((draft.media || []).map(asset => asset.id))
       const exportDraft = { ...draft, media: [...draft.media || [], ...scanned.filter(asset => !linkedIds.has(asset.id))] }
-      setDraft(exportDraft)
+      setDraft(exportDraft, { label: 'Añadir medios detectados' })
       const savedPost = await save(exportDraft)
       if (chooseFolder) {
         const folder = await window.planner.mobileSync.chooseFolder()
@@ -457,14 +471,14 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     }
   }
   const attach = async () => {
-    try { update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id, draft.project)]) }
+    try { update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id, draft.project)], { label: 'Adjuntar medios' }) }
     catch (error) { reportAppError(error, 'No se pudieron adjuntar los medios') }
   }
   const applyAssistant = () => {
     const titles = parseTitleCandidates(assistantTitles)
     const blocks = parseMasterSlides(assistantMaster)
     if (!assistantIdea.trim() && !titles.length && !blocks.length) { setAssistantMessage('Pega al menos un resultado.'); return }
-    setDraft(current => ({ ...current, caption: assistantIdea.trim() || current.caption, title: titles[0] || current.title, contentType: blocks.length ? 'carousel' : current.contentType, ideaBlocks: blocks.length ? blocks : current.ideaBlocks }))
+    setDraft(current => ({ ...current, caption: assistantIdea.trim() || current.caption, title: titles[0] || current.title, contentType: blocks.length ? 'carousel' : current.contentType, ideaBlocks: blocks.length ? blocks : current.ideaBlocks }), { label: 'Aplicar contenido del asistente' })
     setAssistantMessage(`${blocks.length} slides cargadas${titles.length ? ` · ${titles.length} títulos detectados` : ''}. El cierre fue omitido.`)
   }
   const copyObsidianMark = async () => {
@@ -477,20 +491,34 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
   const catalogPreview = { source: 'caballocci', dry_run: true, publish: false, items: [{ kind: catalogKind, external_id: `post-${initial?.id || ''}`, title: draft.title, ...(catalogKind === 'resource' && catalogCategorySlug ? { category_slug: catalogCategorySlug } : catalogKind === 'resource' && catalogCategoryId ? { category_id: Number(catalogCategoryId) } : {}), summary: catalogSummary, content: catalogContent }] }
   const sourceIdea = initial?.sourceIdeaId ? ideas.find(idea => idea.id === initial.sourceIdeaId) : undefined
 
-  return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor" role="dialog" aria-modal="true" aria-label={initial ? 'Editar publicación' : 'Nueva publicación'}>
+  return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor" role="dialog" aria-modal="true" aria-label={initial ? 'Editar publicación' : 'Nueva publicación'} onKeyDownCapture={event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+    const key = event.key.toLocaleLowerCase()
+    if (key !== 'z' && key !== 'y') return
+    const target = event.target instanceof HTMLElement ? event.target : null
+    const textEntry = Boolean(target && (target.isContentEditable || /^(INPUT|TEXTAREA)$/.test(target.tagName)))
+    if (textEntry && !target?.closest('[data-undo-control]')) return
+    const redoing = key === 'y' || (key === 'z' && event.shiftKey)
+    if (textEntry && (redoing ? !canRedo : !canUndo)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (redoing) redoDraft()
+    else undoDraft()
+  }}>
+    {historyNotice && <div key={historyNotice.id} className={`undo-notice ${historyNotice.direction}`} role="status" aria-live="polite">{historyNotice.direction === 'undo' ? <Undo2 size={13} aria-hidden="true" /> : <Redo2 size={13} aria-hidden="true" />}<span>{historyNotice.text}</span></div>}
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><button className="icon-button" onClick={close}><X size={19} /></button></header>
     <div className="editor-tabs editor-main-tabs" role="group" aria-label="Secciones de edición"><button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button type="button" aria-pressed={tab === 'notes'} className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button><button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>{externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
     <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
     <div className="editor-body">
       {tab === 'content' && <>
-        <label>Título<input value={draft.title} onChange={e => update('title', e.target.value)} placeholder="Nombra esta pieza de contenido" /></label>
+        <label>Título<input data-undo-control value={draft.title} onChange={e => update('title', e.target.value, { label: 'Editar título', groupKey: 'post:title' })} placeholder="Nombra esta pieza de contenido" /></label>
         <div className="field-row"><label>Formato<select value={draft.contentType} onChange={e => update('contentType', e.target.value as ContentType)}>{Object.entries(contentLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Estado<select value={draft.status} onChange={e => { const status = e.target.value as PostStatus; if (status === 'scheduled' && !draft.scheduledAt) { setScheduleWarning('Asigna una fecha y hora antes de marcarla como programada.'); return } setScheduleWarning(''); update('status', status) }}>{Object.entries(statusMeta).map(([value, meta]) => <option value={value} key={value}>{meta.label}</option>)}</select></label></div>
         {scheduleWarning && <p className="schedule-warning" role="alert">{scheduleWarning}</p>}
         <label>Destinos de distribución<div className="platform-selector">{platformOptions.map(p => <button type="button" className={draft.platforms.includes(p) ? 'active' : ''} key={p} onClick={() => togglePlatform(p)}><PlatformMark platform={p} />{getPlatformMeta(p).label}</button>)}<button type="button" onClick={() => setAddingPlatform(true)}><Plus size={13} /> Añadir destino</button></div>{addingPlatform && <div className="inline-add-platform"><input autoFocus value={newPlatformName} onChange={event => setNewPlatformName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addPlatform(); if (event.key === 'Escape') setAddingPlatform(false) }} placeholder="Blog, newsletter, Discord..." /><button type="button" className="save-button" onClick={addPlatform}>Añadir</button><button type="button" className="ghost-button" onClick={() => setAddingPlatform(false)}>Cancelar</button></div>}</label>
         <section className="distribution-panel"><header><strong>Estado por destino</strong><small>Marca dónde está publicada cada versión.</small></header>{(draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const }))).map((target, index) => <div className="distribution-row" key={target.id}><span>{target.name}</span><select value={target.status} onChange={event => { const current = draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const })); update('distribution', current.map((item, i) => i === index ? { ...item, status: event.target.value as any } : item)) }}><option value="pending">Pendiente</option><option value="preparing">En preparación</option><option value="scheduled">Programado</option><option value="published">Publicado</option><option value="not_applicable">No aplica</option><option value="failed">Requiere atención</option></select></div>)}</section>
-        <label>Texto de la publicación<div className="caption-box"><textarea value={draft.caption} onChange={e => update('caption', e.target.value)} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
-        <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean))} placeholder="#contenido #campaña" /></label>
-        <div className="field-row"><label>Fecha y hora<input type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); update('scheduledAt', scheduledAt); if (!scheduledAt && draft.status === 'scheduled') { update('status', 'approved'); setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.') } else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input value={draft.project} onChange={e => update('project', e.target.value)} /></label></div>
+        <label>Texto de la publicación<div className="caption-box"><textarea data-undo-control value={draft.caption} onChange={e => update('caption', e.target.value, { label: 'Editar texto', groupKey: 'post:caption' })} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
+        <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input data-undo-control value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean), { label: 'Editar hashtags', groupKey: 'post:hashtags' })} placeholder="#contenido #campaña" /></label>
+        <div className="field-row"><label>Fecha y hora<input data-undo-control type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); setDraft(current => ({ ...current, scheduledAt, ...(!scheduledAt && current.status === 'scheduled' ? { status: 'approved' as const } : {}) }), { label: !scheduledAt && draft.status === 'scheduled' ? 'Quitar fecha y volver a Aprobado' : 'Cambiar fecha', groupKey: 'post:scheduledAt' }); if (!scheduledAt && draft.status === 'scheduled') setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.'); else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input data-undo-control value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         <details className="media-export-section" open>
           <summary><Smartphone size={15} /> Enviar álbumes al celular</summary>
@@ -545,15 +573,15 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
       {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}
-      {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={blocks => update('ideaBlocks', blocks)} />}
-      {tab === 'notes' && <section className="notes-editor"><header><div><span>APUNTES INTERNOS</span><strong>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'}</strong></div><button type="button" className="new-button" onClick={() => updateNotes([...noteItems, { id: crypto.randomUUID(), title: '', text: '' }])}><Plus size={15} /> Nueva nota</button></header>{noteItems.map((note, index) => <article className="note-item" key={note.id}><div className="note-item-heading"><span>NOTA {String(index + 1).padStart(2, '0')}</span>{noteItems.length > 1 && <button type="button" onClick={() => updateNotes(noteItems.filter(item => item.id !== note.id))}><Trash2 size={14} /></button>}</div><input value={note.title} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, title: event.target.value } : item))} placeholder="Nombre opcional" /><textarea value={note.text} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, text: event.target.value } : item))} placeholder="Dato, referencia, pendiente o contexto..." /></article>)}</section>}
+      {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={(blocks, change) => update('ideaBlocks', blocks, change)} />}
+      {tab === 'notes' && <section className="notes-editor"><header><div><span>APUNTES INTERNOS</span><strong>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'}</strong></div><button type="button" className="new-button" onClick={() => updateNotes([...noteItems, { id: crypto.randomUUID(), title: '', text: '' }], { label: 'Añadir nota' })}><Plus size={15} /> Nueva nota</button></header>{noteItems.map((note, index) => <article className="note-item" key={note.id}><div className="note-item-heading"><span>NOTA {String(index + 1).padStart(2, '0')}</span>{noteItems.length > 1 && <button type="button" onClick={() => updateNotes(noteItems.filter(item => item.id !== note.id), { label: 'Eliminar nota' })}><Trash2 size={14} /></button>}</div><input data-undo-control value={note.title} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, title: event.target.value } : item), { label: 'Editar título de nota', groupKey: `note:${note.id}:title` })} placeholder="Nombre opcional" /><textarea data-undo-control value={note.text} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, text: event.target.value } : item), { label: 'Editar nota', groupKey: `note:${note.id}:text` })} placeholder="Dato, referencia, pendiente o contexto..." /></article>)}</section>}
       {tab === 'assistant' && <section className="ai-assistant"><header><div><span>INGESTA DE RESPUESTAS</span><strong>Convierte tus textos en una publicación</strong></div><Sparkles size={19} /></header><p className="assistant-hint">Se detectan títulos y slides numeradas; las secciones “final” o “cierre” se descartan.</p><label>Original<textarea value={assistantIdea} onChange={event => setAssistantIdea(event.target.value)} placeholder="Pega aquí el texto seleccionado" /></label><label>Títulos<textarea value={assistantTitles} onChange={event => setAssistantTitles(event.target.value)} placeholder="Un título por línea" /></label>{parseTitleCandidates(assistantTitles).length > 0 && <div className="assistant-candidates"><span>Elegir título</span>{parseTitleCandidates(assistantTitles).map(title => <button type="button" key={title} onClick={() => update('title', title)}>{title}</button>)}</div>}<label>Respuesta del p1<textarea value={assistantMaster} onChange={event => setAssistantMaster(event.target.value)} placeholder={'Slide 0: ...\nSlide 1: ...\nFinal: ...'} /></label><div className="assistant-actions"><button type="button" className="save-button" onClick={applyAssistant}><Sparkles size={15} /> Aplicar a la publicación</button><button type="button" className="ghost-button" onClick={() => void copyObsidianMark()}><Clipboard size={15} /> Copiar marca</button></div>{assistantMessage && <p className="assistant-message">{assistantMessage}</p>}</section>}
       {tab === 'preview' && <Preview draft={draft} onMediaChange={media => update('media', media)} onError={message => reportAppError(message, 'Error en medios')} />}
-      {tab === 'notes' && <label>Notas internas<textarea className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value)} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
+      {tab === 'notes' && <label>Notas internas<textarea data-undo-control className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value, { label: 'Editar notas', groupKey: 'post:notes' })} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}
       {tab === 'catalog' && <div className="catalog-fields"><label>category_id (solo Resource)<input type="number" min="1" step="1" value={catalogCategoryId} onChange={event => setCatalogCategoryId(event.target.value)} placeholder="Ej. 4" /></label><label>Resumen del catalogo<textarea value={catalogSummary} onChange={event => setCatalogSummary(event.target.value)} placeholder="Resumen breve; conserva saltos de linea y Markdown pegado." /></label><label>Contenido del catalogo<textarea value={catalogContent} onChange={event => setCatalogContent(event.target.value)} placeholder="Pega aqui el Markdown completo." /></label><label><input type="checkbox" checked={catalogUseHashtags} onChange={event => setCatalogUseHashtags(event.target.checked)} /> Convertir hashtags a tags (requiere IDs)</label></div>}
       {tab === 'catalog' && <section className="external-data catalog-panel"><header><div><span>INTEGRACION DE CONTENIDO</span><strong>{catalogSync ? `Estado: ${catalogSync.action}` : 'Sin sincronizar'}</strong></div>{catalogSync?.updatedAt && <small>{new Date(catalogSync.updatedAt).toLocaleString()}</small>}</header><label>Endpoint<input value={catalogEndpoint} onChange={event => setCatalogEndpoint(event.target.value)} placeholder="https://dominio.tld/api/integrations/content/batch" /></label><label>CONTENT_INTEGRATION_CREATED_BY<input value={catalogCreatedBy} onChange={event => setCatalogCreatedBy(event.target.value)} placeholder="UUID del administrador" /></label><label>Token de integracion<input type="password" value={catalogToken} onChange={event => setCatalogToken(event.target.value)} placeholder={catalogConfig.configured ? 'Guardado de forma segura; deja vacio para conservarlo' : 'Token largo'} /></label><label>Tipo<select value={catalogKind} onChange={event => setCatalogKind(event.target.value as 'resource' | 'resource_lite')}><option value="resource">Resource</option><option value="resource_lite">Resource Lite</option></select></label><div className="source-actions"><button className="settings-button" disabled={catalogBusy || !catalogEndpoint || !catalogCreatedBy} onClick={() => void saveCatalog()}>Guardar configuracion</button><button className="settings-button" disabled={catalogBusy || !catalogConfig.configured} onClick={() => void syncCatalog(true)}>Probar (dry run)</button><button className="save-button" disabled={catalogBusy || !catalogConfig.configured} onClick={() => void syncCatalog(false)}>Sincronizar</button></div>{catalogMessage && <p className="source-message">{catalogMessage}</p>}{catalogSync?.publicUrl && <a href={catalogSync.publicUrl} target="_blank" rel="noreferrer">Abrir contenido remoto</a>}{catalogSync?.error && <pre>{catalogSync.error}</pre>}<details><summary>Payload generado</summary><pre>{JSON.stringify(catalogPreview, null, 2)}</pre></details></section>}
     </div>
-    <footer>{initial ? <div className="editor-footer-actions"><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</div> : <span />}<div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
+    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}</div><div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
   </aside></div>
 }
