@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { PlannerDatabase } from './database'
 import { exportPostForPhone, phoneExportFolderName, type PhoneFile } from './media-export'
-import { importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMobileSpaceOrder, recordMobileBatch, writeMobileCatalog, type MobilePublication } from './mobile-sync'
+import { cleanUnreferencedMobileAlbums, importMobileUsageFiles, mergeMobilePublications, mobileTargetKey, nextMobileBatch, nextMobileSpaceOrder, pruneMobilePublications, recordMobileBatch, summarizeMobileUsage, writeMobileCatalog, type MobilePublication } from './mobile-sync'
 import {
   validateArgumentCount,
   validateClipboardText,
@@ -328,12 +328,182 @@ interface MobileExportReport {
   destinations: number
   skipped: Array<{ postId: string; title: string; reason: string }>
   catalogPath: string
+  missingAlbums: string[]
+  catalogBackupPaths: string[]
 }
 
 function mobileSyncRoot() {
   const preferences = database.listPreferences()
   const root = preferences[mobileSyncPreferenceKey] || preferences[phoneExportPreferenceKey]
   return root && path.isAbsolute(root) && fs.existsSync(root) ? root : null
+}
+
+function archiveMobileCatalog(root: string, catalogPath: string) {
+  const historyRoot = path.join(root, 'pc-outbox', 'catalog-history')
+  fs.mkdirSync(historyRoot, { recursive: true })
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const archivePath = path.join(historyRoot, `catalog-${stamp}-${crypto.randomUUID()}.json`)
+  const temporaryPath = `${archivePath}.tmp`
+  fs.copyFileSync(catalogPath, temporaryPath)
+  fs.renameSync(temporaryPath, archivePath)
+  return archivePath
+}
+
+function writeMobileCatalogWithBackup(root: string, publications: MobilePublication[]) {
+  const catalogPath = path.join(root, 'pc-outbox', 'catalog.json')
+  let backupPath: string | null = null
+  if (fs.existsSync(catalogPath)) {
+    const catalogText = fs.readFileSync(catalogPath, 'utf8')
+    const existing = JSON.parse(catalogText) as { publications?: unknown }
+    if (Array.isArray(existing.publications) && JSON.stringify(existing.publications) !== JSON.stringify(publications)) {
+      backupPath = archiveMobileCatalog(root, catalogPath)
+    }
+  }
+  writeMobileCatalog(root, publications)
+  return backupPath
+}
+
+function listUnreferencedMobileAlbums(root: string, referenced: Set<string>) {
+  const publicationRoot = path.join(root, 'pc-outbox', 'publications')
+  if (!fs.existsSync(publicationRoot)) return [] as string[]
+  return fs.readdirSync(publicationRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && !referenced.has(entry.name) && fs.existsSync(path.join(publicationRoot, entry.name, 'manifest.json')))
+    .map(entry => entry.name)
+    .sort((a, b) => a.localeCompare(b, 'es'))
+}
+
+function getMobileCatalogStatus(root: string | null) {
+  if (!root) return {
+    configured: false, catalogExists: false, catalogPath: null as string | null,
+    referencedDestinations: 0, referencedAlbums: 0, availableAlbums: 0,
+    missingAlbums: [] as string[], incompleteAlbums: [] as string[], unreferencedAlbums: [] as string[], archivedCatalogs: 0, latestCatalogBackupPath: null as string | null,
+  }
+  const catalogPath = path.join(root, 'pc-outbox', 'catalog.json')
+  const historyRoot = path.join(root, 'pc-outbox', 'catalog-history')
+  const archiveNames = fs.existsSync(historyRoot)
+    ? fs.readdirSync(historyRoot, { withFileTypes: true }).filter(entry => entry.isFile() && entry.name.endsWith('.json')).map(entry => entry.name).sort()
+    : []
+  const archivedCatalogs = archiveNames.length
+  const latestCatalogBackupPath = archiveNames.length ? path.join(historyRoot, archiveNames[archiveNames.length - 1]!) : null
+  if (!fs.existsSync(catalogPath)) return {
+    configured: true, catalogExists: false, catalogPath,
+    referencedDestinations: 0, referencedAlbums: 0, availableAlbums: 0,
+    missingAlbums: [] as string[], incompleteAlbums: [] as string[], unreferencedAlbums: listUnreferencedMobileAlbums(root, new Set()), archivedCatalogs, latestCatalogBackupPath,
+  }
+  const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as { schema?: unknown; version?: unknown; publications?: unknown }
+  if (catalog.schema !== 'caballocci.mobile-sync.catalog' || catalog.version !== 1 || !Array.isArray(catalog.publications)) {
+    throw new TypeError('El catálogo móvil no tiene un formato compatible; no se pudo consultar su estado.')
+  }
+  const albums = new Map<string, { folder: string; directoryPath: string; manifestPath: string }>()
+  for (const item of catalog.publications as MobilePublication[]) {
+    const parts = String(item.manifestPath || '').replace(/\\/g, '/').split('/')
+    const valid = parts.length === 4 && parts[0] === 'pc-outbox' && parts[1] === 'publications' && parts[3] === 'manifest.json' && !!parts[2] && !parts[2]!.startsWith('.')
+    const key = valid ? parts[2]! : String(item.manifestPath || '(ruta no válida)')
+    if (!albums.has(key)) albums.set(key, {
+      folder: key,
+      directoryPath: valid ? path.join(root, 'pc-outbox', 'publications', parts[2]!) : '',
+      manifestPath: valid ? path.join(root, ...parts) : '',
+    })
+  }
+  const unreferencedAlbums = listUnreferencedMobileAlbums(root, new Set([...albums.values()].map(album => album.folder)))
+  const missingAlbums: string[] = []
+  const incompleteAlbums: string[] = []
+  let availableAlbums = 0
+  for (const album of albums.values()) {
+    try {
+      if (!album.directoryPath || !fs.statSync(album.directoryPath).isDirectory()) missingAlbums.push(album.folder)
+      else {
+        availableAlbums += 1
+        if (!album.manifestPath || !fs.existsSync(album.manifestPath)) incompleteAlbums.push(album.folder)
+      }
+    } catch { missingAlbums.push(album.folder) }
+  }
+  return {
+    configured: true, catalogExists: true, catalogPath,
+    referencedDestinations: catalog.publications.length,
+    referencedAlbums: albums.size, availableAlbums, missingAlbums, incompleteAlbums, unreferencedAlbums, archivedCatalogs, latestCatalogBackupPath,
+  }
+}
+
+function getMobileReconcilePreview(root: string) {
+  const catalogPath = path.join(root, 'pc-outbox', 'catalog.json')
+  let publications: MobilePublication[] = []
+  if (fs.existsSync(catalogPath)) {
+    const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as { schema?: unknown; version?: unknown; publications?: unknown }
+    if (catalog.schema !== 'caballocci.mobile-sync.catalog' || catalog.version !== 1 || !Array.isArray(catalog.publications)) {
+      throw new TypeError('El catálogo móvil no tiene un formato compatible; no se pudo preparar la vista previa.')
+    }
+    publications = catalog.publications as MobilePublication[]
+  }
+  const publicationRoot = path.resolve(root, 'pc-outbox', 'publications')
+  const missingFolders = new Set<string>()
+  for (const item of publications) {
+    const parts = item.manifestPath.replace(/\\/g, '/').split('/')
+    if (parts.length !== 4 || parts[0] !== 'pc-outbox' || parts[1] !== 'publications' || parts[3] !== 'manifest.json' || !parts[2] || parts[2].startsWith('.')) continue
+    const directory = path.resolve(publicationRoot, parts[2])
+    if (!directory.startsWith(`${publicationRoot}${path.sep}`)) continue
+    let isDirectory = false
+    try { isDirectory = fs.statSync(directory).isDirectory() } catch { /* Carpeta ausente. */ }
+    if (!isDirectory) missingFolders.add(parts[2])
+  }
+  const existingPublications = publications.filter(item => {
+    const folder = item.manifestPath.replace(/\\/g, '/').split('/')[2]
+    return !folder || !missingFolders.has(folder)
+  })
+  const { removed, used } = mobileUsageSummary()
+  const expected = pruneMobilePublications(existingPublications, { postIsActive: mobilePostIsActive, removed })
+  const referencedFolders = new Set(expected.kept.map(item => item.manifestPath.replace(/\\/g, '/').split('/')[2]).filter(Boolean))
+  const foldersToDelete: string[] = []
+  const foldersToRename: Array<{ from: string; to: string }> = []
+  const renameConflicts: string[] = []
+  if (fs.existsSync(publicationRoot)) {
+    for (const entry of fs.readdirSync(publicationRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || referencedFolders.has(entry.name)) continue
+      if (fs.existsSync(path.join(publicationRoot, entry.name, 'manifest.json'))) foldersToDelete.push(entry.name)
+    }
+    for (const entry of fs.readdirSync(publicationRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      const manifestPath = path.join(publicationRoot, entry.name, 'manifest.json')
+      if (!fs.existsSync(manifestPath)) continue
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { postId?: unknown; title?: unknown; scheduledAt?: unknown; batch?: unknown; spaceName?: unknown; spaceOrder?: unknown }
+      const postId = String(manifest.postId || '')
+      const reference = expected.kept.find(item => item.postId === postId && used.has(`${postId}\u0000${item.targetId}`))
+      if (!postId || !reference || typeof manifest.batch !== 'string' || !manifest.batch) continue
+      const album = {
+        title: typeof manifest.title === 'string' ? manifest.title : '',
+        scheduledAt: typeof manifest.scheduledAt === 'string' ? manifest.scheduledAt : null,
+        batch: manifest.batch,
+        spaceName: typeof manifest.spaceName === 'string' ? manifest.spaceName : 'General',
+        spaceOrder: typeof manifest.spaceOrder === 'number' ? manifest.spaceOrder : 1,
+      }
+      const previous = phoneExportFolderName({ ...album, used: false })
+      const next = phoneExportFolderName({ ...album, used: true }) + (entry.name.startsWith(previous) ? entry.name.slice(previous.length) : '')
+      if (next === entry.name) continue
+      if (fs.existsSync(path.join(publicationRoot, next))) renameConflicts.push(`${entry.name} → ${next}`)
+      else foldersToRename.push({ from: entry.name, to: next })
+    }
+  }
+  return {
+    missingAlbums: [...missingFolders],
+    retiredDestinations: publications.length - expected.kept.length,
+    foldersToDelete,
+    foldersToRename,
+    renameConflicts,
+  }
+}
+
+function mobileUsageSummary() {
+  return summarizeMobileUsage(database.listMobileUsage().map(event => ({
+    postId: String(event.post_id),
+    targetId: String(event.target_id),
+    action: String(event.action),
+    usedAt: String(event.used_at),
+  })))
+}
+
+function mobilePostIsActive(postId: string) {
+  const post = database.getPost(postId)
+  return Boolean(post) && String(post?.status) !== 'archived'
 }
 
 async function exportMobilePublications(postIds?: string[], forceChooseFolder = false): Promise<MobileExportReport | null> {
@@ -346,11 +516,38 @@ async function exportMobilePublications(postIds?: string[], forceChooseFolder = 
     database.savePreferences({ [mobileSyncPreferenceKey]: root })
   }
 
+  // If exporting will reconcile removals or clean stale albums, show its preview first.
+  const existingCatalogPath = path.join(root, 'pc-outbox', 'catalog.json')
+  let reconciliation = { pruned: 0, cleaned: 0, cleanupFailed: [] as string[], missingAlbums: [] as string[], catalogBackupPaths: [] as string[] }
+  const preview = getMobileReconcilePreview(root)
+  if (preview.retiredDestinations || preview.foldersToDelete.length || preview.foldersToRename.length) {
+    if (preview.renameConflicts.length) throw new Error(`No se puede exportar hasta resolver los conflictos de carpetas: ${preview.renameConflicts.join(', ')}.`)
+    const details = [
+        `Destinos a retirar: ${preview.retiredDestinations}.`,
+        `Carpetas ausentes: ${preview.missingAlbums.join(', ') || 'ninguna'}.`,
+        `Carpetas que se borrarán: ${preview.foldersToDelete.join(', ') || 'ninguna'}.`,
+        `Carpetas que se marcarán como usadas: ${preview.foldersToRename.map(item => `${item.from} → ${item.to}`).join(', ') || 'ninguna'}.`,
+        preview.renameConflicts.length ? `Conflictos de nombres: ${preview.renameConflicts.join(', ')}.` : '',
+      ].filter(Boolean).join('\n')
+      const decision = await dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        buttons: ['Continuar con la exportación', 'Cancelar'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'Revisar limpieza del catálogo móvil',
+        message: 'La exportación conciliará el catálogo y puede borrar carpetas de pc-outbox/publications.',
+        detail: `${details}\n\n${fs.existsSync(existingCatalogPath) ? 'Se guardará una copia del catálogo en pc-outbox/catalog-history/.' : 'Todavía no existe un catálogo anterior que archivar.'} Espera a que Syncthing termine y no borres álbumes desde Android durante esta operación.`,
+      })
+    if (decision.response !== 0) return null
+  }
+  if (fs.existsSync(existingCatalogPath)) {
+    reconciliation = updateMobileCatalogAfterUsage(root)
+  }
+
   const selectedIds = postIds ? new Set(postIds) : null
   const selectedRows = selectedIds
     ? database.list().filter(row => selectedIds.has(String(row.id)))
     : database.list()
-  const existingCatalogPath = path.join(root, 'pc-outbox', 'catalog.json')
   let publications: MobilePublication[] = []
   let exportedPublications: MobilePublication[] = []
   if (selectedIds && fs.existsSync(existingCatalogPath)) {
@@ -365,8 +562,7 @@ async function exportMobilePublications(postIds?: string[], forceChooseFolder = 
     publications = existing.publications as MobilePublication[]
   }
 
-  const importedUsage = database.listMobileUsage()
-  const usedTargets = new Set(importedUsage.map(event => `${String(event.post_id)}\u0000${String(event.target_id)}`))
+  const { used: usedTargets, removed: removedTargets } = mobileUsageSummary()
   const batch = nextMobileBatch(root)
   const exportedPostIds = new Set<string>()
   const skipped: MobileExportReport['skipped'] = []
@@ -381,8 +577,9 @@ async function exportMobilePublications(postIds?: string[], forceChooseFolder = 
     }
     const targets = (post.distribution as Array<{ id: string; name: string; status: string; scheduledAt?: string | null }>)
       .filter(target => target.status !== 'published' && target.status !== 'not_applicable')
+      .filter(target => !removedTargets.has(mobileTargetKey(String(post.id), String(target.id))))
     if (!targets.length) {
-      skipped.push({ postId: String(post.id), title: String(post.title || ''), reason: 'No tiene destinos pendientes de uso.' })
+      skipped.push({ postId: String(post.id), title: String(post.title || ''), reason: 'No tiene destinos pendientes de uso (o ya se retiraron del móvil).' })
       continue
     }
     if (post.media.some(asset => asset.compressed)) restoreTargetMedia('post', String(post.id))
@@ -406,7 +603,7 @@ async function exportMobilePublications(postIds?: string[], forceChooseFolder = 
     const postId = String(post.id)
     const used = targets.some(target => usedTargets.has(`${postId}\u0000${String(target.id)}`))
     const spaceName = String(post.project || 'General')
-    const spaceOrder = nextMobileSpaceOrder(root, spaceName)
+    const spaceOrder = nextMobileSpaceOrder(root, spaceName, String(post.id))
     const exportResult = exportPostForPhone(publicationsRoot, {
       id: postId,
       title: String(post.title || ''),
@@ -442,7 +639,10 @@ async function exportMobilePublications(postIds?: string[], forceChooseFolder = 
   publications = selectedIds
     ? mergeMobilePublications(publications, exportedPublications)
     : exportedPublications
-  writeMobileCatalog(root, publications)
+  // El catálogo nunca debe conservar publicaciones eliminadas/archivadas ni destinos retirados desde el móvil.
+  publications = pruneMobilePublications(publications, { postIsActive: mobilePostIsActive, removed: removedTargets }).kept
+  const catalogBackupPath = writeMobileCatalogWithBackup(root, publications)
+  cleanUnreferencedMobileAlbums(root, publications)
   recordMobileBatch(root, batch, [...exportedPostIds])
   return {
     batch,
@@ -450,12 +650,14 @@ async function exportMobilePublications(postIds?: string[], forceChooseFolder = 
     destinations: publications.filter(item => item.batch === batch).length,
     skipped,
     catalogPath: path.join(root, 'pc-outbox', 'catalog.json'),
+    missingAlbums: reconciliation.missingAlbums,
+    catalogBackupPaths: [...reconciliation.catalogBackupPaths, ...(catalogBackupPath ? [catalogBackupPath] : [])],
   }
 }
 
-function updateMobileCatalogAfterUsage(root: string) {
+function updateMobileCatalogAfterUsage(root: string, archiveSnapshot = false) {
   const catalogPath = path.join(root, 'pc-outbox', 'catalog.json')
-  if (!fs.existsSync(catalogPath)) return
+  if (!fs.existsSync(catalogPath)) return { pruned: 0, cleaned: 0, cleanupFailed: [] as string[], missingAlbums: [] as string[], catalogBackupPaths: [] as string[] }
   const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as {
     schema?: unknown
     version?: unknown
@@ -464,8 +666,49 @@ function updateMobileCatalogAfterUsage(root: string) {
   if (catalog.schema !== 'caballocci.mobile-sync.catalog' || catalog.version !== 1 || !Array.isArray(catalog.publications)) {
     throw new TypeError('El catálogo móvil no tiene un formato compatible; no se actualizaron sus estados.')
   }
-  const usedTargets = new Set(database.listMobileUsage().map(event => `${String(event.post_id)}\u0000${String(event.target_id)}`))
-  const publications = catalog.publications as MobilePublication[]
+  const preservedBackupPath = archiveSnapshot ? archiveMobileCatalog(root, catalogPath) : null
+  const { used: usedTargets, removed: removedTargets } = mobileUsageSummary()
+  const originalCount = (catalog.publications as MobilePublication[]).length
+  const catalogPublications = catalog.publications as MobilePublication[]
+  const originalPublicationsText = JSON.stringify(catalogPublications)
+  const missingByFolder = new Map<string, MobilePublication[]>()
+  for (const item of catalogPublications) {
+    const parts = item.manifestPath.replace(/\\/g, '/').split('/')
+    if (parts.length !== 4 || parts[0] !== 'pc-outbox' || parts[1] !== 'publications' || parts[3] !== 'manifest.json' || !parts[2] || parts[2].startsWith('.')) continue
+    const directory = path.resolve(root, 'pc-outbox', 'publications', parts[2])
+    const albumsRoot = path.resolve(root, 'pc-outbox', 'publications')
+    if (!directory.startsWith(`${albumsRoot}${path.sep}`)) continue
+    // A present folder without its manifest may still be syncing. Only a truly
+    // absent folder is safe to reconcile automatically.
+    let directoryExists = false
+    try { directoryExists = fs.statSync(directory).isDirectory() } catch { /* Carpeta ausente. */ }
+    if (directoryExists) continue
+    const group = missingByFolder.get(parts[2]) || []
+    group.push(item)
+    missingByFolder.set(parts[2], group)
+  }
+  for (const [folder, entries] of missingByFolder) {
+    const first = entries[0]!
+    const post = database.getPost(first.postId)
+    const order = Number(folder.match(/^[a-z]+-[^-]+-(\d+)-/)?.[1])
+    database.recordMobileAlbumCleanup({
+      eventId: crypto.randomUUID(), postId: first.postId, title: String(post?.title || ''),
+      folderName: folder,
+      batch: String(first.batch || ''), spaceName: String(post?.project || ''),
+      spaceOrder: Number.isSafeInteger(order) && order > 0 ? order : null,
+      reason: 'folder_missing', occurredAt: new Date().toISOString(),
+    })
+  }
+  const missingAlbums = [...missingByFolder.keys()]
+  const existingPublications = catalogPublications.filter(item => {
+    const parts = item.manifestPath.replace(/\\/g, '/').split('/')
+    return !(parts.length === 4 && parts[0] === 'pc-outbox' && parts[1] === 'publications' && missingByFolder.has(parts[2]!))
+  })
+  const publications = pruneMobilePublications(existingPublications, {
+    postIsActive: mobilePostIsActive,
+    removed: removedTargets,
+  }).kept
+  const prunedEntries = originalCount - publications.length
   const directoryRenames: Array<{ from: string; to: string }> = []
   const publicationRoot = path.join(root, 'pc-outbox', 'publications')
   if (fs.existsSync(publicationRoot)) {
@@ -515,14 +758,19 @@ function updateMobileCatalogAfterUsage(root: string) {
     }
   }
   for (const item of publications) item.used = usedTargets.has(`${item.postId}\u0000${item.targetId}`)
+  let catalogBackupPath: string | null = null
   try {
-    writeMobileCatalog(root, publications)
+    if (originalPublicationsText !== JSON.stringify(publications)) {
+      catalogBackupPath = preservedBackupPath ? (writeMobileCatalog(root, publications), preservedBackupPath) : writeMobileCatalogWithBackup(root, publications)
+    }
   } catch (error) {
     for (const rename of directoryRenames.reverse()) {
       if (fs.existsSync(rename.to) && !fs.existsSync(rename.from)) fs.renameSync(rename.to, rename.from)
     }
     throw error
   }
+  const cleanup = cleanUnreferencedMobileAlbums(root, publications)
+  return { pruned: prunedEntries, cleaned: cleanup.removed.length, cleanupFailed: cleanup.failed, missingAlbums, catalogBackupPaths: catalogBackupPath ? [catalogBackupPath] : preservedBackupPath ? [preservedBackupPath] : [] }
 }
 
 function mapIdeaNeighbor(row: Record<string, unknown>) {
@@ -1296,6 +1544,118 @@ app.whenReady().then(async () => {
     validateNoArguments(args)
     return mobileSyncRoot()
   })
+  handle('mobile-sync:status', args => {
+    validateNoArguments(args)
+    return getMobileCatalogStatus(mobileSyncRoot())
+  })
+  handle('mobile-sync:publication-state', args => {
+    validateNoArguments(args)
+    const root = mobileSyncRoot()
+    if (!root) return { configured: false, currentPostIds: [], previouslyExportedPostIds: [] }
+    const outbox = path.join(root, 'pc-outbox')
+    const currentPostIds = new Set<string>()
+    const catalogPath = path.join(outbox, 'catalog.json')
+    if (fs.existsSync(catalogPath)) {
+      const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as { schema?: unknown; version?: unknown; publications?: unknown }
+      if (catalog.schema !== 'caballocci.mobile-sync.catalog' || catalog.version !== 1 || !Array.isArray(catalog.publications)) {
+        throw new TypeError('El catálogo móvil no tiene un formato compatible; no se pudo consultar su estado.')
+      }
+      for (const publication of catalog.publications as Array<{ postId?: unknown }>) {
+        if (typeof publication.postId === 'string' && publication.postId) currentPostIds.add(publication.postId)
+      }
+    }
+    const exportedPostIds = new Set(currentPostIds)
+    const batchHistoryPath = path.join(outbox, 'batch-history.json')
+    if (fs.existsSync(batchHistoryPath)) {
+      const history = JSON.parse(fs.readFileSync(batchHistoryPath, 'utf8')) as unknown
+      if (!Array.isArray(history)) throw new TypeError('El historial de lotes móvil no es válido.')
+      for (const batch of history as Array<{ postIds?: unknown }>) {
+        if (Array.isArray(batch.postIds)) for (const postId of batch.postIds) if (typeof postId === 'string' && postId) exportedPostIds.add(postId)
+      }
+    }
+    return {
+      configured: true,
+      currentPostIds: [...currentPostIds],
+      previouslyExportedPostIds: [...exportedPostIds].filter(postId => !currentPostIds.has(postId)),
+    }
+  })
+  handle('mobile-sync:reconcile', args => {
+    validateNoArguments(args)
+    const root = mobileSyncRoot()
+    if (!root) throw new Error('Primero elige la carpeta compartida de Syncthing.')
+    const result = updateMobileCatalogAfterUsage(root, true)
+    return {
+      missingAlbums: result.missingAlbums,
+      pruned: result.pruned,
+      cleaned: result.cleaned,
+      cleanupFailed: result.cleanupFailed,
+      catalogBackupPath: result.catalogBackupPaths.at(-1) || null,
+    }
+  })
+  handle('mobile-sync:preview-reconcile', args => {
+    validateNoArguments(args)
+    const root = mobileSyncRoot()
+    if (!root) throw new Error('Primero elige la carpeta compartida de Syncthing.')
+    return getMobileReconcilePreview(root)
+  })
+  handle('mobile-sync:read-catalog', args => {
+    if (args.length > 1) throw new TypeError('Argumentos IPC no válidos: mobile-sync:read-catalog')
+    const root = mobileSyncRoot()
+    if (!root) throw new Error('Primero elige la carpeta compartida de Syncthing.')
+    let archiveName: string | undefined
+    if (args.length === 1) {
+      const value = args[0]
+      if (typeof value !== 'string' || path.basename(value) !== value || !/^catalog-[\w.-]+\.json$/.test(value)) {
+        throw new TypeError('Nombre de copia de catálogo no válido.')
+      }
+      archiveName = value
+    }
+    const catalogPath = archiveName === undefined
+      ? path.join(root, 'pc-outbox', 'catalog.json')
+      : path.join(root, 'pc-outbox', 'catalog-history', archiveName)
+    if (!fs.existsSync(catalogPath)) throw new Error(archiveName ? 'No se encontró esa copia del catálogo.' : 'Todavía no existe pc-outbox/catalog.json.')
+    const stat = fs.statSync(catalogPath)
+    if (!stat.isFile() || stat.size > 10 * 1024 * 1024) throw new Error('catalog.json no es un archivo válido o supera 10 MB.')
+    const text = fs.readFileSync(catalogPath, 'utf8')
+    JSON.parse(text)
+    return { path: catalogPath, text }
+  })
+  handle('mobile-sync:list-catalog-backups', args => {
+    validateNoArguments(args)
+    const root = mobileSyncRoot()
+    if (!root) throw new Error('Primero elige la carpeta compartida de Syncthing.')
+    const historyRoot = path.join(root, 'pc-outbox', 'catalog-history')
+    if (!fs.existsSync(historyRoot)) return []
+    return fs.readdirSync(historyRoot, { withFileTypes: true })
+      .filter(entry => entry.isFile() && /^catalog-[\w.-]+\.json$/.test(entry.name))
+      .map(entry => {
+        const stat = fs.statSync(path.join(historyRoot, entry.name))
+        let publications = 0
+        let destinations = 0
+        let batches = 0
+        try {
+          if (stat.size <= 10 * 1024 * 1024) {
+            const catalog = JSON.parse(fs.readFileSync(path.join(historyRoot, entry.name), 'utf8')) as { publications?: unknown }
+            if (Array.isArray(catalog.publications)) {
+              const entries = catalog.publications as Array<{ postId?: unknown; batch?: unknown }>
+              destinations = entries.length
+              publications = new Set(entries.map(item => item.postId).filter((id): id is string => typeof id === 'string')).size
+              batches = new Set(entries.map(item => item.batch).filter((batch): batch is string => typeof batch === 'string' && batch.length > 0)).size
+            }
+          }
+        } catch { /* Se podrá inspeccionar el archivo y la vista previa informará si el JSON está dañado. */ }
+        return { name: entry.name, createdAt: stat.mtime.toISOString(), publications, destinations, batches }
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.name.localeCompare(a.name))
+  })
+  handle('mobile-sync:open-catalog-history', args => {
+    validateNoArguments(args)
+    const root = mobileSyncRoot()
+    if (!root) throw new Error('Primero elige la carpeta compartida de Syncthing.')
+    const historyRoot = path.join(root, 'pc-outbox', 'catalog-history')
+    fs.mkdirSync(historyRoot, { recursive: true })
+    return shell.openPath(historyRoot)
+  })
   handle('mobile-sync:export', async args => {
     validateNoArguments(args)
     return exportMobilePublications()
@@ -1329,12 +1689,11 @@ app.whenReady().then(async () => {
       deviceId: event.deviceId,
       version: event.version,
     }))
-    updateMobileCatalogAfterUsage(root)
     return report
   })
   handle('mobile-sync:history', args => {
     validateNoArguments(args)
-    return database.listMobileUsage().slice(-100).reverse().map(event => {
+    const usage = database.listMobileUsage().slice(-100).map(event => {
       const postId = String(event.post_id)
       const targetId = String(event.target_id)
       const post = database.getPost(postId)
@@ -1351,12 +1710,20 @@ app.whenReady().then(async () => {
         eventId: String(event.event_id),
         postId,
         postTitle: post ? String(post.title || '') : 'Publicación eliminada',
+        action: String(event.action) === 'removed' ? 'removed' : 'used',
         targetId,
         targetName,
         usedAt: String(event.used_at),
         deviceId: String(event.device_id),
       }
     })
+    const missing = database.listMobileAlbumCleanup().slice(-100).map(event => ({
+      eventId: String(event.event_id), postId: String(event.post_id),
+      postTitle: String(event.title || '') || 'Publicación eliminada',
+      action: 'folder_missing' as const, targetId: '', targetName: String(event.folder_name || 'Carpeta borrada de Syncthing'),
+      reason: String(event.reason || ''), usedAt: String(event.occurred_at), deviceId: '',
+    }))
+    return [...usage, ...missing].sort((a, b) => Date.parse(b.usedAt) - Date.parse(a.usedAt)).slice(0, 100)
   })
   handle('media:list', withoutArguments(() => database.listMedia()))
   handle('media:scan-post-folder', args => {

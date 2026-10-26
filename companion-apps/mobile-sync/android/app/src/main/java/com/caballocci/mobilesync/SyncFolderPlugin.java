@@ -24,6 +24,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.ArrayList;
 
 @CapacitorPlugin(name = "SyncFolder")
 public class SyncFolderPlugin extends Plugin {
@@ -98,6 +99,18 @@ public class SyncFolderPlugin extends Plugin {
     @PluginMethod
     public void readMedia(PluginCall call) {
         read(call, true);
+    }
+
+    @PluginMethod
+    public void exists(PluginCall call) {
+        try {
+            String relativePath = safePath(call.getString("path"));
+            JSObject result = new JSObject();
+            result.put("exists", findPath(relativePath) != null);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("No se pudo comprobar el archivo sincronizado.", error);
+        }
     }
 
     @PluginMethod
@@ -230,6 +243,69 @@ public class SyncFolderPlugin extends Plugin {
                 }
             }
             call.reject("No se pudo escribir la confirmación en la carpeta compartida.", error);
+        }
+    }
+
+    @PluginMethod
+    public void deleteAlbum(PluginCall call) {
+        try {
+            String relativePath = safePath(call.getString("path"));
+            String[] parts = relativePath.split("/");
+            if (parts.length != 3 || !"pc-outbox".equals(parts[0]) || !"publications".equals(parts[1])
+                || parts[2].startsWith(".")) {
+                throw new IllegalArgumentException("Solo se permite borrar una carpeta de álbum dentro de pc-outbox/publications.");
+            }
+            Uri album = findPath(relativePath);
+            JSObject result = new JSObject();
+            if (album == null) {
+                result.put("deleted", false);
+                call.resolve(result);
+                return;
+            }
+            if (!isDirectory(album)) throw new IllegalStateException("La ruta del álbum no es una carpeta.");
+            deleteDocumentTree(album);
+            result.put("deleted", true);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("No se pudo borrar la carpeta del álbum en Syncthing.", error);
+        }
+    }
+
+    private boolean isDirectory(Uri document) throws Exception {
+        try (Cursor cursor = getContext().getContentResolver().query(
+            document, new String[] { DocumentsContract.Document.COLUMN_MIME_TYPE }, null, null, null
+        )) {
+            if (cursor == null || !cursor.moveToFirst()) throw new IllegalStateException("No se pudo verificar la carpeta del álbum.");
+            return DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(0));
+        }
+    }
+
+    private void deleteDocumentTree(Uri directory) throws Exception {
+        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            directory, DocumentsContract.getDocumentId(directory)
+        );
+        ArrayList<Uri> children = new ArrayList<>();
+        String[] columns = {
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        };
+        try (Cursor cursor = getContext().getContentResolver().query(childrenUri, columns, null, null, null)) {
+            if (cursor == null) throw new IllegalStateException("Syncthing no devolvió el contenido de la carpeta del álbum.");
+            while (cursor.moveToNext()) {
+                children.add(DocumentsContract.buildDocumentUriUsingTree(directory, cursor.getString(0)));
+            }
+        }
+        for (Uri child : children) {
+            if (isDirectory(child)) {
+                deleteDocumentTree(child);
+                continue;
+            }
+            if (!DocumentsContract.deleteDocument(getContext().getContentResolver(), child)) {
+                throw new IllegalStateException("Syncthing no pudo borrar uno de los archivos del álbum.");
+            }
+        }
+        if (!DocumentsContract.deleteDocument(getContext().getContentResolver(), directory)) {
+            throw new IllegalStateException("Syncthing no pudo borrar la carpeta del álbum.");
         }
     }
 

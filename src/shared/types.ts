@@ -67,6 +67,10 @@ export interface PhoneExportResult {
 export interface MobileImportReport {
   imported: number
   duplicates: number
+  removed: number
+  cleaned: number
+  missingAlbums: string[]
+  catalogBackupPaths: string[]
   invalid: Array<{ file: string; reason: string }>
   unknown: Array<{ file: string; postId: string; targetId: string }>
 }
@@ -77,12 +81,46 @@ export interface MobileExportReport {
   destinations: number
   skipped: Array<{ postId: string; title: string; reason: string }>
   catalogPath: string
+  missingAlbums: string[]
+  catalogBackupPaths: string[]
+}
+
+export interface MobileCatalogStatus {
+  configured: boolean
+  catalogExists: boolean
+  catalogPath: string | null
+  referencedDestinations: number
+  referencedAlbums: number
+  availableAlbums: number
+  missingAlbums: string[]
+  incompleteAlbums: string[]
+  unreferencedAlbums: string[]
+  archivedCatalogs: number
+  latestCatalogBackupPath: string | null
+}
+
+export interface MobileReconcileReport {
+  missingAlbums: string[]
+  pruned: number
+  cleaned: number
+  cleanupFailed: string[]
+  catalogBackupPath: string | null
+}
+
+export interface MobileReconcilePreview {
+  missingAlbums: string[]
+  retiredDestinations: number
+  foldersToDelete: string[]
+  foldersToRename: Array<{ from: string; to: string }>
+  renameConflicts: string[]
 }
 
 export interface MobileUsageRecord {
   eventId: string
   postId: string
   postTitle: string
+  action: 'used' | 'removed' | 'folder_missing'
+  reason?: string
   targetId: string
   targetName: string
   usedAt: string
@@ -259,6 +297,13 @@ export interface ElectronAPI {
     exportSelected(postIds: string[]): Promise<MobileExportReport | null>
     importEvents(): Promise<MobileImportReport>
     history(): Promise<MobileUsageRecord[]>
+    status(): Promise<MobileCatalogStatus>
+    reconcile(): Promise<MobileReconcileReport>
+    previewReconcile(): Promise<MobileReconcilePreview>
+    readCatalog(archiveName?: string): Promise<{ path: string; text: string }>
+    listCatalogBackups(): Promise<Array<{ name: string; createdAt: string; publications: number; destinations: number; batches: number }>>
+    publicationState(): Promise<{ configured: boolean; currentPostIds: string[]; previouslyExportedPostIds: string[] }>
+    openCatalogHistory(): Promise<string>
   }
   posts: {
     list(): Promise<Post[]>

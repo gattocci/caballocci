@@ -23,13 +23,16 @@ export interface MobileCatalog {
   publications: MobilePublication[]
 }
 
+export type MobileUsageAction = 'used' | 'removed'
+
 export interface MobileUsageEvent {
   schema: typeof mobileUsageSchema
   version: number
   eventId: string
   postId: string
   targetId: string
-  action: 'used'
+  action: MobileUsageAction
+  /** Momento del evento (ISO UTC). Se llama usedAt por compatibilidad con la versión 1 del contrato. */
   usedAt: string
   deviceId: string
 }
@@ -37,6 +40,13 @@ export interface MobileUsageEvent {
 export interface MobileImportReport {
   imported: number
   duplicates: number
+  /** Confirmaciones de retiro (action "removed") importadas en esta pasada. */
+  removed: number
+  /** Álbumes eliminados de pc-outbox porque ya no están en el catálogo. */
+  cleaned: number
+  /** Referencias retiradas porque la carpeta de publicación ya no existía. */
+  missingAlbums: string[]
+  catalogBackupPaths: string[]
   invalid: Array<{ file: string; reason: string }>
   unknown: Array<{ file: string; postId: string; targetId: string }>
 }
@@ -47,6 +57,29 @@ export interface MobileExportReport {
   destinations: number
   skipped: Array<{ postId: string; title: string; reason: string }>
   catalogPath: string
+  missingAlbums: string[]
+  catalogBackupPaths: string[]
+}
+
+export interface MobileCatalogStatus {
+  configured: boolean
+  catalogExists: boolean
+  catalogPath: string | null
+  referencedDestinations: number
+  referencedAlbums: number
+  availableAlbums: number
+  missingAlbums: string[]
+  incompleteAlbums: string[]
+  archivedCatalogs: number
+  latestCatalogBackupPath: string | null
+}
+
+export interface MobileReconcileReport {
+  missingAlbums: string[]
+  pruned: number
+  cleaned: number
+  cleanupFailed: string[]
+  catalogBackupPath: string | null
 }
 
 export function mergeMobilePublications(existing: MobilePublication[], replacements: MobilePublication[]) {
@@ -84,7 +117,7 @@ export function nextMobileBatch(syncRoot: string) {
   return batchLabel(next)
 }
 
-export function nextMobileSpaceOrder(syncRoot: string, spaceName: string) {
+export function nextMobileSpaceOrder(syncRoot: string, spaceName: string, replacingPostId?: string) {
   const outbox = path.join(syncRoot, 'pc-outbox')
   fs.mkdirSync(outbox, { recursive: true })
   const sequencePath = path.join(outbox, 'space-sequences.json')
@@ -101,7 +134,22 @@ export function nextMobileSpaceOrder(syncRoot: string, spaceName: string) {
   if (!Number.isSafeInteger(previous) || Number(previous) < 0) {
     throw new TypeError(`El contador de publicaciones del espacio "${spaceName}" no es válido.`)
   }
-  const next = Number(previous) + 1
+  // Al exportar desde la app se reserva el primer hueco entre los álbumes
+  // activos, ignorando la versión anterior de esta misma publicación.
+  const activeOrders = new Set<number>()
+  const albumsRoot = path.join(outbox, 'publications')
+  if (replacingPostId && fs.existsSync(albumsRoot)) {
+    for (const entry of fs.readdirSync(albumsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(albumsRoot, entry.name, 'manifest.json'), 'utf8')) as { postId?: unknown; spaceName?: unknown; spaceOrder?: unknown }
+        const manifestKey = typeof manifest.spaceName === 'string' ? manifest.spaceName.trim().normalize('NFKC').toLocaleLowerCase() || 'general' : 'general'
+        if (String(manifest.postId || '') !== replacingPostId && manifestKey === key && Number.isSafeInteger(manifest.spaceOrder) && Number(manifest.spaceOrder) > 0) activeOrders.add(Number(manifest.spaceOrder))
+      } catch { /* Ignora carpetas temporales o manifiestos incompletos. */ }
+    }
+  }
+  let next = replacingPostId ? 1 : Number(previous) + 1
+  if (replacingPostId) while (activeOrders.has(next)) next += 1
   sequences[key] = next
   const temporaryPath = path.join(outbox, `space-sequences-${crypto.randomUUID()}.tmp`)
   fs.writeFileSync(temporaryPath, JSON.stringify(sequences, null, 2), 'utf8')
@@ -152,7 +200,7 @@ export function parseMobileUsageEvent(value: unknown): MobileUsageEvent {
   if (!validIdentifier(event.eventId) || !validIdentifier(event.postId) || !validIdentifier(event.targetId) || !validIdentifier(event.deviceId)) {
     throw new TypeError('El evento contiene identificadores no válidos.')
   }
-  if (event.action !== 'used') throw new TypeError('Tipo de acción no compatible.')
+  if (event.action !== 'used' && event.action !== 'removed') throw new TypeError('Tipo de acción no compatible.')
   if (typeof event.usedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(event.usedAt) || Number.isNaN(Date.parse(event.usedAt))) {
     throw new TypeError('La fecha del evento debe ser UTC en formato ISO 8601.')
   }
@@ -162,7 +210,7 @@ export function parseMobileUsageEvent(value: unknown): MobileUsageEvent {
     eventId: event.eventId,
     postId: event.postId,
     targetId: event.targetId,
-    action: 'used',
+    action: event.action,
     usedAt: event.usedAt,
     deviceId: event.deviceId,
   }
@@ -173,7 +221,7 @@ export function importMobileUsageFiles(
   targetExists: (postId: string, targetId: string) => boolean,
   recordUsage: (event: MobileUsageEvent) => boolean,
 ): MobileImportReport {
-  const report: MobileImportReport = { imported: 0, duplicates: 0, invalid: [], unknown: [] }
+  const report: MobileImportReport = { imported: 0, duplicates: 0, removed: 0, cleaned: 0, missingAlbums: [], catalogBackupPaths: [], invalid: [], unknown: [] }
   const inbox = path.join(syncRoot, 'android-inbox')
   if (!fs.existsSync(inbox)) return report
 
@@ -204,13 +252,84 @@ export function importMobileUsageFiles(
         report.invalid.push({ file: displayFile, reason: 'El identificador del dispositivo no coincide con su carpeta.' })
         continue
       }
-      if (!targetExists(event.postId, event.targetId)) {
+      // Un retiro es solo una señal de limpieza: se registra aunque la publicación ya no exista.
+      if (event.action === 'used' && !targetExists(event.postId, event.targetId)) {
         report.unknown.push({ file: displayFile, postId: event.postId, targetId: event.targetId })
         continue
       }
-      if (recordUsage(event)) report.imported += 1
-      else report.duplicates += 1
+      if (recordUsage(event)) {
+        report.imported += 1
+        if (event.action === 'removed') report.removed += 1
+      } else report.duplicates += 1
     }
   }
   return report
+}
+
+export interface MobileUsageSummary {
+  /** Destinos con al menos una confirmación de uso. */
+  used: Set<string>
+  /** Destinos cuyo último evento fue un retiro desde el móvil. */
+  removed: Set<string>
+}
+
+export function mobileTargetKey(postId: string, targetId: string) {
+  return `${postId}\u0000${targetId}`
+}
+
+export function summarizeMobileUsage(events: Array<{ postId: string; targetId: string; action: string; usedAt: string }>): MobileUsageSummary {
+  const used = new Set<string>()
+  const latest = new Map<string, { action: string; at: number }>()
+  for (const item of events) {
+    const key = mobileTargetKey(item.postId, item.targetId)
+    const at = Date.parse(item.usedAt)
+    if (item.action === 'used') used.add(key)
+    const previous = latest.get(key)
+    // En un empate gana el retiro: es lo último que la persona pudo hacer sobre una tarjeta ya marcada.
+    if (!previous || at > previous.at || (at === previous.at && item.action === 'removed')) latest.set(key, { action: item.action, at })
+  }
+  const removed = new Set<string>()
+  for (const [key, value] of latest) if (value.action === 'removed') removed.add(key)
+  return { used, removed }
+}
+
+/** Quita del catálogo las entradas de publicaciones eliminadas/archivadas y los destinos retirados desde el móvil. */
+export function pruneMobilePublications(
+  publications: MobilePublication[],
+  options: { postIsActive: (postId: string) => boolean; removed: Set<string> },
+) {
+  const kept: MobilePublication[] = []
+  const dropped: MobilePublication[] = []
+  for (const publication of publications) {
+    const gone = !options.postIsActive(publication.postId) || options.removed.has(mobileTargetKey(publication.postId, publication.targetId))
+    ;(gone ? dropped : kept).push(publication)
+  }
+  return { kept, dropped }
+}
+
+/**
+ * Elimina de pc-outbox/publications los álbumes (carpetas con manifest.json) que el catálogo ya no referencia.
+ * No toca carpetas ocultas (.caballocci-export-*) ni nada fuera de ese directorio.
+ */
+export function cleanUnreferencedMobileAlbums(syncRoot: string, publications: MobilePublication[]) {
+  const albumsRoot = path.join(syncRoot, 'pc-outbox', 'publications')
+  const result = { removed: [] as string[], failed: [] as string[] }
+  if (!fs.existsSync(albumsRoot)) return result
+  const referenced = new Set<string>()
+  for (const publication of publications) {
+    const parts = publication.manifestPath.replace(/\\/g, '/').split('/')
+    if (parts.length >= 4 && parts[0] === 'pc-outbox' && parts[1] === 'publications') referenced.add(parts[2]!)
+  }
+  for (const entry of fs.readdirSync(albumsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || referenced.has(entry.name)) continue
+    const directory = path.join(albumsRoot, entry.name)
+    if (!fs.existsSync(path.join(directory, 'manifest.json'))) continue
+    try {
+      fs.rmSync(directory, { recursive: true, force: true })
+      result.removed.push(entry.name)
+    } catch {
+      result.failed.push(entry.name)
+    }
+  }
+  return result
 }

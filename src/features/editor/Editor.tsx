@@ -424,6 +424,7 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       setPhoneExportMessage(result.publications
         ? `Lote ${result.batch}: publicación añadida al catálogo (${result.destinations} destinos).`
         : `No se exportó la publicación.${result.skipped[0] ? ` ${result.skipped[0].reason}` : ''}`)
+      if (result.missingAlbums.length) setPhoneExportMessage(value => value + ` Se detectaron y retiraron ${result.missingAlbums.length} carpetas ausentes del snapshot.`)
     } catch (error) {
       reportAppError(error, 'No se pudieron enviar los medios al celular')
       setPhoneExportError(true)

@@ -10,6 +10,7 @@ export interface Publication {
   captionPath: string
   scheduledAt: string | null
   used: boolean
+  batch?: string
 }
 
 export interface Catalog {
@@ -25,7 +26,9 @@ export interface UsageEvent {
   eventId: string
   postId: string
   targetId: string
-  action: 'used'
+  /** used: marcada como usada. removed: retirada del móvil (señal de limpieza para la PC). */
+  action: 'used' | 'removed'
+  /** Momento del evento; el nombre se conserva por compatibilidad con la versión 1. */
   usedAt: string
   deviceId: string
 }
@@ -52,6 +55,7 @@ export function parseCatalog(value: unknown): Catalog {
       captionPath: publication.captionPath,
       scheduledAt: typeof publication.scheduledAt === 'string' ? publication.scheduledAt : null,
       used: publication.used === true,
+      ...(typeof publication.batch === 'string' && publication.batch ? { batch: publication.batch } : {}),
     }
   })
   return {

@@ -176,8 +176,12 @@ export class PlannerDatabase {
 
   listMobileUsage(): Row[] { return this.mobileSync.listUsage() }
   hasMobileUsageEvent(eventId: string): boolean { return this.mobileSync.hasEvent(eventId) }
-  recordMobileUsage(event: { eventId: string; postId: string; targetId: string; action: 'used'; usedAt: string; deviceId: string; version: number }) {
+  recordMobileUsage(event: { eventId: string; postId: string; targetId: string; action: 'used' | 'removed'; usedAt: string; deviceId: string; version: number }) {
     return this.mobileSync.recordUsage(event)
+  }
+  listMobileAlbumCleanup(): Row[] { return this.mobileSync.listAlbumCleanup() }
+  recordMobileAlbumCleanup(event: { eventId: string; postId: string; title: string; folderName: string; batch: string; spaceName: string; spaceOrder: number | null; reason: string; occurredAt: string }) {
+    return this.mobileSync.recordAlbumCleanup(event)
   }
 
   getCatalogConfig(scope = ''): Row | undefined { return this.catalog.getConfig(scope) }
