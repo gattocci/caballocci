@@ -490,6 +490,6 @@ function ensurePostMediaFolder(project: string, postId: string) {
   return folder
 }
 
-app.on('before-quit', () => { database?.flush() })
+app.on('before-quit', () => { updater?.onAppWillQuit(); database?.flush() })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

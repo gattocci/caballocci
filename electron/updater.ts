@@ -18,6 +18,11 @@ export interface UpdateState {
 export class UpdateManager {
   private state: UpdateState
   private configured = false
+  private automaticChecksStarted = false
+  private automaticCheckTimer: ReturnType<typeof setTimeout> | null = null
+  private installFallbackTimer: ReturnType<typeof setTimeout> | null = null
+  private quittingForInstall = false
+  private checkInProgress = false
 
   constructor(
     private readonly getWindow: () => BrowserWindow | null,
@@ -39,31 +44,41 @@ export class UpdateManager {
   }
 
   startAutomaticChecks() {
-    if (!app.isPackaged) return
+    if (!app.isPackaged || this.automaticChecksStarted) return
+    this.automaticChecksStarted = true
     this.configure()
-    setTimeout(() => { void this.check().catch(() => undefined) }, 10_000)
+    void this.runAutomaticCheck()
+  }
+
+  stopAutomaticChecks() {
+    this.automaticChecksStarted = false
+    if (this.automaticCheckTimer) clearTimeout(this.automaticCheckTimer)
+    this.automaticCheckTimer = null
+    if (this.installFallbackTimer) clearTimeout(this.installFallbackTimer)
+    this.installFallbackTimer = null
+  }
+
+  onAppWillQuit() {
+    this.quittingForInstall = true
+    this.stopAutomaticChecks()
   }
 
   getState() { return { ...this.state } }
 
   async check() {
     if (!app.isPackaged) return this.getState()
-    if (this.state.status === 'checking' || this.state.status === 'downloading' || this.state.status === 'downloaded') return this.getState()
+    if (this.checkInProgress || ['checking', 'downloading', 'downloaded', 'installing'].includes(this.state.status)) return this.getState()
     this.configure()
-    this.setState({
-      status: 'checking',
-      message: 'Buscando actualizaciones...',
-      availableVersion: null,
-      releaseNotes: null,
-      releaseUrl: null,
-      percent: null,
-      transferred: null,
-      total: null,
+    this.checkInProgress = true
+    if (this.state.status !== 'available') this.setState({
+      status: 'checking', message: 'Buscando actualizaciones...', percent: null, transferred: null, total: null,
     })
     try {
       await autoUpdater.checkForUpdates()
     } catch (error) {
       this.reportError(error)
+    } finally {
+      this.checkInProgress = false
     }
     return this.getState()
   }
@@ -82,6 +97,8 @@ export class UpdateManager {
 
   async openReleaseNotes() {
     const url = this.state.releaseUrl || 'https://github.com/gattocci/caballocci/releases'
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') throw new Error('La direcciÃ³n de las notas de versiÃ³n no es vÃ¡lida.')
     await shell.openExternal(url)
   }
 
@@ -101,8 +118,33 @@ export class UpdateManager {
       return false
     }
     // The user already confirmed this action inside caballocci.
-    setImmediate(() => autoUpdater.quitAndInstall(true, true))
+    setImmediate(() => {
+      try {
+        autoUpdater.quitAndInstall(true, true)
+        this.installFallbackTimer = setTimeout(() => {
+          if (this.quittingForInstall) return
+          this.setState({ status: 'downloaded', message: 'La aplicaciÃ³n no se cerrÃ³ para instalar. Puedes volver a intentarlo.' })
+        }, 15_000)
+      } catch (error) {
+        this.setState({ status: 'downloaded', message: 'No se pudo iniciar la instalaciÃ³n: ' + (error instanceof Error ? error.message : String(error)) })
+      }
+    })
     return true
+  }
+
+  private async runAutomaticCheck() {
+    try {
+      await this.check()
+    } finally {
+      if (!this.automaticChecksStarted) return
+      const delay = this.state.status === 'error' ? 30 * 60 * 1_000 : 6 * 60 * 60 * 1_000
+      this.scheduleAutomaticCheck(delay)
+    }
+  }
+
+  private scheduleAutomaticCheck(delay: number) {
+    if (this.automaticCheckTimer) clearTimeout(this.automaticCheckTimer)
+    this.automaticCheckTimer = setTimeout(() => { this.automaticCheckTimer = null; void this.runAutomaticCheck() }, delay)
   }
 
   private configure() {
@@ -110,7 +152,6 @@ export class UpdateManager {
     this.configured = true
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = false
-    autoUpdater.on('checking-for-update', () => this.setState({ status: 'checking', message: 'Buscando actualizaciones...' }))
     autoUpdater.on('update-available', (info: UpdateInfo) => this.setState({
       status: 'available',
       message: 'Hay una actualización disponible.',
@@ -145,8 +186,8 @@ export class UpdateManager {
       releaseNotes: this.formatReleaseNotes(info.releaseNotes),
       releaseUrl: this.releaseUrl(info.version),
       percent: 100,
-      transferred: info.files?.[0]?.size ?? this.state.transferred,
-      total: info.files?.[0]?.size ?? this.state.total,
+      transferred: this.state.transferred,
+      total: this.state.total,
     }))
     autoUpdater.on('error', (error: Error) => this.reportError(error))
   }
@@ -160,16 +201,33 @@ export class UpdateManager {
       transferred: null,
       total: null,
     })
+    if (this.automaticChecksStarted) this.scheduleAutomaticCheck(30 * 60 * 1_000)
   }
 
   private formatReleaseNotes(notes: UpdateInfo['releaseNotes']) {
-    if (typeof notes === 'string') return notes.trim() || null
+    if (typeof notes === 'string') return this.notesAsPlainText(notes) || null
     if (!Array.isArray(notes)) return null
     const text = notes
-      .map(note => note.note?.trim() || '')
+      .map(note => this.notesAsPlainText(note.note || ''))
       .filter(Boolean)
       .join('\n\n')
     return text || null
+  }
+
+  private notesAsPlainText(notes: string) {
+    return notes
+      .replace(/<br\s*\/?\s*>/gi, '\n')
+      .replace(/<\/(p|li|h[1-6])\s*>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
   }
 
   private releaseUrl(version: string) {

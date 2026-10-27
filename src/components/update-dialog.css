@@ -1,0 +1,14 @@
+.update-dialog-backdrop{position:fixed;inset:0;z-index:11000;display:grid;place-items:center;padding:24px;background:#080b09b8;backdrop-filter:blur(4px)}
+.update-dialog{position:relative;width:min(540px,100%);max-height:min(680px,calc(100vh - 48px));overflow:auto;border:1px solid #3a493e;border-top:3px solid #8ab896;border-radius:10px;background:linear-gradient(145deg,#19201b,#111613);box-shadow:0 28px 90px #000b;padding:30px;color:#e2e9e3}
+.update-dialog-close{position:absolute;top:15px;right:15px;display:grid;place-items:center;width:32px;height:32px;border:1px solid #354038;border-radius:5px;background:#1a211c;color:#aab5ac;cursor:pointer}
+.update-dialog-close:hover{color:#fff;background:#273129}
+.update-dialog-eyebrow{color:#91c39d;font:9px 'DM Mono',monospace;letter-spacing:.12em}
+.update-dialog h2{margin:8px 36px 5px 0;font-size:23px;letter-spacing:-.03em}
+.update-dialog-message{margin:0;color:#aab5ad;font-size:12px}
+.update-dialog-notes{max-height:300px;overflow:auto;margin-top:22px;padding:16px;border:1px solid #303a33;border-radius:6px;background:#111613}
+.update-dialog-notes strong{font-size:11px}
+.update-dialog-notes p{margin:9px 0 0;color:#b5c0b7;font-size:11px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.update-dialog-progress{display:flex;align-items:center;gap:10px;margin-top:16px;color:#b5c0b7;font:10px 'DM Mono',monospace}
+.update-dialog-progress progress{flex:1;height:6px;accent-color:#8ab896}
+.update-dialog footer{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:20px}
+@media(max-width:600px){.update-dialog{padding:24px 18px}.update-dialog footer{justify-content:stretch}.update-dialog footer button{flex:1;justify-content:center}}
