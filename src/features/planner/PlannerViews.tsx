@@ -1,18 +1,19 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { BoardCardColorPicker, MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
 import { createPortal } from 'react-dom'
 import {
   addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format,
   isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths,
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Archive, ArchiveRestore, CalendarDays, ChevronLeft, ChevronRight, Clock3, FileImage, FileText, Film, FolderOpen, FolderPlus, GripVertical, List, Minimize2, MoreHorizontal, Pencil, Plus, Smartphone, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, CalendarDays, ChevronLeft, ChevronRight, FolderPlus, GripVertical, List, Pencil, Smartphone, Trash2 } from 'lucide-react'
 import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { postColors } from '../../shared/postColors'
 import { PlatformMark, ViewHeading } from '../../components/layout/AppShell'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { postMatchesQuery, usePlanner } from '../../app/store'
 import { useSelection } from '../../app/useSelection'
-import type { MediaAsset, Post, WorkGroup } from '../../shared/types'
+import type { Post, WorkGroup } from '../../shared/types'
 import './planner.css'
 
 function fromLocalDateTimeInput(value: string) {
@@ -21,371 +22,18 @@ function fromLocalDateTimeInput(value: string) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-function timeUntil(value: string, now: number) {
-  const minutes = Math.round((new Date(value).getTime() - now) / 60_000)
-  const absolute = Math.abs(minutes)
-  const days = Math.floor(absolute / 1440)
-  const hours = Math.floor((absolute % 1440) / 60)
-  const rest = absolute % 60
-  const amount = days ? `${days} d ${hours} h` : hours ? `${hours} h ${rest} min` : `${rest} min`
-  return minutes < 0 ? `Hace ${amount}` : `En ${amount}`
-}
-
-function PostCard({ post, onSelect, onDrag, onDelete, onUnschedule, note, now, onColor, onNote }: { post: Post; onSelect(): void; onDrag(): void; onDelete(): void; onUnschedule(): void; note: string; now: number; onColor(color: string): void; onNote(note: string): void }) {
-  const distribution = post.distribution || []
-  const published = distribution.filter(target => target.status === 'published').length
-  const [actionsOpen, setActionsOpen] = useState(false)
-  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number; bottom: number } | null>(null)
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  useLayoutEffect(() => {
-    const menu = menuRef.current
-    if (!actionsOpen || !menuAnchor || !menu) return
-    const { width, height } = menu.getBoundingClientRect()
-    const margin = 8
-    const left = Math.max(margin, Math.min(menuAnchor.right - width, window.innerWidth - width - margin))
-    const below = menuAnchor.bottom + 4
-    const top = below + height <= window.innerHeight - margin
-      ? below
-      : Math.max(margin, menuAnchor.top - height - 4)
-    setMenuPosition({ top, left })
-  }, [actionsOpen, menuAnchor])
-  const closeActions = () => {
-    setActionsOpen(false)
-    setMenuAnchor(null)
-    setMenuPosition(null)
-  }
-  useEffect(() => {
-    if (!actionsOpen) return
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (target instanceof Node && (menuRef.current?.contains(target) || triggerRef.current?.contains(target))) return
-      closeActions()
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      closeActions()
-      triggerRef.current?.focus()
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [actionsOpen])
-  return <article className={'post-card' + (post.scheduledAt && new Date(post.scheduledAt).getTime() < now ? ' past' : '')} draggable onDragStart={onDrag} onClick={onSelect} style={{ '--post-color': post.color } as React.CSSProperties}>
-    <div className="card-top"><div>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}</div><button ref={triggerRef} type="button" className="timeline-post-menu-trigger" aria-label={`Acciones para ${post.title || 'publicación'}`} aria-expanded={actionsOpen} onClick={event => { event.stopPropagation(); if (actionsOpen) closeActions(); else { const rect = event.currentTarget.getBoundingClientRect(); setMenuAnchor({ top: rect.top, right: rect.right, bottom: rect.bottom }); setMenuPosition(null); setActionsOpen(true) } }}><MoreHorizontal size={15} /></button></div>
-    {actionsOpen && menuAnchor && createPortal(<div ref={menuRef} className="timeline-post-menu" style={{ top: menuPosition?.top ?? 0, left: menuPosition?.left ?? 0, visibility: menuPosition ? 'visible' : 'hidden' }} onClick={event => event.stopPropagation()}><button type="button" onClick={() => { closeActions(); onSelect() }}><Pencil size={13} />Editar publicación</button><button type="button" className="timeline-unschedule-action" onClick={() => { closeActions(); onUnschedule() }}><CalendarDays size={13} />Quitar de la línea de tiempo</button><div className="timeline-color-picker"><span>Color de tarjeta</span><div>{postColors.map(color => <button type="button" key={color.value} aria-label={color.label} aria-pressed={post.color === color.value} title={color.label} style={{ backgroundColor: color.value }} onClick={() => onColor(color.value)} />)}</div></div><label className="timeline-note-input">Nota breve<input type="text" maxLength={120} value={note} placeholder="Añadir nota…" onChange={event => onNote(event.target.value)} /></label><button type="button" className="timeline-delete-action" onClick={() => { closeActions(); onDelete() }}><Trash2 size={13} />Eliminar definitivamente</button></div>, document.body)}
-    <span className="type-label">{contentLabels[post.contentType]}</span>
-    <h3>{post.title || 'Publicación sin título'}</h3>
-    {note && <small className="timeline-card-note" title={note}>{note}</small>}
-    <footer><span><Clock3 size={12} />{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span><i>{post.scheduledAt ? timeUntil(post.scheduledAt, now) : distribution.length ? `${published}/${distribution.length} destinos` : statusMeta[post.status].label}</i></footer>
-  </article>
-}
-
-export function Timeline({ onNewScheduled }: { onNewScheduled(scheduledAt: string): void }) {
-  const { posts: allPosts, save, remove, select, activeSpace, query } = usePlanner()
-  const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
-  const [anchor, setAnchor] = useState(new Date())
-  const [periodDays, setPeriodDays] = useState<7 | 14>(() => {
-    try { return localStorage.getItem('caballocci.timeline-range.all') === '14' ? 14 : 7 } catch { return 7 }
-  })
-  const [dragged, setDragged] = useState<string | null>(null)
-  const [newPostTime, setNewPostTime] = useState(() => {
-    try { return localStorage.getItem(`caballocci.timeline-time.${activeSpace || 'all'}`) || '10:00' } catch { return '10:00' }
-  })
-  const [addTarget, setAddTarget] = useState<{ day: string; label: string } | null>(null)
-  const [existingSearch, setExistingSearch] = useState('')
-  const [addError, setAddError] = useState('')
-  const [pendingDelete, setPendingDelete] = useState<Post | null>(null)
-  const [deleteError, setDeleteError] = useState('')
-  const [now, setNow] = useState(() => Date.now())
-  const [timelineNotes, setTimelineNotes] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('caballocci.timeline-notes') || '{}') as Record<string, string> } catch { return {} }
-  })
-  const rangePreferenceKey = `caballocci.timeline-range.${activeSpace || 'all'}`
-  const timePreferenceKey = `caballocci.timeline-time.${activeSpace || 'all'}`
-  useEffect(() => {
-    try { setPeriodDays(localStorage.getItem(rangePreferenceKey) === '14' ? 14 : 7) } catch { setPeriodDays(7) }
-  }, [rangePreferenceKey])
-  useEffect(() => {
-    try { setNewPostTime(localStorage.getItem(timePreferenceKey) || '10:00') } catch { setNewPostTime('10:00') }
-  }, [timePreferenceKey])
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
-    return () => window.clearInterval(timer)
-  }, [])
-  const updateTimelineNote = (postId: string, note: string) => {
-    setTimelineNotes(current => {
-      const next = { ...current, [postId]: note.slice(0, 120) }
-      try { localStorage.setItem('caballocci.timeline-notes', JSON.stringify(next)) } catch { /* Notes are optional preferences. */ }
-      return next
-    })
-  }
-  const choosePeriod = (days: 7 | 14) => {
-    setPeriodDays(days)
-    try { localStorage.setItem(rangePreferenceKey, String(days)) } catch { /* Preferences are optional. */ }
-  }
-  const scheduleForDay = (day: Date, time = newPostTime) => {
-    const [hours, minutes] = time.split(':').map(Number)
-    const date = new Date(day)
-    date.setHours(hours || 0, minutes || 0, 0, 0)
-    return date.toISOString()
-  }
-  const chooseTime = (time: string) => {
-    setNewPostTime(time)
-    try { localStorage.setItem(timePreferenceKey, time) } catch { /* Preferences are optional. */ }
-  }
-  const unschedule = (post: Post) => void runWithErrorReporting(() => save({ ...post, scheduledAt: null, status: post.status === 'scheduled' ? 'draft' : post.status }), 'No se pudo quitar la fecha de la publicación')
-  const days = Array.from({ length: periodDays }, (_, i) => addDays(startOfWeek(anchor, { weekStartsOn: 1 }), i))
-  const scheduled = posts.filter(p => p.scheduledAt)
-  const availablePosts = posts.filter(post => post.status !== 'archived' && post.status !== 'published' && postMatchesQuery(post, existingSearch))
-  const rangeStart = days[0]
-  const rangeEnd = addDays(days[periodDays - 1], 1)
-  const visibleScheduled = scheduled.filter(post => post.scheduledAt && parseISO(post.scheduledAt) >= rangeStart && parseISO(post.scheduledAt) < rangeEnd)
-  const outlookStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-  const outlook = Array.from({ length: 4 }, (_, index) => {
-    const start = addDays(outlookStart, index * 7)
-    const end = addDays(start, 7)
-    return { start, end, count: scheduled.filter(post => post.scheduledAt && parseISO(post.scheduledAt) >= start && parseISO(post.scheduledAt) < end).length }
-  })
-  const nextScheduled = scheduled.map(post => ({ post, time: new Date(post.scheduledAt!).getTime() })).filter(item => item.time >= now).sort((a, b) => a.time - b.time)[0]
-  const drop = (day: Date) => {
-    const post = posts.find(p => p.id === dragged)
-    if (!post) return
-    const old = post.scheduledAt ? parseISO(post.scheduledAt) : new Date()
-    const next = new Date(day)
-    next.setHours(old.getHours(), old.getMinutes())
-    void runWithErrorReporting(async () => {
-      await save({ ...post, scheduledAt: next.toISOString(), status: post.status === 'idea' ? 'scheduled' : post.status })
-      setDragged(null)
-    }, 'No se pudo reprogramar la publicación')
-  }
-  return <section className="workspace timeline-workspace">
-    <ViewHeading title="Línea de tiempo" subtitle="Planifica la semana y revisa de un vistazo el ritmo de las próximas cuatro.">
-      <div className="timeline-heading-controls"><div className="segmented" role="group" aria-label="Duración de la vista"><button type="button" aria-pressed={periodDays === 7} className={periodDays === 7 ? 'active' : ''} onClick={() => choosePeriod(7)}>Semana</button><button type="button" aria-pressed={periodDays === 14} className={periodDays === 14 ? 'active' : ''} onClick={() => choosePeriod(14)}>2 semanas</button></div><div className="period-controls"><button type="button" aria-label="Periodo anterior" onClick={() => setAnchor(addDays(anchor, -periodDays))}><ChevronLeft size={17} /></button><button type="button" onClick={() => setAnchor(new Date())}>Hoy</button><button type="button" aria-label="Periodo siguiente" onClick={() => setAnchor(addDays(anchor, periodDays))}><ChevronRight size={17} /></button><span>{format(days[0], 'd MMM', { locale: es })} — {format(days[periodDays - 1], 'd MMM yyyy', { locale: es })}</span></div></div>
-    </ViewHeading>
-    <section className="timeline-outlook" aria-label="Carga de publicaciones de las próximas cuatro semanas"><span className="timeline-outlook-label">PRÓXIMAS CUATRO SEMANAS</span>{outlook.map((week, index) => <button type="button" key={week.start.toISOString()} aria-label={`Ver semana ${index + 1}, ${week.count} publicaciones`} onClick={() => { choosePeriod(7); setAnchor(week.start) }}><span>{index === 0 ? 'Esta semana' : `Semana ${index + 1}`}</span><b>{week.count}</b><small>{format(week.start, 'd MMM', { locale: es })} – {format(addDays(week.end, -1), 'd MMM', { locale: es })}</small><i style={{ '--week-load': `${Math.min(100, week.count * 14)}%` } as React.CSSProperties} /></button>)}</section>
-    <div className="timeline-next" role="status">{nextScheduled ? <><Clock3 size={14} /><span><strong>Siguiente publicación</strong><b>{timeUntil(new Date(nextScheduled.time).toISOString(), now)}</b><small>{nextScheduled.post.title || 'Publicación sin título'} · {format(new Date(nextScheduled.time), 'EEEE d MMM · HH:mm', { locale: es })}</small></span></> : <><Clock3 size={14} /><span><strong>Sin próximas publicaciones</strong><small>Las publicaciones con fecha futura aparecerán aquí.</small></span></>}</div>
-    <div className="timeline-shell">
-      <div className="timeline-legend"><span>PUBLICACIONES · {periodDays === 7 ? 'SEMANA' : '2 SEMANAS'}</span><span>{visibleScheduled.length} programadas</span></div>
-      <div className="timeline-scroll"><div className="timeline-grid" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(${periodDays === 7 ? 110 : 125}px, 1fr))` }}>{days.map(day => { const dayPosts = scheduled.filter(post => isSameDay(parseISO(post.scheduledAt!), day)); const dayLabel = format(day, 'EEEE d MMMM', { locale: es }); return <div key={day.toISOString()} className={'timeline-day ' + (isSameDay(day, new Date()) ? 'today' : '')} onDragOver={e => e.preventDefault()} onDrop={() => drop(day)}><header><span>{format(day, 'EEE', { locale: es })}</span><b>{format(day, 'd')}</b><small>{dayPosts.length}</small><button type="button" aria-label={`Añadir publicación para ${dayLabel}`} title="Añadir publicación" onClick={() => { setAddTarget({ day: day.toISOString(), label: dayLabel }); setExistingSearch(''); setAddError('') }}><Plus size={13} /></button></header><div className="day-track">{dayPosts.map(post => <PostCard key={post.id} post={post} note={timelineNotes[post.id] || ''} now={now} onSelect={() => select(post.id)} onDrag={() => setDragged(post.id)} onUnschedule={() => unschedule(post)} onDelete={() => { setPendingDelete(post); setDeleteError('') }} onColor={color => void runWithErrorReporting(() => save({ ...post, color }), 'No se pudo cambiar el color')} onNote={note => updateTimelineNote(post.id, note)} />)}{!dayPosts.length && <span className="timeline-day-empty">Sin publicaciones</span>}</div></div> })}</div></div>
-    </div>
-    <div className="timeline-footer"><div><strong>{visibleScheduled.length} programadas en esta vista</strong><small>Arrastra una tarjeta para cambiar su fecha</small></div><div className="mini-stats"><span><b>{posts.filter(p => p.status === 'draft').length}</b>Borradores</span><span><b>{posts.filter(p => p.status === 'review').length}</b>En revisión</span><span><b>{posts.filter(p => p.status === 'scheduled').length}</b>Programadas</span></div></div>
-    {addTarget && <div className="timeline-add-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setAddTarget(null) }}><section className="timeline-add-dialog" role="dialog" aria-modal="true" aria-labelledby="timeline-add-title"><header><div><h2 id="timeline-add-title">Añadir al {addTarget.label}</h2><p>Elige una hora y cómo quieres añadir la publicación.</p></div><button type="button" aria-label="Cerrar" onClick={() => setAddTarget(null)}>×</button></header><div className="timeline-add-actions"><label className="timeline-modal-time">Hora de publicación<input type="time" value={newPostTime} onChange={event => chooseTime(event.target.value || '10:00')} /><small>Tu última hora elegida queda guardada para este espacio.</small></label><div className="timeline-time-presets" role="group" aria-label="Horas sugeridas">{['09:00', '12:00', '15:00', '18:00'].map(time => <button type="button" key={time} aria-pressed={newPostTime === time} onClick={() => chooseTime(time)}>{time}</button>)}</div><button type="button" onClick={() => { const scheduledAt = scheduleForDay(new Date(addTarget.day)); setAddTarget(null); onNewScheduled(scheduledAt) }}><Plus size={16} /><span><b>Crear publicación nueva</b><small>Se abrirá el editor con la fecha y hora elegidas.</small></span></button><label>O añadir una publicación existente<input type="search" value={existingSearch} onChange={event => setExistingSearch(event.target.value)} placeholder="Buscar por título o contenido" /></label><div className="timeline-existing-list">{availablePosts.length ? availablePosts.map(post => <button type="button" key={post.id} onClick={() => { setAddError(''); void runWithErrorReporting(async () => { try { await save({ ...post, scheduledAt: scheduleForDay(new Date(addTarget.day)), status: 'scheduled' }); setAddTarget(null) } catch (error) { setAddError(error instanceof Error ? error.message : 'No se pudo añadir la publicación.'); reportAppError(error, 'No se pudo añadir la publicación') } }, 'No se pudo añadir la publicación') }}><span>{post.title || 'Publicación sin título'}</span><small>{statusMeta[post.status].label} · {contentLabels[post.contentType]}{post.scheduledAt ? ` · ${format(parseISO(post.scheduledAt), 'd MMM HH:mm', { locale: es })}` : ' · Sin fecha'}</small></button>) : <p>No hay publicaciones disponibles para añadir.</p>}</div>{addError && <p className="timeline-add-error" role="alert">{addError}</p>}</div></section></div>}
-    {pendingDelete && <div className="timeline-add-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setPendingDelete(null) }}><section className="timeline-add-dialog timeline-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="timeline-delete-title"><header><div><h2 id="timeline-delete-title">¿Eliminar definitivamente esta publicación?</h2><p>“{pendingDelete.title || 'Publicación sin título'}” se borrará de toda la aplicación, incluidas sus colecciones. Si solo quieres quitarla de la planificación, elige “Quitar de la línea de tiempo”.</p></div><button type="button" aria-label="Cerrar" onClick={() => setPendingDelete(null)}>×</button></header>{deleteError && <p className="timeline-add-error" role="alert">{deleteError}</p>}<footer><button type="button" className="settings-button" onClick={() => setPendingDelete(null)}>Cancelar</button><button type="button" className="timeline-confirm-delete" onClick={() => { const post = pendingDelete; void runWithErrorReporting(async () => { try { await remove(post.id); setPendingDelete(null) } catch (error) { setDeleteError(error instanceof Error ? error.message : 'No se pudo eliminar la publicación.'); reportAppError(error, 'No se pudo eliminar la publicación') } }, 'No se pudo eliminar la publicación') }}><Trash2 size={14} /> Eliminar definitivamente</button></footer></section></div>}
-  </section>
-}
-
-export function CalendarView() {
-  const { posts: allPosts, select, save, activeSpace, query, setQuery, selectedId } = usePlanner()
-  const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
-  const [month, setMonth] = useState(new Date())
-  const [dayPopover, setDayPopover] = useState<{ dayKey: string; anchor: HTMLElement } | null>(null)
-  const [dayPopoverPosition, setDayPopoverPosition] = useState<{ top: number; left: number } | null>(null)
-  const dayPopoverRef = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    if (!dayPopover) return
-    const updatePosition = () => {
-      const popover = dayPopoverRef.current
-      if (!popover) return
-      const { height } = popover.getBoundingClientRect()
-      const margin = 12
-      const editor = document.querySelector('.editor')
-      const editorRect = editor?.getBoundingClientRect()
-      const rect = dayPopover.anchor.getBoundingClientRect()
-      const availableLeftWidth = editorRect ? editorRect.left - margin * 2 : 0
-      const dockToEditor = editorRect && availableLeftWidth >= 200
-      popover.style.width = dockToEditor ? `${Math.min(320, availableLeftWidth)}px` : ''
-      const popoverWidth = popover.getBoundingClientRect().width
-      const left = dockToEditor && editorRect
-        ? editorRect.left - popoverWidth - margin
-        : Math.max(margin, Math.min(rect.left, window.innerWidth - popoverWidth - margin))
-      const top = editorRect
-        ? Math.max(margin, Math.min(editorRect.top + margin, window.innerHeight - height - margin))
-        : rect.bottom + height <= window.innerHeight - margin
-          ? rect.bottom + 6
-          : Math.max(margin, rect.top - height - 6)
-      setDayPopoverPosition({ top, left })
-    }
-    updatePosition()
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [dayPopover, selectedId])
-  useEffect(() => {
-    if (!dayPopover) return
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (target instanceof Element && target.closest('.editor-backdrop')) return
-      if (target instanceof Node && (dayPopoverRef.current?.contains(target) || dayPopover.anchor.contains(target))) return
-      setDayPopover(null)
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setDayPopover(null)
-      dayPopover.anchor.focus()
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [dayPopover])
-  const changeMonth = (nextMonth: Date) => {
-    setMonth(nextMonth)
-    setDayPopover(null)
-    setDayPopoverPosition(null)
-  }
-  const openPost = (postId: string) => {
-    setDayPopover(null)
-    setDayPopoverPosition(null)
-    select(postId)
-  }
-  const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
-  const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
-  const days = eachDayOfInterval({ start, end })
-  const monthScheduledPosts = posts.filter(post => post.scheduledAt && isSameMonth(parseISO(post.scheduledAt), month))
-  const drop = (event: React.DragEvent, day: Date) => {
-    const post = posts.find(p => p.id === event.dataTransfer.getData('post'))
-    if (!post) return
-    const next = new Date(day)
-    next.setHours(post.scheduledAt ? parseISO(post.scheduledAt).getHours() : 10)
-    void runWithErrorReporting(() => save({ ...post, scheduledAt: next.toISOString() }), 'No se pudo reprogramar la publicación')
-  }
-  return <section className="workspace">
-    <ViewHeading title="Calendario" subtitle="Una vista clara de tu ritmo de publicación."><div className="period-controls"><button aria-label="Mes anterior" onClick={() => changeMonth(subMonths(month, 1))}><ChevronLeft size={17} /></button><button onClick={() => changeMonth(new Date())}>Hoy</button><button aria-label="Mes siguiente" onClick={() => changeMonth(addMonths(month, 1))}><ChevronRight size={17} /></button><span>{format(month, 'MMMM yyyy', { locale: es })}</span></div></ViewHeading>
-    {!monthScheduledPosts.length && <div className="planner-empty-inline calendar-empty" role="status"><strong>{query.trim() && !posts.length ? 'No hay publicaciones que coincidan con la búsqueda' : `No hay publicaciones programadas en ${format(month, 'MMMM', { locale: es })}`}</strong><span>{query.trim() && !posts.length ? 'Borra la búsqueda para volver a ver el calendario completo.' : 'Las publicaciones con fecha aparecerán aquí.'}</span>{query.trim() && !posts.length && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
-    <div className="calendar"><div className="weekdays">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <span key={d}>{d}</span>)}</div><div className="month-grid">{days.map(day => {
-      const dayKey = format(day, 'yyyy-MM-dd')
-      const dayPosts = posts.filter(post => post.scheduledAt && isSameDay(parseISO(post.scheduledAt), day))
-        .sort((first, second) => new Date(first.scheduledAt || '').getTime() - new Date(second.scheduledAt || '').getTime())
-      const visibleDayPosts = dayPosts.slice(0, 3)
-      const hiddenCount = dayPosts.length - visibleDayPosts.length
-      return <div className={`month-day ${!isSameMonth(day, month) ? 'muted ' : ''}${isSameDay(day, new Date()) ? 'today' : ''}`} key={dayKey} onClick={event => {
-        if ((event.target as HTMLElement).closest('button')) return
-        setDayPopover({ dayKey, anchor: event.currentTarget })
-        setDayPopoverPosition(null)
-      }} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, day)}>
-        <button type="button" className="month-day-date" aria-label={`Ver publicaciones del ${format(day, 'd MMMM yyyy', { locale: es })}`} aria-haspopup="dialog" aria-expanded={dayPopover?.dayKey === dayKey} onClick={event => {
-          if (dayPopover?.dayKey === dayKey) {
-            setDayPopover(null)
-            setDayPopoverPosition(null)
-          } else {
-            setDayPopover({ dayKey, anchor: event.currentTarget })
-            setDayPopoverPosition(null)
-          }
-        }}>{format(day, 'd')}</button>
-        <div className="month-day-posts">
-          {visibleDayPosts.map(post => <button draggable onDragStart={event => event.dataTransfer.setData('post', post.id)} key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} onClick={() => openPost(post.id)} title={post.title}><span>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span>{post.title}</button>)}
-          {hiddenCount > 0 && <button type="button" className="month-day-more" aria-haspopup="dialog" aria-expanded={dayPopover?.dayKey === dayKey} onClick={event => {
-            setDayPopover({ dayKey, anchor: event.currentTarget })
-            setDayPopoverPosition(null)
-          }}>+ {hiddenCount} más</button>}
-        </div>
-      </div>
-    })}</div></div>
-    {dayPopover && createPortal((() => {
-      const selectedDay = parseISO(dayPopover.dayKey)
-      const dayPosts = posts.filter(post => post.scheduledAt && isSameDay(parseISO(post.scheduledAt), selectedDay))
-        .sort((first, second) => new Date(first.scheduledAt || '').getTime() - new Date(second.scheduledAt || '').getTime())
-      return <div ref={dayPopoverRef} className="calendar-day-popover" role="dialog" aria-label={`Publicaciones del ${format(selectedDay, 'd MMMM yyyy', { locale: es })}`} style={{ top: dayPopoverPosition?.top ?? 0, left: dayPopoverPosition?.left ?? 0, visibility: dayPopoverPosition ? 'visible' : 'hidden' }}>
-        <header><strong>{format(selectedDay, 'EEEE d MMMM', { locale: es })}</strong><button type="button" aria-label="Cerrar publicaciones del día" onClick={() => { setDayPopover(null); setDayPopoverPosition(null) }}>×</button></header>
-        <div className="calendar-day-popover-list">{dayPosts.length ? dayPosts.map(post => <button type="button" key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => openPost(post.id)} title={post.title}>
-          <time>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</time><span>{post.title || 'Publicación sin título'}</span>
-        </button>) : <p>No hay publicaciones programadas este día.</p>}</div>
-      </div>
-    })(), document.body)}
-  </section>
-}
-
-export function BoardDaySwitcher() {
-  const { posts: allPosts, selectedId, select, activeSpace, query } = usePlanner()
-  const selectedPost = allPosts.find(post => post.id === selectedId)
-  const [expanded, setExpanded] = useState(false)
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
-  const scheduledDay = selectedPost?.scheduledAt ? parseISO(selectedPost.scheduledAt) : null
-  const dayPosts = scheduledDay
-    ? posts.filter(post => post.scheduledAt && isSameDay(parseISO(post.scheduledAt), scheduledDay))
-      .sort((first, second) => new Date(first.scheduledAt || '').getTime() - new Date(second.scheduledAt || '').getTime())
-    : []
-
-  useLayoutEffect(() => {
-    if (!selectedPost?.scheduledAt) {
-      setPosition(null)
-      return
-    }
-    const updatePosition = () => {
-      const panel = panelRef.current
-      const editor = document.querySelector('.editor')
-      if (!editor) {
-        setPosition(null)
-        return
-      }
-      const editorRect = editor.getBoundingClientRect()
-      const width = expanded ? Math.min(320, window.innerWidth - 24, Math.max(200, editorRect.left - 24)) : 42
-      const estimatedExpandedHeight = Math.min(420, 52 + dayPosts.length * 38 + 12)
-      const height = expanded ? panel?.getBoundingClientRect().height || estimatedExpandedHeight : 42
-      setPosition({
-        top: Math.max(12, Math.min(editorRect.top + 12, window.innerHeight - height - 12)),
-        left: Math.max(12, editorRect.left - width - 12),
-        width,
-      })
-    }
-    updatePosition()
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [selectedPost?.id, selectedPost?.scheduledAt, expanded, dayPosts.length])
-
-  useEffect(() => {
-    if (!expanded) return
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (target instanceof Element && target.closest('.editor-backdrop')) return
-      if (target instanceof Node && panelRef.current?.contains(target)) return
-      setExpanded(false)
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExpanded(false)
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [expanded])
-
-  if (!selectedPost?.scheduledAt || !scheduledDay || !position) return null
-  return createPortal(<div ref={panelRef} className={`calendar-day-popover board-day-switcher${expanded ? ' expanded' : ' minimized'}`} role={expanded ? 'dialog' : undefined} aria-label={expanded ? `Publicaciones del ${format(scheduledDay, 'd MMMM yyyy', { locale: es })}` : undefined} style={{ top: position.top, left: position.left, width: position.width }}>
-    {expanded ? <>
-      <header><strong>{format(scheduledDay, 'EEEE d MMMM', { locale: es })}</strong><button type="button" aria-label="Minimizar publicaciones del día" onClick={() => setExpanded(false)}><Minimize2 size={13} /></button></header>
-      <div className="calendar-day-popover-list">{dayPosts.map(post => <button type="button" key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => select(post.id)} title={post.title}>
-        <time>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</time><span>{post.title || 'Publicación sin título'}</span>
-      </button>)}</div>
-    </> : <button type="button" className="board-day-switcher-trigger" aria-label={`Ver publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} title={`Publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} onClick={() => setExpanded(true)}>
-      <CalendarDays size={17} /><span>{format(scheduledDay, 'd')}</span>
-    </button>}
-  </div>, document.body)
-}
 
 export function Board() {
-  const { posts: allPosts, workGroups, move, select, activeSpace, query, setQuery, saveWorkGroup, setWorkGroupPosts, setWorkGroupArchived, removeWorkGroup } = usePlanner()
+  const { posts: allPosts, workGroups, move, select, save, activeSpace, query, setQuery, saveWorkGroup, setWorkGroupPosts, setWorkGroupArchived, removeWorkGroup } = usePlanner()
   const [visiblePerColumn, setVisiblePerColumn] = useState(30)
   const [boardMode, setBoardMode] = useState<'kanban' | 'list' | 'calendar'>(() => {
     try { return (localStorage.getItem('caballocci.board-view.all') as 'kanban' | 'list' | 'calendar') || 'kanban' } catch { return 'kanban' }
+  })
+  const [boardCardDetailLevel, setBoardCardDetailLevel] = useState<BoardCardDetailLevel>(() => {
+    try {
+      const saved = localStorage.getItem('caballocci.board-card-details')
+      return saved === 'hidden' || saved === 'full' ? saved : 'discreet'
+    } catch { return 'discreet' }
   })
   const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(new Set())
   const [listStatus, setListStatus] = useState('')
@@ -401,6 +49,7 @@ export function Board() {
   const [mobileExportBusy, setMobileExportBusy] = useState(false)
   const [mobileExportMessage, setMobileExportMessage] = useState('')
   const [mobileExportSkipped, setMobileExportSkipped] = useState<string[]>([])
+  const [mobilePublicationState, setMobilePublicationState] = useState<MobilePublicationState | null>(null)
   const [calendarMonth, setCalendarMonth] = useState(new Date())
   const [expandedCalendarDay, setExpandedCalendarDay] = useState<string | null>(null)
   const [calendarDefaultTime, setCalendarDefaultTime] = useState('10:00')
@@ -423,6 +72,21 @@ export function Board() {
   const [pendingMediaCompression, setPendingMediaCompression] = useState<{ target: 'group' | 'post'; id: string; name: string; mediaCount: number } | null>(null)
   const [workingOnGroup, setWorkingOnGroup] = useState(false)
   const [mediaCompressionMessage, setMediaCompressionMessage] = useState('')
+  const refreshMobilePublicationState = async () => {
+    try {
+      setMobilePublicationState(await window.planner.mobileSync.publicationState())
+    } catch (error) {
+      reportAppError(error, 'No se pudo consultar el estado de envíos al celular')
+    }
+  }
+  const changePostCardColor = (post: Post, color: string) => runWithErrorReporting(async () => {
+    const targets = selected.size > 1 && selected.has(post.id) ? [...selected] : [post.id]
+    for (const id of targets) {
+      const target = allPosts.find(item => item.id === id)
+      if (target) await save({ ...target, color })
+    }
+  }, 'No se pudo cambiar el color de las tarjetas')
+  useEffect(() => { void refreshMobilePublicationState() }, [])
   useEffect(() => {
     setGroupDeleteMode('group')
     setGroupPostsToDelete([])
@@ -440,6 +104,10 @@ export function Board() {
     setBoardMode(mode)
     try { localStorage.setItem(boardPreferenceKey, mode) } catch { /* Preferences are optional. */ }
     clear()
+  }
+  const changeBoardCardDetailLevel = (level: BoardCardDetailLevel) => {
+    setBoardCardDetailLevel(level)
+    try { localStorage.setItem('caballocci.board-card-details', level) } catch { /* Preferences are optional. */ }
   }
   const matchingPosts = (selectedWorkGroup
     ? allPosts.filter(post => selectedWorkGroup.postIds.includes(post.id))
@@ -470,7 +138,9 @@ export function Board() {
   useEffect(() => { setListPage(0); clear() }, [listStatus, listFormat, listGroup, listFrom, listTo, clear])
   useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') clear() }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [clear])
   const bulkMove = (status: Post['status']) => runWithErrorReporting(async () => {
-    for (const id of selected) if (allPosts.some(item => item.id === id)) await move(id, status)
+    const targets = [...selected].filter(id => allPosts.some(item => item.id === id))
+    for (const id of targets) await move(id, status)
+    usePlanner.getState().groupRecentUndoActions(targets.length, `Mover ${targets.length} publicaciones a ${statusMeta[status].label}`)
     clear()
   }, 'No se pudieron actualizar las publicaciones seleccionadas')
   const bulkSchedule = () => {
@@ -480,10 +150,12 @@ export function Board() {
       return
     }
     void runWithErrorReporting(async () => {
-      for (const id of selected) {
+      const targets = [...selected].filter(id => allPosts.some(post => post.id === id))
+      for (const id of targets) {
         const post = allPosts.find(item => item.id === id)
         if (post) await usePlanner.getState().save({ ...post, scheduledAt, status: 'scheduled' })
       }
+      usePlanner.getState().groupRecentUndoActions(targets.length, `Programar ${targets.length} publicaciones`)
       setBulkScheduleAt('')
       setBulkScheduleWarning('')
       clear()
@@ -498,7 +170,10 @@ export function Board() {
     try {
       const report = await window.planner.mobileSync.exportSelected(postIds)
       if (!report) return
+      await refreshMobilePublicationState()
       setMobileExportMessage(`Lote ${report.batch}: ${report.publications} ${report.publications === 1 ? 'publicación' : 'publicaciones'} y ${report.destinations} ${report.destinations === 1 ? 'destino' : 'destinos'} añadidos al catálogo.`)
+
+      if (report.missingAlbums.length) setMobileExportMessage(value => value + ` Se retiraron ${report.missingAlbums.length} referencias a carpetas ausentes.`)
       setMobileExportSkipped(report.skipped.map(item => `${item.title || item.postId}: ${item.reason}`))
     } finally {
       setMobileExportBusy(false)
@@ -532,7 +207,7 @@ export function Board() {
           name: groupName.trim(),
           description: groupDescription.trim(),
         })
-        if (!editingGroupId && selected.size) await setWorkGroupPosts(group.id, [...selected])
+        if (!editingGroupId && selected.size) await setWorkGroupPosts(group.id, [...selected], { recordHistory: false })
         setSelectedWorkGroupId(group.id)
         setMembershipTargetGroupId(group.id)
         setGroupFormOpen(false)
@@ -566,7 +241,7 @@ export function Board() {
             await usePlanner.getState().remove(id)
           }
           if (!postIds.length && group.compressedMediaCount) await window.planner.workGroups.restoreMedia(group.id)
-          await removeWorkGroup(group.id)
+          await removeWorkGroup(group.id, { recordHistory: postIds.length === 0 })
           await usePlanner.getState().load()
           setSelectedWorkGroupId('')
           if (membershipTargetGroupId === group.id) setMembershipTargetGroupId('')
@@ -631,7 +306,7 @@ export function Board() {
       if (membershipTargetGroupId === selectedWorkGroup.id) setMembershipTargetGroupId('')
     }
   }
-  return <section className={`workspace board-mode-${boardMode}`}><ViewHeading title="Tablero de contenido" subtitle="Gestiona publicaciones por etapas, en lista o por fecha."><div className="segmented board-mode-switch" role="group" aria-label="Vista del tablero"><button type="button" aria-pressed={boardMode === 'kanban'} className={boardMode === 'kanban' ? 'active' : ''} onClick={() => changeBoardMode('kanban')}>Kanban</button><button type="button" aria-pressed={boardMode === 'list'} className={boardMode === 'list' ? 'active' : ''} onClick={() => changeBoardMode('list')}><List size={13} /> Lista</button><button type="button" aria-pressed={boardMode === 'calendar'} className={boardMode === 'calendar' ? 'active' : ''} onClick={() => changeBoardMode('calendar')}><CalendarDays size={13} /> Calendario</button></div>{boardMode === 'kanban' && <button className="settings-button" type="button" disabled={visiblePerColumn >= 100} onClick={() => setVisiblePerColumn(current => Math.min(100, current + 30))}>{visiblePerColumn >= 100 ? 'Límite de tarjetas' : `Cargar ${Math.min(30, 100 - visiblePerColumn)} más por etapa`}</button>}</ViewHeading>
+  return <section className={`workspace board-mode-${boardMode}`}><ViewHeading title="Tablero de contenido" subtitle="Gestiona publicaciones por etapas, en lista o por fecha."><div className="segmented board-mode-switch" role="group" aria-label="Vista del tablero"><button type="button" aria-pressed={boardMode === 'kanban'} className={boardMode === 'kanban' ? 'active' : ''} onClick={() => changeBoardMode('kanban')}>Kanban</button><button type="button" aria-pressed={boardMode === 'list'} className={boardMode === 'list' ? 'active' : ''} onClick={() => changeBoardMode('list')}><List size={13} /> Lista</button><button type="button" aria-pressed={boardMode === 'calendar'} className={boardMode === 'calendar' ? 'active' : ''} onClick={() => changeBoardMode('calendar')}><CalendarDays size={13} /> Calendario</button></div>{boardMode === 'kanban' && <button className="settings-button" type="button" disabled={visiblePerColumn >= 100} onClick={() => setVisiblePerColumn(current => Math.min(100, current + 30))}>{visiblePerColumn >= 100 ? 'Límite de tarjetas' : `Cargar ${Math.min(30, 100 - visiblePerColumn)} más por etapa`}</button>}{boardMode === 'kanban' && <label className="board-card-detail-control">Detalles técnicos<select aria-label="Nivel de detalles técnicos en las tarjetas" value={boardCardDetailLevel} onChange={event => changeBoardCardDetailLevel(event.target.value as BoardCardDetailLevel)}><option value="discreet">Discretos</option><option value="full">Completos</option><option value="hidden">Ocultos</option></select></label>}</ViewHeading>
     <div className="work-group-toolbar">
       <div className="work-group-picker"><label htmlFor="work-group-filter">Colección</label><select id="work-group-filter" value={selectedWorkGroupId} onChange={event => { const id = event.target.value; setSelectedWorkGroupId(id); setMediaCompressionMessage(''); if (id && !workGroups.find(group => group.id === id)?.archivedAt) setMembershipTargetGroupId(id) }}><option value="">Todas las publicaciones</option>{availableGroups.map(group => <option key={group.id} value={group.id}>{group.name}{group.archivedAt ? ' · Archivada' : ''} · {format(parseISO(group.createdAt), 'd MMM yyyy', { locale: es })} ({group.postIds.length})</option>)}</select></div>
       <button type="button" className="settings-button" onClick={toggleArchivedGroups}>{showArchivedGroups ? 'Ocultar archivadas' : 'Ver archivadas'}</button>
@@ -740,19 +415,10 @@ export function Board() {
     {compressedPosts.length > 0 && <section className="board-archived-posts"><header><div><strong>Medios comprimidos</strong><span>{compressedPosts.length}</span></div><button type="button" className="settings-button" onClick={() => setShowCompressedPosts(current => !current)}>{showCompressedPosts ? 'Ocultar' : 'Mostrar'}</button></header>{showCompressedPosts && <div className="board-archived-post-list">{compressedPosts.map(post => <article key={post.id}><div className="board-archived-post-title"><strong>{post.title || 'Publicación sin título'}</strong><span>{post.media.filter(asset => asset.compressed).length} medios dentro de archivo ZIP · {statusMeta[post.status].label}</span></div><div><button type="button" className="settings-button" onClick={() => void restorePostMedia(post)}><ArchiveRestore size={13} /> Restaurar medios</button></div></article>)}</div>}</section>}
     {archivedCount > 0 && <p className="board-archive-note">{archivedCount} publicaciones archivadas no se muestran en el tablero.</p>}
     {!visibleBoardPosts.length && <div className="planner-empty-inline board-empty" role="status"><strong>{selectedWorkGroup && !posts.length ? 'Esta colección todavía no tiene publicaciones visibles' : query.trim() && posts.length === 0 ? 'No hay publicaciones que coincidan con la búsqueda' : archivedCount ? 'Todas las publicaciones de este espacio están archivadas' : 'Este espacio aún no tiene publicaciones'}</strong><span>{selectedWorkGroup && !posts.length ? 'Selecciona publicaciones del tablero y añádelas a esta colección.' : query.trim() && posts.length === 0 ? 'Limpia la búsqueda para volver a ver el tablero.' : 'Crea una publicación o convierte una idea para empezar.'}</span>{query.trim() && posts.length === 0 && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
-    {boardMode === 'kanban' && <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = columnPosts.map(post => post.id); const collapsed = collapsedColumns.has(status); return <div className={'board-column' + (collapsed ? ' collapsed' : '')} key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expandir' : 'Contraer'} ${statusMeta[status].label}`} onClick={() => setCollapsedColumns(current => { const next = new Set(current); if (next.has(status)) next.delete(status); else next.add(status); return next })}><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em><ChevronRight size={13} /></button></header>{!collapsed && <div className="board-stack">{visiblePosts.map(post => <article className={selected.has(post.id) ? 'selected' : ''} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span>{contentLabels[post.contentType]}</span></div><h3>{post.title || 'Publicación sin título'}</h3>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{!columnPosts.length && <p className="board-column-empty">Sin publicaciones en esta etapa</p>}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} más, carga más tarjetas para verlas</small>}</div>}</div> })}</div>}
+    {boardMode === 'kanban' && <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = columnPosts.map(post => post.id); const collapsed = collapsedColumns.has(status); return <div className={'board-column' + (collapsed ? ' collapsed' : '')} key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expandir' : 'Contraer'} ${statusMeta[status].label}`} onClick={() => setCollapsedColumns(current => { const next = new Set(current); if (next.has(status)) next.delete(status); else next.add(status); return next })}><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em><ChevronRight size={13} /></button></header>{!collapsed && <div className="board-stack">{visiblePosts.map(post => <article className={(selected.has(post.id) ? 'selected' : '') + (post.color !== postColors[0].value ? ' has-custom-color' : '')} style={{ '--post-color': post.color } as React.CSSProperties} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span className="board-content-type">{contentLabels[post.contentType]}</span>{selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => changePostCardColor(post, color)} />}</div><MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /><h3>{post.title || 'Publicación sin título'}</h3>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{!columnPosts.length && <p className="board-column-empty">Sin publicaciones en esta etapa</p>}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} más, carga más tarjetas para verlas</small>}</div>}</div> })}</div>}
   </section>
 }
 
-export function LibraryView() {
-  const [assets, setAssets] = useState<MediaAsset[]>([])
-  const [mode, setMode] = useState<'copy' | 'reference'>('copy')
-  useEffect(() => { void window.planner.media.list().then(setAssets).catch(error => reportAppError(error, 'No se pudo cargar la biblioteca multimedia')) }, [])
-  const add = async () => {
-    const imported = await window.planner.media.choose(mode)
-    setAssets(current => [...imported, ...current.filter(item => !imported.some(next => next.id === item.id))])
-  }
-  return <section className="workspace library-workspace">  <ViewHeading title="Biblioteca multimedia" subtitle="Tus archivos permanecen en este equipo."><div className="segmented" role="group" aria-label="Cómo añadir archivos"><button type="button" aria-pressed={mode === 'copy'} className={mode === 'copy' ? 'active' : ''} onClick={() => setMode('copy')}>Copiar a biblioteca</button><button type="button" aria-pressed={mode === 'reference'} className={mode === 'reference' ? 'active' : ''} onClick={() => setMode('reference')}>Referenciar original</button></div><button type="button" className="new-button" onClick={() => void runWithErrorReporting(add, 'No se pudieron añadir archivos a la biblioteca')}><Plus size={17} /> Añadir archivos</button></ViewHeading>
-    {assets.length ? <div className="asset-grid">{assets.map(asset => { const AssetIcon = asset.kind === 'image' ? FileImage : asset.kind === 'video' ? Film : FileText; return <article key={asset.id}><div className={`asset-preview ${asset.kind}`}><AssetIcon size={34} aria-hidden="true" /></div><strong title={asset.name}>{asset.name}</strong><span>{asset.kind === 'image' ? 'Imagen' : asset.kind === 'video' ? 'Vídeo' : 'Documento'}</span><small>{(asset.size / 1024 / 1024).toFixed(1)} MB · {asset.mode === 'copy' ? 'En biblioteca' : 'Referenciado'}</small><button type="button" onClick={() => void runWithErrorReporting(() => window.planner.media.reveal(asset.id), 'No se pudo abrir la ubicación del archivo')}><FolderOpen size={14} /> Abrir ubicación</button></article> })}</div> : <div className="empty-library"><div><FileImage size={32} /></div><h3>Tu biblioteca está lista</h3><p>Añade imágenes, vídeos o documentos desde tu equipo. Podrás vincularlos a cada publicación desde el editor.</p><button type="button" className="new-button" onClick={() => void runWithErrorReporting(add, 'No se pudieron añadir archivos a la biblioteca')}><Plus size={17} /> Elegir archivos</button></div>}
-  </section>
-}
+export { LibraryView } from './LibraryView'
+export { Timeline } from './TimelineView'
+export { CalendarView, BoardDaySwitcher } from './CalendarViews'

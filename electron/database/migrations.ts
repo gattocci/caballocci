@@ -331,4 +331,34 @@ export const migrations: Migration[] = [
         ON mobile_usage_events(post_id,target_id,used_at);
     `,
   },
+  {
+    version: 28,
+    name: 'mobile_sync_removed_action',
+    up: `
+      CREATE TABLE mobile_usage_events_v2 (
+        event_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, target_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('used','removed')), used_at TEXT NOT NULL,
+        device_id TEXT NOT NULL, format_version INTEGER NOT NULL, imported_at TEXT NOT NULL
+      );
+      INSERT INTO mobile_usage_events_v2
+        SELECT event_id,post_id,target_id,action,used_at,device_id,format_version,imported_at FROM mobile_usage_events;
+      DROP TABLE mobile_usage_events;
+      ALTER TABLE mobile_usage_events_v2 RENAME TO mobile_usage_events;
+      CREATE INDEX IF NOT EXISTS mobile_usage_post_target_idx
+        ON mobile_usage_events(post_id,target_id,used_at);
+    `,
+  },
+  {
+    version: 29,
+    name: 'mobile_sync_album_cleanup_history',
+    up: `
+      CREATE TABLE IF NOT EXISTS mobile_album_cleanup_events (
+        event_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', folder_name TEXT NOT NULL DEFAULT '',
+        batch TEXT NOT NULL DEFAULT '', space_name TEXT NOT NULL DEFAULT '',
+        space_order INTEGER, reason TEXT NOT NULL, occurred_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS mobile_album_cleanup_occurred_idx
+        ON mobile_album_cleanup_events(occurred_at);
+    `,
+  },
 ]

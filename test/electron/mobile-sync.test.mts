@@ -14,10 +14,16 @@ const { runMigrations } = require('../../dist-electron/database/migration-runner
 const { MobileSyncRepository } = require('../../dist-electron/database/mobile-sync-repository.js') as {
   MobileSyncRepository: new (db: Database, persist: () => void) => {
     listUsage(): Array<Record<string, unknown>>
-    recordUsage(event: { eventId: string; postId: string; targetId: string; action: 'used'; usedAt: string; deviceId: string; version: number }): boolean
+    recordUsage(event: { eventId: string; postId: string; targetId: string; action: 'used' | 'removed'; usedAt: string; deviceId: string; version: number }): boolean
   }
 }
-const { importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMobileSpaceOrder, parseMobileUsageEvent, recordMobileBatch, writeMobileCatalog } = require('../../dist-electron/mobile-sync.js') as {
+const { migrations } = require('../../dist-electron/database/migrations.js') as {
+  migrations: Array<{ version: number; up: string }>
+}
+const { cleanUnreferencedMobileAlbums, importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMobileSpaceOrder, parseMobileUsageEvent, pruneMobilePublications, recordMobileBatch, summarizeMobileUsage, writeMobileCatalog } = require('../../dist-electron/mobile-sync.js') as {
+  summarizeMobileUsage(events: Array<{ postId: string; targetId: string; action: string; usedAt: string }>): { used: Set<string>; removed: Set<string> }
+  pruneMobilePublications<T extends { postId: string; targetId: string }>(publications: T[], options: { postIsActive: (postId: string) => boolean; removed: Set<string> }): { kept: T[]; dropped: T[] }
+  cleanUnreferencedMobileAlbums(root: string, publications: Array<{ manifestPath: string }>): { removed: string[]; failed: string[] }
   nextMobileBatch(root: string): string
   nextMobileSpaceOrder(root: string, spaceName: string): number
   mergeMobilePublications(existing: Array<{ postId: string; targetId: string }>, replacements: Array<{ postId: string; targetId: string }>): Array<{ postId: string; targetId: string }>
@@ -25,14 +31,15 @@ const { importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMo
   importMobileUsageFiles(
     root: string,
     targetExists: (postId: string, targetId: string) => boolean,
-    recordUsage: (event: { eventId: string; postId: string; targetId: string; action: 'used'; usedAt: string; deviceId: string; version: number }) => boolean,
+    recordUsage: (event: { eventId: string; postId: string; targetId: string; action: 'used' | 'removed'; usedAt: string; deviceId: string; version: number }) => boolean,
   ): {
     imported: number
     duplicates: number
     invalid: Array<{ file: string; reason: string }>
     unknown: Array<{ file: string; postId: string; targetId: string }>
+    removed: number
   }
-  parseMobileUsageEvent(value: unknown): { postId: string; targetId: string; usedAt: string }
+  parseMobileUsageEvent(value: unknown): { postId: string; targetId: string; usedAt: string; action: string }
   writeMobileCatalog(root: string, publications: Array<Record<string, unknown>>, generatedAt?: string): {
     schema: string
     version: number
@@ -187,4 +194,70 @@ test('persists confirmations per destination without changing editorial status',
   assert.deepEqual(db.exec('SELECT status,distribution_json FROM posts WHERE id = \"post-a\"')[0].values, [
     ['scheduled', '[{"id":"instagram","status":"scheduled"},{"id":"facebook","status":"pending"}]'],
   ])
+})
+
+test('accepts removal events and records them even when the publication no longer exists', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'caballocci-mobile-removed-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const inbox = path.join(root, 'android-inbox', 'device-a')
+  fs.mkdirSync(inbox, { recursive: true })
+  fs.writeFileSync(path.join(inbox, 'event-r.json'), JSON.stringify({ ...event('event-r', 'deleted-post'), action: 'removed' }))
+  fs.writeFileSync(path.join(inbox, 'event-u.json'), JSON.stringify(event('event-u', 'deleted-post')))
+  assert.equal(parseMobileUsageEvent({ ...event('event-r'), action: 'removed' }).action, 'removed')
+  assert.throws(() => parseMobileUsageEvent({ ...event('event-r'), action: 'deleted' }), /acción/)
+
+  const report = importMobileUsageFiles(root, () => false, () => true)
+  assert.equal(report.removed, 1)
+  assert.equal(report.imported, 1)
+  assert.equal(report.unknown.length, 1, 'a use of a missing publication is still reported')
+})
+
+test('summarizes usage so that only the latest removal hides a destination', () => {
+  const summary = summarizeMobileUsage([
+    { postId: 'a', targetId: 'ig', action: 'used', usedAt: '2026-10-24T05:00:00.000Z' },
+    { postId: 'a', targetId: 'ig', action: 'removed', usedAt: '2026-10-24T06:00:00.000Z' },
+    { postId: 'b', targetId: 'ig', action: 'removed', usedAt: '2026-10-24T05:00:00.000Z' },
+    { postId: 'b', targetId: 'ig', action: 'used', usedAt: '2026-10-24T07:00:00.000Z' },
+  ])
+  assert.deepEqual([...summary.used].sort(), ['a\u0000ig', 'b\u0000ig'])
+  assert.deepEqual([...summary.removed], ['a\u0000ig'])
+})
+
+test('prunes deleted posts and removed destinations from the catalog and deletes orphan albums', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'caballocci-mobile-prune-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const albums = path.join(root, 'pc-outbox', 'publications')
+  for (const name of ['a-xyz-1-keep', 'a-xyz-2-deleted', 'a-xyz-3-removed']) {
+    fs.mkdirSync(path.join(albums, name), { recursive: true })
+    fs.writeFileSync(path.join(albums, name, 'manifest.json'), '{}')
+  }
+  fs.mkdirSync(path.join(albums, '.caballocci-export-staging'), { recursive: true })
+  fs.mkdirSync(path.join(albums, 'sin-manifest'), { recursive: true })
+  const entry = (postId: string, folder: string, targetId = 'instagram') => ({ postId, targetId, manifestPath: `pc-outbox/publications/${folder}/manifest.json` })
+  const publications = [entry('keep', 'a-xyz-1-keep'), entry('keep', 'a-xyz-1-keep', 'facebook'), entry('deleted', 'a-xyz-2-deleted'), entry('removed', 'a-xyz-3-removed')]
+
+  const { kept, dropped } = pruneMobilePublications(publications, {
+    postIsActive: postId => postId !== 'deleted',
+    removed: new Set(['removed\u0000instagram']),
+  })
+  assert.deepEqual(kept.map(item => `${item.postId}/${item.targetId}`), ['keep/instagram', 'keep/facebook'])
+  assert.equal(dropped.length, 2)
+
+  const cleanup = cleanUnreferencedMobileAlbums(root, kept)
+  assert.deepEqual(cleanup.removed.sort(), ['a-xyz-2-deleted', 'a-xyz-3-removed'])
+  assert.deepEqual(fs.readdirSync(albums).sort(), ['.caballocci-export-staging', 'a-xyz-1-keep', 'sin-manifest'])
+})
+
+test('migration 28 keeps existing usage rows and accepts removal events only', async t => {
+  const SQL = await initSqlJs({ locateFile: file => path.resolve('node_modules/sql.js/dist', file) })
+  const db = new SQL.Database()
+  t.after(() => db.close())
+  for (const migration of migrations.filter(item => item.version <= 27)) db.run(migration.up)
+  db.run('PRAGMA user_version = 27')
+  db.run("INSERT INTO mobile_usage_events VALUES ('old','post-a','instagram','used','2026-10-24T05:30:00.000Z','device-a',1,'now')")
+
+  runMigrations(db, true, () => undefined)
+  assert.equal(db.exec('SELECT count(*) FROM mobile_usage_events')[0]!.values[0]![0], 1)
+  db.run("INSERT INTO mobile_usage_events VALUES ('new','post-a','instagram','removed','2026-10-24T06:30:00.000Z','device-a',1,'now')")
+  assert.throws(() => db.run("INSERT INTO mobile_usage_events VALUES ('bad','post-a','instagram','deleted','2026-10-24T06:30:00.000Z','device-a',1,'now')"))
 })

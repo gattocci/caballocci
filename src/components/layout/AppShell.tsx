@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Clock3, Columns3, Database, Download, FolderOpen, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Search, Settings, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays, Clock3, Columns3, Database, Download, FolderOpen, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Redo2, Search, Settings, Trash2, Undo2, X } from 'lucide-react'
 import { usePlanner } from '../../app/store'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { getPlatformMeta } from '../../shared/constants'
@@ -39,7 +39,8 @@ export function Sidebar() {
 }
 
 export function Topbar({ onNew, onSearchSubmit }: { onNew: () => void; onSearchSubmit?: () => void }) {
-  const { query, setQuery, setView } = usePlanner()
+  const { query, setQuery, setView, undoHistory, redoHistory, undoSavedChange, redoSavedChange } = usePlanner()
+  const searchRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   useEffect(() => {
@@ -51,6 +52,23 @@ export function Topbar({ onNew, onSearchSubmit }: { onNew: () => void; onSearchS
   useEffect(() => {
     if (update?.status === 'error') reportAppError(update.message || 'La actualización encontró un error.', 'Error de actualización')
   }, [update?.message, update?.status])
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+      const key = event.key.toLocaleLowerCase()
+      const target = event.target
+      const isEditing = target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      if (key === 'k') {
+        event.preventDefault()
+        searchRef.current?.focus()
+      } else if (key === 'n' && !isEditing && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        event.preventDefault()
+        onNew()
+      }
+    }
+    window.addEventListener('keydown', onShortcut)
+    return () => window.removeEventListener('keydown', onShortcut)
+  }, [onNew])
   const go = (view: 'timeline' | 'calendar' | 'board' | 'ideas' | 'library' | 'sources' | 'about') => { setView(view); setOpen(false) }
   const updateIndicator = update?.status === 'downloading' || update?.status === 'available' || update?.status === 'downloaded' || update?.status === 'installing' || (update?.status === 'error' && update.availableVersion)
   const updateLabel = update?.status === 'downloading'
@@ -62,7 +80,7 @@ export function Topbar({ onNew, onSearchSubmit }: { onNew: () => void; onSearchS
       : update?.status === 'downloaded'
         ? 'Actualización lista'
         : 'Descarga fallida · Reintentar'
-  return <header className="topbar"><div className="search"><Search size={17} /><input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={event => { if (event.key === 'Enter') onSearchSubmit?.() }} placeholder="Buscar publicaciones, ideas, etiquetas..." /><kbd>Ctrl K</kbd></div><div className="top-actions">{updateIndicator && <button className={`update-indicator ${update?.status}`} title="Ver actualizaciones" onClick={() => setView('about')}><Download size={14} /><span>{updateLabel}</span>{update?.status === 'downloading' && <progress max="100" value={update.percent || 0} />}</button>}<div className="app-menu-wrap"><button className="icon-button" title="Abrir menú" aria-expanded={open} onClick={() => setOpen(value => !value)}><Menu size={18} /></button>{open && <div className="app-menu"><button onClick={() => go('timeline')}><Clock3 size={15} /> Línea de tiempo</button><button onClick={() => go('calendar')}><CalendarDays size={15} /> Calendario</button><button onClick={() => go('board')}><Columns3 size={15} /> Tablero</button><button onClick={() => go('ideas')}><Lightbulb size={15} /> Ideas</button><button onClick={() => go('library')}><Library size={15} /> Biblioteca</button><hr /><button onClick={() => go('about')}><Settings size={15} /> Acerca de y actualizaciones</button></div>}</div><button className="new-button" onClick={onNew}><Plus size={17} /> Nueva publicación</button><div className="avatar">CG</div></div></header>
+  return <header className="topbar"><div className="search"><Search size={17} /><input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={event => { if (event.key === 'Enter') onSearchSubmit?.() }} placeholder="Buscar publicaciones, ideas, etiquetas..." /><kbd>Ctrl K</kbd></div><div className="top-actions">{updateIndicator && <button className={`update-indicator ${update?.status}`} title="Ver actualizaciones" onClick={() => setView('about')}><Download size={14} /><span>{updateLabel}</span>{update?.status === 'downloading' && <progress max="100" value={update.percent || 0} />}</button>}<div className="app-menu-wrap"><button className="icon-button" title="Abrir menú" aria-expanded={open} onClick={() => setOpen(value => !value)}><Menu size={18} /></button>{open && <div className="app-menu"><button onClick={() => go('timeline')}><Clock3 size={15} /> Línea de tiempo</button><button onClick={() => go('calendar')}><CalendarDays size={15} /> Calendario</button><button onClick={() => go('board')}><Columns3 size={15} /> Tablero</button><button onClick={() => go('ideas')}><Lightbulb size={15} /> Ideas</button><button onClick={() => go('library')}><Library size={15} /> Biblioteca</button><hr />{undoHistory.length > 0 && <button onClick={() => void runWithErrorReporting(async () => { await undoSavedChange(); setOpen(false) }, 'No se pudo deshacer el cambio guardado')}><Undo2 size={15} /> Deshacer (Ctrl+Z)</button>}{redoHistory.length > 0 && <button onClick={() => void runWithErrorReporting(async () => { await redoSavedChange(); setOpen(false) }, 'No se pudo rehacer el cambio guardado')}><Redo2 size={15} /> Rehacer (Ctrl+Shift+Z)</button>}<button onClick={() => go('about')}><Settings size={15} /> Acerca de y actualizaciones</button></div>}</div><button className="new-button" onClick={onNew}><Plus size={17} /> Nueva publicación</button><div className="avatar">CG</div></div></header>
 }
 
 export function ViewHeading({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {

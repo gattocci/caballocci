@@ -11,6 +11,13 @@ contextBridge.exposeInMainWorld('planner', {
     exportSelected: (postIds: string[]) => ipcRenderer.invoke('mobile-sync:export-selected', postIds),
     importEvents: () => ipcRenderer.invoke('mobile-sync:import'),
     history: () => ipcRenderer.invoke('mobile-sync:history'),
+    status: () => ipcRenderer.invoke('mobile-sync:status'),
+    publicationState: () => ipcRenderer.invoke('mobile-sync:publication-state'),
+    reconcile: () => ipcRenderer.invoke('mobile-sync:reconcile'),
+    openCatalogHistory: () => ipcRenderer.invoke('mobile-sync:open-catalog-history'),
+    listCatalogBackups: () => ipcRenderer.invoke('mobile-sync:list-catalog-backups'),
+    readCatalog: () => ipcRenderer.invoke('mobile-sync:read-catalog'),
+    previewReconcile: () => ipcRenderer.invoke('mobile-sync:preview-reconcile'),
   },
   posts: {
     list: () => ipcRenderer.invoke('posts:list'),
