@@ -1,54 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Database, Download, Play, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { Check, Database, Play, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { usePlanner } from '../../app/store'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { ViewHeading } from '../../components/layout/AppShell'
 import type { ContentRecord, ContentTypeTemplate, ExportProfile, ImportReport, Source, SourceDefinition } from '../../shared/types'
+import { EnrichmentEditor } from './EnrichmentEditor'
+import { SourceExportPanel, exportFieldOptions } from './SourceExportPanel'
+import { blockRecipeColumns, parseAuth, parseObject, parseRecord } from './source-utils'
 import './sources.css'
 
 type SourceDraft = { name: string; baseUrl: string; method: Source['method']; format: Source['format']; recordsPath: string; bodyTemplate: string; authType: Source['authType']; maxRecords: number; targetProject: string; importMode: Source['importMode']; initialStatus: Source['initialStatus'] }
 type MappingSuggestion = { externalRef: string; title: string; sourceKindField: string; hashFields: string[]; contentTypeMap: Record<string, string> }
 const emptySource: SourceDraft = { name: '', baseUrl: '', method: 'GET', format: 'json', recordsPath: '', bodyTemplate: '', authType: 'none', maxRecords: 500, targetProject: 'Mi contenido', importMode: 'post', initialStatus: 'idea' }
 const emptyDefinition = { externalRef: '', title: '', sourceKindField: '', hashFields: '', contentTypeMapText: '{}', customDefaultsText: '{}' }
-const exportFieldOptions = [
-  ['Título de publicación', 'post.title'], ['Texto de publicación', 'post.caption'], ['Notas', 'post.notes'], ['Tipo de contenido', 'post.contentType'], ['Estado', 'planning.status'], ['Fecha de planificación', 'planning.date'], ['Proyecto / espacio', 'planning.project'], ['Hashtags', 'post.hashtags'], ['Plataformas', 'post.platforms'], ['Media', 'post.media'], ['Datos de media', 'post.mediaAssets'], ['Ideas agrupadas', 'ideas'], ['Idea 1: título', 'ideas.0.title'], ['Idea 1: texto', 'ideas.0.body'], ['Idea 2: título', 'ideas.1.title'], ['Idea 2: texto', 'ideas.1.body'], ['Referencia externa', 'externalRef'], ['JSON raw', 'raw'],
-] as const
-
-function blockRecipeColumns(includeTitle: boolean, includeIntro: boolean, ideaCount: number): ExportProfile['columns'] {
-  const columns: ExportProfile['columns'] = []
-  if (includeTitle) columns.push({ header: 'Title', source: 'post.title', order: columns.length })
-  if (includeIntro) columns.push({ header: 'Texto inicial', source: 'post.caption', order: columns.length })
-  for (let index = 0; index < ideaCount; index += 1) {
-    columns.push({ header: `Idea ${index + 1}`, source: `ideas.${index}.text`, order: columns.length })
-  }
-  return columns
-}
-
-function parseObject(text: string, label: string): Record<string, string> {
-  const value = JSON.parse(text || '{}') as unknown
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${label} debe ser un objeto JSON`)
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, String(item)]))
-}
-
-function parseAuth(text: string, authType: Source['authType']): Record<string, string> {
-  const raw = text.trim()
-  if (authType === 'bearer' && raw && !raw.startsWith('{')) return { token: raw }
-  return parseObject(text, 'Autenticacion')
-}
-
-function parseRecord(text: string, label: string): Record<string, unknown> {
-  const value = JSON.parse(text || '{}') as unknown
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${label} debe ser un objeto JSON`)
-  return value as Record<string, unknown>
-}
-
-function EnrichmentEditor({ record, template, onSave }: { record: ContentRecord; template: ContentTypeTemplate | undefined; onSave(record: ContentRecord, value: Record<string, unknown>): void }) {
-  const [draft, setDraft] = useState<Record<string, unknown>>(record.enriched)
-  const [jsonError, setJsonError] = useState('')
-  useEffect(() => setDraft(record.enriched), [record])
-  if (!template?.fields.length) return <details className="advanced-enrichment"><summary>Editar JSON avanzado</summary><textarea defaultValue={JSON.stringify(record.enriched, null, 2)} onBlur={event => { try { const value = JSON.parse(event.target.value) as unknown; if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('El valor debe ser un objeto JSON.'); setJsonError(''); onSave(record, value as Record<string, unknown>) } catch (error) { setJsonError(error instanceof Error ? error.message : 'JSON no válido. Revisa el formato e inténtalo de nuevo.') } }} aria-label={`Enriquecimiento de ${record.externalRef}`} aria-invalid={Boolean(jsonError)} aria-describedby={jsonError ? `enrichment-error-${record.id}` : undefined} />{jsonError && <small className="field-error" id={`enrichment-error-${record.id}`} role="alert">{jsonError}</small>}</details>
-  return <div className="enrichment-fields">{template.fields.map(field => <label key={field.key}>{field.label}{field.type === 'textarea' ? <textarea value={String(draft[field.key] || '')} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} /> : <input value={String(draft[field.key] || '')} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} />}</label>)}<button className="settings-button" onClick={() => onSave(record, draft)}><Save size={13} /> Guardar</button></div>
-}
 
 export function SourcesView() {
   const { load: reloadPlanner } = usePlanner()
@@ -248,7 +212,7 @@ export function SourcesView() {
         {contentRecords.length > 0 && <section className="source-panel"><header><div><span>DATOS RECIBIDOS</span><h2>Originales y normalizados</h2></div></header><div className="source-data-list">{contentRecords.map(record => <details className="source-data" key={record.id}><summary>{record.normalized.title ? String(record.normalized.title) : record.externalRef}</summary><pre>{JSON.stringify({ original: record.raw, normalizado: record.normalized }, null, 2)}</pre></details>)}</div></section>}
         {contentRecords.some(record => templates.some(template => template.contentType === String(record.normalized.contentType || 'post'))) && <section className="source-panel"><header><div><span>FORMULARIOS DE PLANTILLA</span><h2>Campos por tipo de contenido</h2></div></header><div className="content-record-list">{contentRecords.map(record => { const template = templates.find(item => item.contentType === String(record.normalized.contentType || 'post')); return template ? <article key={record.id}><div><strong>{record.normalized.title ? String(record.normalized.title) : record.externalRef}</strong><small>{template.contentType}</small></div><EnrichmentEditor record={record} template={template} onSave={saveEnriched} /></article> : null })}</div></section>}
         <section className="source-panel configuration-panel"><header><div><span>PLANTILLAS</span><h2>Campos de enriquecimiento</h2></div></header><div className="source-grid"><label>Tipo de contenido<input value={templateType} onChange={event => setTemplateType(event.target.value)} placeholder="post" /></label><label>Campos JSON<textarea value={templateFieldsText} onChange={event => setTemplateFieldsText(event.target.value)} /></label></div><div className="source-actions"><button className="save-button" onClick={() => void saveTemplate()}><Save size={15} /> Guardar plantilla</button></div></section>
-        <section className="source-panel configuration-panel"><header><div><span>EXPORTACION CSV</span><h2>Guion por bloques</h2></div>{profiles.length > 0 && <select value={selectedProfileId} onChange={event => setSelectedProfileId(event.target.value)}>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}</header><p className="export-copy">Una fila por publicacion: titulo, texto inicial y los textos de sus ideas agrupadas en el orden del editor.</p><div className="export-recipe"><label className="export-check"><input type="checkbox" checked={includeTitle} onChange={event => setIncludeTitle(event.target.checked)} /> Titulo</label><label className="export-check"><input type="checkbox" checked={includeIntro} onChange={event => setIncludeIntro(event.target.checked)} /> Texto inicial</label><label>Columnas de ideas<input type="number" min="0" max="30" value={ideaColumns} onChange={event => setIdeaColumns(Number(event.target.value))} /></label><button type="button" className="settings-button" onClick={applyBlockRecipe}><RefreshCw size={14} /> Aplicar receta</button></div><div className="source-grid"><label>Nombre del perfil<input value={profileName} onChange={event => setProfileName(event.target.value)} /></label><label>Agregar campo adicional<select value={selectedExportField} onChange={event => setSelectedExportField(event.target.value)}>{exportFieldOptions.map(([label, source]) => <option value={source} key={source}>{label}</option>)}</select><button type="button" className="settings-button" onClick={addExportField}><Plus size={14} /> Agregar campo</button></label></div><details className="export-advanced"><summary>Columnas avanzadas</summary><textarea value={profileColumnsText} onChange={event => setProfileColumnsText(event.target.value)} /></details><div className="source-actions"><button className="save-button" onClick={() => void saveProfile()}><Save size={15} /> Guardar perfil</button><label className="export-mode"><span>Alcance</span><select value={exportScope} onChange={event => setExportScope(event.target.value as 'all' | 'source')}><option value="all">Todo el planner</option><option value="source" disabled={!selectedId}>Fuente actual</option></select></label><label className="export-mode"><span>Proyecto / espacio</span><input value={exportProject} onChange={event => setExportProject(event.target.value)} placeholder="Todos" /></label><label className="export-mode"><span>Estado</span><select value={exportStatus} onChange={event => setExportStatus(event.target.value as typeof exportStatus)}><option value="all">Todos</option><option value="idea">Ideas</option><option value="draft">Borradores</option><option value="review">En revision</option><option value="approved">Aprobados</option><option value="scheduled">Programados</option><option value="published">Publicados</option><option value="archived">Archivados</option></select></label><label className="export-mode"><input type="checkbox" checked={deltaOnly} onChange={event => setDeltaOnly(event.target.checked)} /> Solo nuevos o modificados</label><button className="settings-button" disabled={!selectedProfileId} onClick={() => void downloadCsv()}><Download size={15} /> Descargar CSV</button></div></section>
+        <SourceExportPanel profiles={profiles} selectedProfileId={selectedProfileId} onProfileChange={setSelectedProfileId} includeTitle={includeTitle} onIncludeTitleChange={setIncludeTitle} includeIntro={includeIntro} onIncludeIntroChange={setIncludeIntro} ideaColumns={ideaColumns} onIdeaColumnsChange={setIdeaColumns} onApplyRecipe={applyBlockRecipe} profileName={profileName} onProfileNameChange={setProfileName} selectedExportField={selectedExportField} onExportFieldChange={setSelectedExportField} profileColumnsText={profileColumnsText} onProfileColumnsChange={setProfileColumnsText} onAddField={addExportField} onSaveProfile={() => void saveProfile()} exportScope={exportScope} onExportScopeChange={setExportScope} hasSelectedSource={Boolean(selectedId)} exportProject={exportProject} onExportProjectChange={setExportProject} exportStatus={exportStatus} onExportStatusChange={setExportStatus} deltaOnly={deltaOnly} onDeltaOnlyChange={setDeltaOnly} onDownload={() => void downloadCsv()} />
       </div>
     </div>
   </section>

@@ -1,308 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { useUndoableState, type UndoableChange } from '../../app/useUndoableState'
 import { usePlanner } from '../../app/store'
-import type { CatalogSync, ContentRecord, ContentType, IdeaBlock, MediaAsset, Platform, Post, PostInput, PostStatus } from '../../shared/types'
+import type { CatalogSync, ContentRecord, ContentType, MediaAsset, Platform, Post, PostInput, PostStatus } from '../../shared/types'
+import { blankPost, errorMessage, formatTitle, fromLocalDateTimeInput, itemsToNotes, notesToItems, parseMasterSlides, parseTitleCandidates, toLocalDateTimeInput, type NoteItem } from './editor-utils'
+import { EditorIdeaBlocks } from './EditorIdeaBlocks'
+import { EditorNotes } from './EditorNotes'
+import { EditorAssistantPanel } from './EditorAssistantPanel'
+import { EditorCatalogPanel } from './EditorCatalogPanel'
+import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
+import { Preview } from './EditorMediaPreview'
 import './editor.css'
-
-const blankPost = (project: string): PostInput => ({
-  id: crypto.randomUUID(),
-  title: '', caption: '', notes: '', hashtags: [], mentions: [], platforms: ['instagram'],
-  contentType: 'reel', status: 'idea', scheduledAt: null, durationMinutes: 60,
-  project, color: '#e76042', ideaBlocks: [],
-})
-
-function parseTitleCandidates(value: string) {
-  const candidateLines = value.split(/\r?\n/).filter(line => /^\s*(?:[-*]|\d+[.)])\s+/.test(line) || /\*\*[“\"]/.test(line))
-  const quoted = candidateLines.flatMap(line => [...line.matchAll(/[“\"]([^“\"]+)[”\"]/g)].map(match => match[1].trim())).filter(Boolean)
-  if (quoted.length) return Array.from(new Set(quoted))
-  return value.split(/\r?\n/).map(line => line.replace(/^\s*(?:[-*\d.)]+)\s*/, '').replace(/\*\*/g, '').trim()).filter(line => line.length > 8 && !/^\w+\s+(puede|suena|mantiene|ajustando)/i.test(line))
-}
-
-function parseMasterSlides(value: string): IdeaBlock[] {
-  const lines = value.replace(/\r/g, '').split('\n')
-  const blocks: { label: string; heading: string; lines: string[] }[] = []
-  let current: { label: string; heading: string; lines: string[] } | null = null
-  for (const line of lines) {
-    const match = line.match(/^\s*(?:#{1,4}\s*)?(?:slide|diapositiva)\s*([0-9]+|final|cierre)\s*[:.)\-]?\s*(.*)$/i)
-      || line.match(/^\s*([0-9]+|final|cierre)\s*[:.)\-]?\s+(.*)$/i)
-    if (match) {
-      if (current) blocks.push(current)
-      const heading = (match[2] || '').replace(/^[\s:.)\-–—]+/, '').trim()
-      current = { label: match[1], heading: /^\([^)]*\)$/.test(heading) ? '' : heading, lines: [] }
-    } else if (current) current.lines.push(line)
-  }
-  if (current) blocks.push(current)
-  return blocks.filter(block => !/final|cierre/i.test(block.label)).map((block, index) => {
-    const content = block.lines.join('\n').trim()
-    const labeled = content.match(/\*\*(?:TITULO|TÍTULO):\*\*\s*(.+?)(?=\s+\*\*(?:BAJADA|SUBT[IÍ]TULO):|$)/i)
-    const bold = content.match(/\*\*([^*]+)\*\*/)
-    const title = block.heading || labeled?.[1].trim() || (bold && !/^(?:TITULO|TÍTULO|BAJADA|SUBT[IÍ]TULO):?$/i.test(bold[1]) ? bold[1].trim() : '') || `Slide ${index + 1}`
-    const text = content.replace(/^\([^)]*\)\s*/, '').replace(labeled?.[0] || (block.heading ? '' : (bold?.[0] || '')), '').replace(/^\s*\n/, '').trim()
-    return { id: crypto.randomUUID(), title, text }
-  }).filter(block => block.title || block.text)
-}
-
-function formatTitle(value: string, mode: 'upper' | 'lower' | 'title' | 'sentence') {
-  const text = value.trim()
-  if (mode === 'upper') return text.toLocaleUpperCase()
-  if (mode === 'lower') return text.toLocaleLowerCase()
-  if (mode === 'sentence') return text ? text.charAt(0).toLocaleUpperCase() + text.slice(1).toLocaleLowerCase() : text
-  return text.toLocaleLowerCase().replace(/(^|[\s¡¿])([\p{L}\d])/gu, (_, prefix: string, character: string) => prefix + character.toLocaleUpperCase())
-}
-
-type NoteItem = { id: string; title: string; text: string }
-
-function toLocalDateTimeInput(value: string | null | undefined) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
-
-function fromLocalDateTimeInput(value: string) {
-  if (!value) return null
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date.toISOString()
-}
-
-function notesToItems(value: string): NoteItem[] {
-  if (!value.trim()) return [{ id: crypto.randomUUID(), title: '', text: '' }]
-  return value.split(/\n\s*---\s*\n/).map(part => {
-    const lines = part.split('\n')
-    const title = lines[0]?.match(/^\[(.*)\]$/)?.[1] || ''
-    return { id: crypto.randomUUID(), title, text: (title ? lines.slice(1) : lines).join('\n').trim() }
-  })
-}
-
-function itemsToNotes(items: NoteItem[]) {
-  return items.filter(item => item.title.trim() || item.text.trim()).map(item => `${item.title.trim() ? `[${item.title.trim()}]\n` : ''}${item.text.trim()}`).join('\n\n---\n\n')
-}
-
-function inferredVisual(asset: NonNullable<PostInput['media']>[number]) {
-  const name = asset.name.toLocaleLowerCase()
-  const numbered = name.match(/^(\d+)[-_ .]/)
-  if (/representative|representativa|portada/.test(name)) return { role: 'representative' as const, sequence: undefined }
-  if (/cover/.test(name)) return { role: 'cover' as const, sequence: 0 }
-  if (/cierre|closing|final/.test(name)) return { role: 'closing' as const, sequence: 10000 }
-  if (numbered) return { role: 'slide' as const, sequence: Number(numbered[1]) }
-  return { role: asset.presentationRole || 'other' as const, sequence: asset.sequence }
-}
-
-function visualSequence(asset: NonNullable<PostInput['media']>[number]) {
-  return asset.sequence === null ? null : asset.sequence ?? inferredVisual(asset).sequence
-}
-
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'string') return error
-  try { return JSON.stringify(error) } catch { return String(error) }
-}
-
-function Preview({ draft, onMediaChange, onError }: { draft: PostInput; onMediaChange(media: NonNullable<PostInput['media']>): void; onError(message: string): void }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [folderAssets, setFolderAssets] = useState<MediaAsset[]>([])
-  const [folderBusy, setFolderBusy] = useState(false)
-  const [selectedAssets, setSelectedAssets] = useState<string[]>([])
-  const [organizeMessage, setOrganizeMessage] = useState('')
-  const [groupDialog, setGroupDialog] = useState<{ currentName?: string; name: string } | null>(null)
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [dragOverId, setDragOverId] = useState<string | null>(null)
-  const refreshFolder = async () => {
-    setFolderBusy(true)
-    try {
-      const scanned = await window.planner.media.scanPostFolder(draft.id || '', draft.project || '')
-      setFolderAssets(scanned)
-      const linked = new Map((draft.media || []).map(asset => [asset.id, asset]))
-      onMediaChange([...draft.media || [], ...scanned.filter(asset => !linked.has(asset.id))])
-    } catch (error) { setFolderAssets([]); reportAppError(error, 'No se pudo cargar la carpeta de medios'); onError(errorMessage(error)) } finally { setFolderBusy(false) }
-  }
-  useEffect(() => { void refreshFolder() }, [draft.id, draft.project])
-  const platform = draft.platforms[0] || 'instagram'
-  const text = [draft.caption, ...draft.hashtags].join(' ').trim()
-  const images = folderAssets.map(asset => {
-    const linked = (draft.media || []).find(item => item.id === asset.id)
-    return linked ? { ...asset, presentationRole: linked.presentationRole, sequence: linked.sequence } : asset
-  })
-  const roleOf = (asset: typeof images[number]) => asset.presentationRole || inferredVisual(asset).role
-  const presentation = images.filter(asset => !['representative', 'other'].includes(roleOf(asset))).sort((a, b) => (visualSequence(a) ?? Number.MAX_SAFE_INTEGER) - (visualSequence(b) ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name, undefined, { numeric: true }))
-  const image = images.find(asset => asset.id === selectedId) || presentation[0] || images.find(asset => roleOf(asset) === 'representative')
-  const sequenceIndex = Math.max(0, presentation.findIndex(asset => asset.id === image?.id))
-  const isSequenceImage = presentation.some(asset => asset.id === image?.id)
-  const firstIdea = draft.ideaBlocks?.[0]
-  const updateVisual = (id: string, role: NonNullable<typeof images[number]['presentationRole']>, sequence?: number | null) => {
-    const current = images.find(asset => asset.id === id)
-    const currentRole = current ? roleOf(current) : undefined
-    const nextSequence = sequence === undefined && currentRole !== role
-      ? role === 'cover' ? 0 : role === 'closing' ? 10000 : role === 'slide' ? Math.max(0, ...presentation.map(asset => visualSequence(asset) || 0)) + 1 : undefined
-      : sequence
-    onMediaChange((draft.media || []).map(asset => asset.id === id ? { ...asset, presentationRole: role, sequence: nextSequence } : asset))
-  }
-  const saveVisualOrder = (next: typeof presentation, addedId?: string) => {
-    const orders = new Map(next.map((asset, position) => [asset.id, position + 1]))
-    onMediaChange((draft.media || []).map(asset => orders.has(asset.id) ? { ...asset, presentationRole: asset.id === addedId ? 'slide' : roleOf(images.find(imageAsset => imageAsset.id === asset.id) || asset), sequence: orders.get(asset.id) } : asset))
-  }
-  const moveVisual = (id: string, offset: -1 | 1) => {
-    const next = [...presentation]
-    const index = next.findIndex(asset => asset.id === id)
-    const target = index + offset
-    if (index < 0 || target < 0 || target >= next.length) return
-    const [item] = next.splice(index, 1)
-    next.splice(target, 0, item)
-    saveVisualOrder(next)
-  }
-  const moveVisualBefore = (id: string, targetId: string) => {
-    if (id === targetId) return
-    const next = [...presentation]
-    let index = next.findIndex(asset => asset.id === id)
-    const item = index < 0 ? images.find(asset => asset.id === id) : next[index]
-    if (!item || !next.some(asset => asset.id === targetId)) return
-    if (index >= 0) next.splice(index, 1)
-    index = next.findIndex(asset => asset.id === targetId)
-    next.splice(index, 0, item)
-    saveVisualOrder(next, presentation.some(asset => asset.id === id) ? undefined : id)
-  }
-  const moveVisualToEnd = (id: string) => {
-    const next = [...presentation]
-    const index = next.findIndex(asset => asset.id === id)
-    const item = index < 0 ? images.find(asset => asset.id === id) : next[index]
-    if (!item) return
-    if (index >= 0) next.splice(index, 1)
-    next.push(item)
-    saveVisualOrder(next, presentation.some(asset => asset.id === id) ? undefined : id)
-  }
-  const excludeVisual = (id: string) => {
-    if (!presentation.some(asset => asset.id === id)) return
-    onMediaChange((draft.media || []).map(asset => asset.id === id ? { ...asset, presentationRole: 'other', sequence: null } : asset))
-  }
-  const groupSelected = async () => {
-    if (!selectedAssets.length) return
-    if (!draft.id) {
-      const message = 'Guarda la publicaci\u00f3n antes de crear una carpeta de diapositivas.'
-      setOrganizeMessage(message)
-      onError(message)
-      return
-    }
-    if (!draft.id) { setOrganizeMessage('Guarda la publicación antes de crear una carpeta de diapositivas.'); return }
-    setGroupDialog({ name: 'Grupo de diapositivas' })
-  }
-  const saveGroup = async () => {
-    if (!groupDialog?.name.trim()) return
-    if (!draft.id) {
-      const message = 'Guarda la publicacion antes de crear una carpeta de diapositivas.'
-      setOrganizeMessage(message)
-      onError(message)
-      return
-    }
-    setOrganizeMessage('')
-    try {
-      await window.planner.media.organizePost(draft.id, draft.project || '', selectedAssets, groupDialog.name.trim(), groupDialog.currentName)
-      setSelectedAssets([])
-      setGroupDialog(null)
-      await refreshFolder()
-    } catch (error) { const message = errorMessage(error); reportAppError(error, 'No se pudieron organizar los medios'); setOrganizeMessage(message); onError(message) }
-  }
-  const renameGroup = async (currentName: string) => {
-    if (!draft.id) return
-    setGroupDialog({ currentName, name: currentName })
-  }
-  const groups = Array.from(new Set(images.map(asset => asset.groupName).filter((name): name is string => Boolean(name))))
-  const groupedCount = images.filter(asset => Boolean(asset.groupName)).length
-  const ungroupedCount = images.length - groupedCount
-  const presentationIds = new Set(presentation.map(asset => asset.id))
-  const orderedImages = [...presentation, ...images.filter(asset => !presentationIds.has(asset.id))]
-  const statusColor = statusMeta[draft.status].color
-  return <div className="preview-wrap">
-    <div className="visual-folder-summary"><span><FolderOpen size={12} /> {groupedCount} en carpeta</span><span><FileImage size={12} /> {ungroupedCount} sin agrupar</span></div>
-    <section className="visual-assets">
-      <header><div><span>RECURSOS DE ESTA PUBLICACIÓN</span><strong>{images.length} {images.length === 1 ? 'imagen' : 'imágenes'}</strong></div><button type="button" className="visual-refresh" onClick={() => void refreshFolder()} disabled={folderBusy}><FolderOpen size={13} /> {folderBusy ? 'Leyendo…' : 'Actualizar carpeta'}</button></header>
-      <small className="visual-folder-hint">Selecciona varias imágenes para agruparlas en una carpeta; el orden se ajusta aquí sin renombrar archivos.</small>
-      {images.length > 0 && <div className="visual-sequence-overview" aria-label={`Orden visual: ${presentation.length ? presentation.map(asset => visualSequence(asset) ?? 'sin número').join(', ') : 'sin diapositivas'}`}>
-        <header><span>ORDEN VISUAL</span><strong>{presentation.length ? presentation.map(asset => visualSequence(asset) ?? '—').join(', ') : 'Sin diapositivas'}</strong></header>
-        <div className="visual-sequence-items">{presentation.map((asset, index) => <div key={asset.id} title={asset.name}><img src={window.planner.media.imageUrl(asset.id)} alt="" /><span>{visualSequence(asset) ?? index + 1}</span></div>)}
-          <div className={'visual-sequence-drop-end' + (dragOverId === 'sequence-end' ? ' drop-target' : '')} onDragOver={event => { if (draggingId) { event.preventDefault(); setDragOverId('sequence-end') } }} onDragLeave={() => setDragOverId(current => current === 'sequence-end' ? null : current)} onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData('text/plain') || draggingId; if (sourceId) moveVisualToEnd(sourceId); setDraggingId(null); setDragOverId(null) }}><span>+</span><small>{presentation.length ? 'Al final' : 'Primera'}</small></div>
-        </div>
-        {presentation.length > 0 && <div className={'visual-sequence-exclude' + (dragOverId === 'sequence-exclude' ? ' drop-target' : '')} onDragOver={event => { if (draggingId) { event.preventDefault(); setDragOverId('sequence-exclude') } }} onDragLeave={() => setDragOverId(current => current === 'sequence-exclude' ? null : current)} onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData('text/plain') || draggingId; if (sourceId) excludeVisual(sourceId); setDraggingId(null); setDragOverId(null) }}>Arrastra aquí para sacar una imagen de la secuencia</div>}
-      </div>}
-      {selectedAssets.length > 0 && <div className="visual-group-actions"><span>{selectedAssets.length} seleccionadas</span><button type="button" onClick={() => void groupSelected()}><FolderPlus size={13} /> Crear carpeta</button></div>}
-      {organizeMessage && <p className="media-import-error" role="alert">{organizeMessage}</p>}
-      {groups.map(group => <div className="visual-group-heading" key={group}><FolderOpen size={13} /><strong>{group}</strong><button type="button" title={`Renombrar ${group}`} onClick={() => void renameGroup(group)}><Edit3 size={13} /></button></div>)}
-      {images.length ? <div className="visual-asset-list">{orderedImages.map(asset => {
-        const role = roleOf(asset)
-        const order = visualSequence(asset)
-        const position = presentation.findIndex(item => item.id === asset.id)
-        const isDraggable = position >= 0
-        return <article
-          className={'visual-asset-row' + (image?.id === asset.id ? ' selected' : '') + (draggingId === asset.id ? ' dragging' : '') + (dragOverId === asset.id ? ' drop-target' : '')}
-          key={asset.id}
-          onDragOver={event => { if (draggingId && isDraggable) { event.preventDefault(); setDragOverId(asset.id) } }}
-          onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData('text/plain') || draggingId; if (sourceId && isDraggable) moveVisualBefore(sourceId, asset.id); setDraggingId(null); setDragOverId(null) }}
-        >
-          <input type="checkbox" className="visual-asset-check" aria-label={`Seleccionar ${asset.name} para agrupar`} checked={selectedAssets.includes(asset.id)} onChange={event => setSelectedAssets(current => event.target.checked ? [...current, asset.id] : current.filter(id => id !== asset.id))} />
-          <button type="button" className="visual-asset-thumb" onClick={() => setSelectedId(asset.id)} draggable onDragStart={event => { event.dataTransfer.setData('text/plain', asset.id); event.dataTransfer.effectAllowed = 'move'; setDraggingId(asset.id) }} onDragEnd={() => { setDraggingId(null); setDragOverId(null) }} title={isDraggable ? `Arrastrar para reordenar · Orden ${order ?? 'sin número'}` : `Arrastrar para incluir en la secuencia · ${asset.name}`}>
-            <img src={window.planner.media.imageUrl(asset.id)} alt="" />
-            {isDraggable && <><span className="visual-asset-order">{order ?? position + 1}</span><span className="visual-asset-grip" aria-hidden="true"><GripVertical size={13} /></span></>}
-          </button>
-          <div className="visual-asset-meta"><strong title={asset.name}>{asset.groupName ? `${asset.groupName} / ${asset.name}` : asset.name}</strong><select aria-label={`Uso de ${asset.name}`} value={role} onChange={event => updateVisual(asset.id, event.target.value as NonNullable<typeof asset.presentationRole>, order)}><option value="representative">Representativa</option><option value="cover">Portada</option><option value="slide">Diapositiva</option><option value="closing">Cierre</option><option value="other">Excluir de la secuencia</option></select></div>
-          {!['representative', 'other'].includes(role) && <div className="visual-order-controls"><input aria-label={`Orden de ${asset.name}`} className="visual-order" type="number" min="1" max="10000" value={order ?? ''} placeholder="Sin orden" onChange={event => updateVisual(asset.id, role, event.target.value === '' ? null : Number(event.target.value))} /><button type="button" title="Subir en la secuencia" aria-label={`Subir ${asset.name}`} disabled={position <= 0} onClick={() => moveVisual(asset.id, -1)}><ChevronUp size={13} /></button><button type="button" title="Bajar en la secuencia" aria-label={`Bajar ${asset.name}`} disabled={position < 0 || position === presentation.length - 1} onClick={() => moveVisual(asset.id, 1)}><ChevronDown size={13} /></button></div>}
-        </article>
-      })}</div> : <p className="visual-assets-empty">No hay PNG, JPG o WebP en la carpeta de esta publicación.</p>}
-    </section>
-    <div className="preview-platforms">{draft.platforms.map(p => <button key={p}><PlatformMark platform={p} />{getPlatformMeta(p).label}</button>)}</div>
-    <div className={'social-preview ' + platform}>
-      <header><div className="preview-avatar" aria-label="Caballocci"><i /><i /><i /></div><div><strong>tu_cuenta</strong><span><i className="preview-local-dot" style={{ backgroundColor: statusColor, boxShadow: `0 0 0 2px ${statusColor}33` }} /> Vista previa local · {getPlatformMeta(platform).label} · {statusMeta[draft.status].label}</span></div><MoreHorizontal size={17} /></header>
-      <div className="preview-media">
-        {image
-          ? <img src={window.planner.media.imageUrl(image.id)} alt={image.name} />
-          : <div className="preview-placeholder"><Instagram size={38} />{firstIdea ? <><strong>{firstIdea.title || 'Idea 1'}</strong><p>{firstIdea.text || 'Texto pendiente'}</p></> : <span>{contentLabels[draft.contentType]}</span>}</div>}
-        <span className="preview-dimensions">{image ? `${roleOf(image) === 'representative' ? 'Imagen representativa' : roleOf(image) === 'cover' ? 'Portada' : roleOf(image) === 'closing' ? 'Cierre' : 'Diapositiva'}${image.sequence ? ` · ${image.sequence}` : ''}` : 'Sin recurso visual'}</span>
-      </div>
-      {presentation.length > 1 && isSequenceImage && <div className="preview-sequence"><button type="button" title="Imagen anterior" onClick={() => setSelectedId(presentation[(sequenceIndex - 1 + presentation.length) % presentation.length].id)}><ChevronLeft size={15} /></button><span>{sequenceIndex + 1} / {presentation.length}</span><button type="button" title="Imagen siguiente" onClick={() => setSelectedId(presentation[(sequenceIndex + 1) % presentation.length].id)}><ChevronRight size={15} /></button></div>}
-      <div className="preview-actions"><MessageCircle /><Archive /><Clipboard /></div>
-      <p><strong>tu_cuenta </strong>{text || 'Aquí aparecerá el texto de tu publicación.'}</p>
-    </div>
-    <button className="copy-helper" onClick={() => window.planner.clipboard.write(text)}><Clipboard size={16} /> Copiar texto para publicar</button>
-    {groupDialog && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null) }}><form className="space-dialog" onSubmit={event => { event.preventDefault(); void saveGroup() }}><header><div><span>{groupDialog.currentName ? 'RENOMBRAR CARPETA' : 'NUEVA CARPETA'}</span><h2>Carpeta de diapositivas</h2></div><button type="button" className="icon-button" aria-label="Cerrar" onClick={() => setGroupDialog(null)}><X size={18} /></button></header><label>Nombre<input autoFocus maxLength={120} value={groupDialog.name} onChange={event => setGroupDialog(current => current ? { ...current, name: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setGroupDialog(null)}>Cancelar</button><button className="save-button" disabled={!groupDialog.name.trim() || groupDialog.name.trim() === groupDialog.currentName}>Guardar carpeta</button></footer></form></div>}
-  </div>
-}
-
-function IdeaBlocks({ blocks, onChange }: { blocks: IdeaBlock[]; onChange(blocks: IdeaBlock[], change: UndoableChange): void }) {
-  const add = () => onChange([...blocks, { id: crypto.randomUUID(), title: '', text: '' }], { label: 'Añadir diapositiva' })
-  const update = (id: string, patch: Partial<IdeaBlock>, change: UndoableChange) => onChange(blocks.map(block => block.id === id ? { ...block, ...patch } : block), change)
-  const format = (id: string, mode: 'upper' | 'lower' | 'title' | 'sentence') => {
-    const block = blocks.find(item => item.id === id)
-    if (block) update(id, { title: formatTitle(block.title, mode) }, { label: 'Formatear título de diapositiva' })
-  }
-  const remove = (id: string) => onChange(blocks.filter(block => block.id !== id), { label: 'Eliminar diapositiva' })
-  const move = (index: number, offset: -1 | 1) => {
-    const target = index + offset
-    if (target < 0 || target >= blocks.length) return
-    const reordered = [...blocks]
-    const [block] = reordered.splice(index, 1)
-    reordered.splice(target, 0, block)
-    onChange(reordered, { label: offset < 0 ? 'Subir diapositiva' : 'Bajar diapositiva' })
-  }
-
-  return <section className="idea-blocks">
-    <header><div><span>DIAPOSITIVAS</span><strong>{blocks.length} {blocks.length === 1 ? 'diapositiva' : 'diapositivas'}</strong></div><button type="button" className="new-button" onClick={add}><Plus size={15} /> Nueva diapositiva</button></header>
-    {blocks.length === 0 && <button type="button" className="empty-ideas" onClick={add}><Lightbulb size={24} /><span>Añadir primera idea</span></button>}
-    {blocks.map((block, index) => <article className="idea-block" key={block.id}>
-      <header><span>DIAPOSITIVA {String(index + 1).padStart(2, '0')}</span><div>
-        <button type="button" title="Subir idea" aria-label="Subir idea" disabled={index === 0} onClick={() => move(index, -1)}><ChevronUp size={15} /></button>
-        <button type="button" title="Bajar idea" aria-label="Bajar idea" disabled={index === blocks.length - 1} onClick={() => move(index, 1)}><ChevronDown size={15} /></button>
-        <button type="button" title="Eliminar idea" aria-label="Eliminar idea" onClick={() => remove(block.id)}><Trash2 size={14} /></button>
-      </div></header>
-      <label>Título<input data-undo-control value={block.title} maxLength={160} onChange={event => update(block.id, { title: event.target.value }, { label: 'Editar título de diapositiva', groupKey: `slide:${block.id}:title` })} placeholder="Ej. Apertura, argumento, cierre" /></label>
-      <div className="title-format-actions"><span>Formato rápido</span><button type="button" onClick={() => format(block.id, 'upper')}>MAYÚS</button><button type="button" onClick={() => format(block.id, 'lower')}>minús</button><button type="button" onClick={() => format(block.id, 'title')}>Título</button><button type="button" onClick={() => format(block.id, 'sentence')}>Oración</button></div>
-      <label>Texto<textarea data-undo-control value={block.text} maxLength={10_000} onChange={event => update(block.id, { text: event.target.value }, { label: 'Editar texto de diapositiva', groupKey: `slide:${block.id}:text` })} placeholder="Texto que luego irá en la imagen" /></label>
-    </article>)}
-  </section>
-}
 
 export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; onClose(): void }) {
   const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
@@ -573,14 +285,13 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
       {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}
-      {tab === 'ideas' && <IdeaBlocks blocks={draft.ideaBlocks || []} onChange={(blocks, change) => update('ideaBlocks', blocks, change)} />}
-      {tab === 'notes' && <section className="notes-editor"><header><div><span>APUNTES INTERNOS</span><strong>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'}</strong></div><button type="button" className="new-button" onClick={() => updateNotes([...noteItems, { id: crypto.randomUUID(), title: '', text: '' }], { label: 'Añadir nota' })}><Plus size={15} /> Nueva nota</button></header>{noteItems.map((note, index) => <article className="note-item" key={note.id}><div className="note-item-heading"><span>NOTA {String(index + 1).padStart(2, '0')}</span>{noteItems.length > 1 && <button type="button" onClick={() => updateNotes(noteItems.filter(item => item.id !== note.id), { label: 'Eliminar nota' })}><Trash2 size={14} /></button>}</div><input data-undo-control value={note.title} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, title: event.target.value } : item), { label: 'Editar título de nota', groupKey: `note:${note.id}:title` })} placeholder="Nombre opcional" /><textarea data-undo-control value={note.text} onChange={event => updateNotes(noteItems.map(item => item.id === note.id ? { ...item, text: event.target.value } : item), { label: 'Editar nota', groupKey: `note:${note.id}:text` })} placeholder="Dato, referencia, pendiente o contexto..." /></article>)}</section>}
-      {tab === 'assistant' && <section className="ai-assistant"><header><div><span>INGESTA DE RESPUESTAS</span><strong>Convierte tus textos en una publicación</strong></div><Sparkles size={19} /></header><p className="assistant-hint">Se detectan títulos y slides numeradas; las secciones “final” o “cierre” se descartan.</p><label>Original<textarea value={assistantIdea} onChange={event => setAssistantIdea(event.target.value)} placeholder="Pega aquí el texto seleccionado" /></label><label>Títulos<textarea value={assistantTitles} onChange={event => setAssistantTitles(event.target.value)} placeholder="Un título por línea" /></label>{parseTitleCandidates(assistantTitles).length > 0 && <div className="assistant-candidates"><span>Elegir título</span>{parseTitleCandidates(assistantTitles).map(title => <button type="button" key={title} onClick={() => update('title', title)}>{title}</button>)}</div>}<label>Respuesta del p1<textarea value={assistantMaster} onChange={event => setAssistantMaster(event.target.value)} placeholder={'Slide 0: ...\nSlide 1: ...\nFinal: ...'} /></label><div className="assistant-actions"><button type="button" className="save-button" onClick={applyAssistant}><Sparkles size={15} /> Aplicar a la publicación</button><button type="button" className="ghost-button" onClick={() => void copyObsidianMark()}><Clipboard size={15} /> Copiar marca</button></div>{assistantMessage && <p className="assistant-message">{assistantMessage}</p>}</section>}
+      {tab === 'ideas' && <EditorIdeaBlocks blocks={draft.ideaBlocks || []} onChange={(blocks, change) => update('ideaBlocks', blocks, change)} />}
+      {tab === 'notes' && <EditorNotes items={noteItems} onChange={updateNotes} />}
+      {tab === 'assistant' && <EditorAssistantPanel idea={assistantIdea} onIdeaChange={setAssistantIdea} titles={assistantTitles} onTitlesChange={setAssistantTitles} onSelectTitle={title => update('title', title)} master={assistantMaster} onMasterChange={setAssistantMaster} message={assistantMessage} onApply={applyAssistant} onCopyMark={() => void copyObsidianMark()} />}
       {tab === 'preview' && <Preview draft={draft} onMediaChange={media => update('media', media)} onError={message => reportAppError(message, 'Error en medios')} />}
       {tab === 'notes' && <label>Notas internas<textarea data-undo-control className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value, { label: 'Editar notas', groupKey: 'post:notes' })} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
-      {tab === 'external' && externalRecord && <section className="external-data"><header><div><span>FUENTE EXTERNA</span><strong>{externalRecord.externalRef}</strong></div><small>{externalRecord.lastSeenAt ? `Visto por ultima vez: ${new Date(externalRecord.lastSeenAt).toLocaleString()}` : ''}</small></header><details open><summary>Registro original</summary><pre>{JSON.stringify(externalRecord.raw, null, 2)}</pre></details><details><summary>Registro normalizado</summary><pre>{JSON.stringify(externalRecord.normalized, null, 2)}</pre></details><details><summary>Enriquecimiento interno</summary><pre>{JSON.stringify(externalRecord.enriched, null, 2)}</pre></details></section>}
-      {tab === 'catalog' && <div className="catalog-fields"><label>category_id (solo Resource)<input type="number" min="1" step="1" value={catalogCategoryId} onChange={event => setCatalogCategoryId(event.target.value)} placeholder="Ej. 4" /></label><label>Resumen del catalogo<textarea value={catalogSummary} onChange={event => setCatalogSummary(event.target.value)} placeholder="Resumen breve; conserva saltos de linea y Markdown pegado." /></label><label>Contenido del catalogo<textarea value={catalogContent} onChange={event => setCatalogContent(event.target.value)} placeholder="Pega aqui el Markdown completo." /></label><label><input type="checkbox" checked={catalogUseHashtags} onChange={event => setCatalogUseHashtags(event.target.checked)} /> Convertir hashtags a tags (requiere IDs)</label></div>}
-      {tab === 'catalog' && <section className="external-data catalog-panel"><header><div><span>INTEGRACION DE CONTENIDO</span><strong>{catalogSync ? `Estado: ${catalogSync.action}` : 'Sin sincronizar'}</strong></div>{catalogSync?.updatedAt && <small>{new Date(catalogSync.updatedAt).toLocaleString()}</small>}</header><label>Endpoint<input value={catalogEndpoint} onChange={event => setCatalogEndpoint(event.target.value)} placeholder="https://dominio.tld/api/integrations/content/batch" /></label><label>CONTENT_INTEGRATION_CREATED_BY<input value={catalogCreatedBy} onChange={event => setCatalogCreatedBy(event.target.value)} placeholder="UUID del administrador" /></label><label>Token de integracion<input type="password" value={catalogToken} onChange={event => setCatalogToken(event.target.value)} placeholder={catalogConfig.configured ? 'Guardado de forma segura; deja vacio para conservarlo' : 'Token largo'} /></label><label>Tipo<select value={catalogKind} onChange={event => setCatalogKind(event.target.value as 'resource' | 'resource_lite')}><option value="resource">Resource</option><option value="resource_lite">Resource Lite</option></select></label><div className="source-actions"><button className="settings-button" disabled={catalogBusy || !catalogEndpoint || !catalogCreatedBy} onClick={() => void saveCatalog()}>Guardar configuracion</button><button className="settings-button" disabled={catalogBusy || !catalogConfig.configured} onClick={() => void syncCatalog(true)}>Probar (dry run)</button><button className="save-button" disabled={catalogBusy || !catalogConfig.configured} onClick={() => void syncCatalog(false)}>Sincronizar</button></div>{catalogMessage && <p className="source-message">{catalogMessage}</p>}{catalogSync?.publicUrl && <a href={catalogSync.publicUrl} target="_blank" rel="noreferrer">Abrir contenido remoto</a>}{catalogSync?.error && <pre>{catalogSync.error}</pre>}<details><summary>Payload generado</summary><pre>{JSON.stringify(catalogPreview, null, 2)}</pre></details></section>}
+      {tab === 'external' && externalRecord && <EditorExternalRecordPanel record={externalRecord} />}
+      {tab === 'catalog' && <EditorCatalogPanel categoryId={catalogCategoryId} onCategoryIdChange={setCatalogCategoryId} summary={catalogSummary} onSummaryChange={setCatalogSummary} content={catalogContent} onContentChange={setCatalogContent} useHashtags={catalogUseHashtags} onUseHashtagsChange={setCatalogUseHashtags} sync={catalogSync} endpoint={catalogEndpoint} onEndpointChange={setCatalogEndpoint} createdBy={catalogCreatedBy} onCreatedByChange={setCatalogCreatedBy} token={catalogToken} onTokenChange={setCatalogToken} configured={catalogConfig.configured} kind={catalogKind} onKindChange={setCatalogKind} busy={catalogBusy} message={catalogMessage} onSaveConfig={() => void saveCatalog()} onSync={dryRun => void syncCatalog(dryRun)} preview={catalogPreview} />}
     </div>
     <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}</div><div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
   </aside></div>
