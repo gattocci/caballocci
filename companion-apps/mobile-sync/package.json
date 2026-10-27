@@ -1,6 +1,6 @@
 {
   "name": "@caballocci/mobile-sync",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "minimumSupportedVersion": "0.1.0",
   "private": true,
   "type": "module",
