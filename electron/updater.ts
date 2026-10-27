@@ -120,7 +120,9 @@ export class UpdateManager {
     // The user already confirmed this action inside caballocci.
     setImmediate(() => {
       try {
-        autoUpdater.quitAndInstall(true, true)
+        // Let the renderer paint the blocking progress screen before Electron
+        // starts closing windows and launching the NSIS installer.
+        setTimeout(() => autoUpdater.quitAndInstall(true, true), 900)
         this.installFallbackTimer = setTimeout(() => {
           if (this.quittingForInstall) return
           this.setState({ status: 'downloaded', message: 'La aplicaciÃ³n no se cerrÃ³ para instalar. Puedes volver a intentarlo.' })
