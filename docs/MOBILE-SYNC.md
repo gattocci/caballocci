@@ -114,6 +114,12 @@ La grilla móvil ordena por espacio y luego por el ordinal del nombre de carpeta
 
 ## Instalar y ejecutar Android
 
+La versión Android es independiente de la versión de escritorio y se mantiene en `companion-apps/mobile-sync/package.json`. El mismo número se incorpora al APK y a la interfaz; al abrir, la app consulta los metadatos `caballocci-android.json` de la última Release de GitHub y ofrece instalar el APK cuando hay una versión nueva. `minimumSupportedVersion` marca la versión mínima compatible: súbela solo si un cambio del contrato o del protocolo obliga a retirar versiones anteriores. La descarga se instala desde Android y conserva los datos privados de la app y el permiso de carpeta cuando Android lo permite.
+
+Las Releases necesitan una clave de firma Android persistente en GitHub Actions: define los secretos `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` y `ANDROID_KEY_PASSWORD`. Conserva esa misma clave para todas las versiones; Android rechazará una actualización firmada con otra. El APK publicado es de release y firmado, no el APK de depuración.
+
+El catálogo sincronizado valida por separado su contrato (`catalog.json`, versión 1). Ese número no reemplaza la versión de la app. La comprobación de releases requiere Internet; sin conexión, la app sigue mostrando la última información verificada disponible en esa sesión y permite reintentar.
+
 Requisitos: Node.js 22+, JDK compatible con el Android Gradle Plugin del proyecto, Android SDK/Android Studio y un dispositivo o emulador Android. El acceso real a la carpeta depende también del proveedor de documentos usado por Syncthing.
 
 Para instalar la app en un teléfono sin compilarla, descarga **Descargar APK** desde **Acerca de / Actualizaciones → App Android de caballocci**, abre el archivo descargado y confirma la instalación de Android. Si el sistema lo pide, permite temporalmente instalar apps desde la fuente que abrió el APK. Después abre la app y selecciona la raíz compartida de Syncthing. El APK oficial se adjunta a las Releases de caballocci.

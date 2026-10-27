@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def mobilePackage = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+def mobileVersion = mobilePackage.version.toString()
+def versionParts = mobileVersion.tokenize('.').collect { it.toInteger() }
+def mobileVersionCode = 1000000 + versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
+def signingStore = System.getenv('ANDROID_KEYSTORE_PATH')
+
 android {
     namespace "com.caballocci.mobilesync"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +13,8 @@ android {
         applicationId "com.caballocci.mobilesync"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode mobileVersionCode
+        versionName mobileVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +22,19 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (signingStore) {
+                storeFile file(signingStore)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (signingStore) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

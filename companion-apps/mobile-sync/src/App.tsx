@@ -6,6 +6,36 @@ import { SyncFolder } from './native'
 const catalogPath = 'pc-outbox/catalog.json'
 const deliveredStorageKey = 'caballocci.delivered-events'
 const videoExtensions = ['mp4', 'mov', 'm4v', 'webm']
+const mobileReleaseApi = 'https://api.github.com/repos/gattocci/caballocci/releases/latest'
+declare const __MOBILE_APP_VERSION__: string
+type MobileRelease = { version: string; minimumSupportedVersion: string; apkUrl: string; releaseUrl: string }
+
+function compareVersions(left: string, right: string) {
+  const a = left.split('.').map(Number)
+  const b = right.split('.').map(Number)
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const difference = (a[index] || 0) - (b[index] || 0)
+    if (difference) return difference
+  }
+  return 0
+}
+
+async function fetchMobileRelease(): Promise<MobileRelease> {
+  const response = await fetch(mobileReleaseApi, { headers: { Accept: 'application/vnd.github+json' } })
+  if (!response.ok) throw new Error('No se pudo consultar la versión publicada.')
+  const release = await response.json() as { assets?: Array<{ name?: string; browser_download_url?: string }> }
+  const asset = release.assets?.find(item => item.name === 'caballocci-android.json')
+  if (!asset?.browser_download_url) throw new Error('La publicación no incluye información de versión Android.')
+  const metadataResponse = await fetch(asset.browser_download_url)
+  if (!metadataResponse.ok) throw new Error('No se pudo leer la información de versión Android.')
+  const metadata = await metadataResponse.json() as Partial<MobileRelease>
+  if (![metadata.version, metadata.minimumSupportedVersion, metadata.apkUrl, metadata.releaseUrl].every(value => typeof value === 'string')) {
+    throw new Error('La información de versión Android no es válida.')
+  }
+  const apkUrl = new URL(metadata.apkUrl!)
+  if (apkUrl.protocol !== 'https:' || apkUrl.hostname !== 'github.com') throw new Error('El enlace de actualización no es de confianza.')
+  return metadata as MobileRelease
+}
 type DisplayMedia = { path: string; kind: 'image' | 'video'; order: number }
 type PublicationDisplay = { title: string; media: DisplayMedia[] }
 type Album = { publication: Publication; key: string; prefix: string; slug: string; space: string; order: number; index: number }
@@ -103,6 +133,9 @@ async function loadEvents(): Promise<UsageEvent[]> {
 }
 
 export default function App() {
+  const [mobileRelease, setMobileRelease] = useState<MobileRelease | null>(null)
+  const [releaseCheckError, setReleaseCheckError] = useState(false)
+  const [releaseChecking, setReleaseChecking] = useState(true)
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [events, setEvents] = useState<UsageEvent[]>([])
   const [localEventsLoaded, setLocalEventsLoaded] = useState(false)
@@ -123,6 +156,14 @@ export default function App() {
   const deliveredRef = useRef<Set<string>>(readDelivered())
   const [, setDeliveredTick] = useState(0)
   const toastTimer = useRef<number | undefined>(undefined)
+
+  const checkForMobileUpdate = useCallback(async () => {
+    setReleaseChecking(true)
+    setReleaseCheckError(false)
+    try { setMobileRelease(await fetchMobileRelease()) }
+    catch { setReleaseCheckError(true) }
+    finally { setReleaseChecking(false) }
+  }, [])
 
   // Los avisos desaparecen solos: los informativos a los pocos segundos, los errores un poco después (o al tocarlos).
   const notify = useCallback((text: string, error = false) => {
@@ -183,6 +224,7 @@ export default function App() {
   }, [notify])
 
   useEffect(() => {
+    void checkForMobileUpdate()
     if (!Capacitor.isNativePlatform()) {
       notify('Abre esta aplicación en Android para acceder a la carpeta compartida.', true)
       return
@@ -195,7 +237,10 @@ export default function App() {
       setFolderReady(result.selected)
       if (result.selected) void refreshCatalog()
     }).catch(error => notify(errorText(error, 'No se pudo consultar el permiso de carpeta.'), true))
-  }, [refreshCatalog, notify])
+  }, [refreshCatalog, notify, checkForMobileUpdate])
+
+  const updateRequired = mobileRelease !== null && compareVersions(__MOBILE_APP_VERSION__, mobileRelease.minimumSupportedVersion) < 0
+  const updateAvailable = mobileRelease !== null && compareVersions(__MOBILE_APP_VERSION__, mobileRelease.version) < 0
 
   const usage = useMemo(() => summarizeUsage(events), [events])
   const isUsed = useCallback((publication: Publication) => publication.used || usage.used.has(pubKey(publication)), [usage])
@@ -467,6 +512,14 @@ export default function App() {
 
   return <main>
     <header><span>CABALLOCci · MÓVIL</span><h1>Publicaciones</h1><p>Confirma el uso por destino. Esto no verifica la publicación externa.</p></header>
+    <section className={`app-version${updateRequired ? ' app-version-required' : updateAvailable ? ' app-version-available' : ''}`} aria-live="polite">
+      <div><strong>{updateRequired ? 'Actualización necesaria' : updateAvailable ? 'Hay una actualización' : 'App actualizada'}</strong><small>Versión instalada: {__MOBILE_APP_VERSION__}{mobileRelease ? ` · última: ${mobileRelease.version}` : ''}</small>
+        {updateRequired && <p>Esta versión ya no es compatible. Instala la versión nueva para seguir sincronizando.</p>}
+        {releaseCheckError && <p>No se pudo comprobar ahora la compatibilidad. Revisa tu conexión e inténtalo de nuevo.</p>}
+      </div>
+      {updateAvailable && mobileRelease && <button onClick={() => { window.location.href = mobileRelease.apkUrl }}>Actualizar app</button>}
+      {releaseCheckError && <button disabled={releaseChecking} onClick={() => void checkForMobileUpdate()}>{releaseChecking ? 'Comprobando…' : 'Reintentar'}</button>}
+    </section>
     <section className="sync-help"><strong>Cómo funciona</strong><p>“Marcar como usada” solo guarda una confirmación; no publica ni cambia el estado editorial. “Borrar álbum” elimina la carpeta compartida del teléfono y envía una señal a la PC. Syncthing sincroniza ambas cosas; al importar señales, la PC registra el historial, y al conciliar archiva el catálogo antes de actualizarlo y limpiar carpetas. Android no modifica <code>catalog.json</code>.</p></section>
     {!folderReady && <section className="setup"><h2>Conectar carpeta compartida</h2><p>Selecciona una vez la carpeta de Syncthing que contiene <code>pc-outbox</code>. Android solicitará permiso persistente.</p><button disabled={busy || !Capacitor.isNativePlatform()} onClick={() => void chooseFolder()}>{busy ? 'Conectando…' : 'Elegir carpeta Syncthing'}</button>{!Capacitor.isNativePlatform() && <small>El selector nativo está disponible en Android.</small>}</section>}
     {folderReady && <section className="toolbar"><button disabled={busy} onClick={() => void chooseFolder()}>Carpeta Syncthing</button><button disabled={busy} onClick={() => void refreshCatalog()}>Actualizar snapshot</button>{undelivered.length > 0 && <button disabled={busy} onClick={() => void retryPending()}>Reintentar eventos ({undelivered.length})</button>}</section>}
