@@ -10,6 +10,7 @@ import { SourcesView } from '../features/sources/SourcesView'
 import { reportAppError } from './errors'
 import { postMatchesQuery, usePlanner } from './store'
 import { AppErrorBoundary, GlobalErrorCenter } from '../components/layout/GlobalErrorCenter'
+import { UpdateDialog } from '../components/UpdateDialog'
 
 function AppContent() {
   const { load, loading, loadError, view, posts, selectedId, select, query, activeSpace, setView, undoHistory, redoHistory, undoNotice, undoSavedChange, redoSavedChange, clearUndoNotice } = usePlanner()
@@ -97,5 +98,5 @@ export default function App() {
     }
   }, [])
 
-  return <><GlobalErrorCenter /><AppErrorBoundary><AppContent /></AppErrorBoundary></>
+  return <><GlobalErrorCenter /><AppErrorBoundary><AppContent /></AppErrorBoundary><UpdateDialog /></>
 }
