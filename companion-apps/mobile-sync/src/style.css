@@ -3,6 +3,7 @@
 body{margin:0;min-width:320px}
 main{max-width:720px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom))}
 header{border-bottom:1px solid #303a33;padding-bottom:16px}
+header .menu-button{float:right;min-height:36px;padding:0 12px}
 header>span,.target{color:#83d5a2;font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
 h1{font-size:28px;margin:8px 0}
 header p,.setup p,.empty p{color:#aab5ad;font-size:14px;line-height:1.5;margin:4px 0}
@@ -14,8 +15,14 @@ header p,.setup p,.empty p{color:#aab5ad;font-size:14px;line-height:1.5;margin:4
 .app-version-available{border-color:#54715d}
 .app-version-required{border-color:#a04f43;background:#2a1c19}
 .app-version-required button{background:#a04f43;border-color:#a04f43}
-.sync-help{margin-top:14px;padding:12px 14px;border:1px solid #303a33;border-radius:10px;background:#171e19;color:#c7d2ca;font-size:13px;line-height:1.5}
-.sync-help p{margin:5px 0 0;color:#aab5ad}
+.app-version-settings{display:block;margin-top:18px}
+.app-version-settings h2{margin:0 0 8px;font-size:20px}
+.app-version-settings p{margin:12px 0;color:#c7d2ca;font-size:14px;line-height:1.5}
+.app-version-settings button{margin-top:12px}
+.sync-help{margin-top:14px;border:1px solid #303a33;border-radius:10px;background:#171e19;color:#c7d2ca;font-size:13px;line-height:1.5}
+.sync-help summary{min-height:44px;padding:12px 14px;font-weight:650;cursor:pointer}
+.sync-help[open] summary{border-bottom:1px solid #303a33}
+.sync-help p{margin:10px 14px 12px;color:#aab5ad}
 .catalog-integrity{margin-top:14px;padding:12px 14px;border:1px solid #38463c;border-radius:10px;background:#171e19;font-size:13px;line-height:1.45}
 .catalog-integrity>strong{display:block;color:#c7d2ca}
 .catalog-integrity p{margin:6px 0;color:#aab5ad}

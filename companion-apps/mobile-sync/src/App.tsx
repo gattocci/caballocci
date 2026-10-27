@@ -21,20 +21,47 @@ function compareVersions(left: string, right: string) {
 }
 
 async function fetchMobileRelease(): Promise<MobileRelease> {
-  const response = await fetch(mobileReleaseApi, { headers: { Accept: 'application/vnd.github+json' } })
-  if (!response.ok) throw new Error('No se pudo consultar la versión publicada.')
-  const release = await response.json() as { assets?: Array<{ name?: string; browser_download_url?: string }> }
-  const asset = release.assets?.find(item => item.name === 'caballocci-android.json')
-  if (!asset?.browser_download_url) throw new Error('La publicación no incluye información de versión Android.')
-  const metadataResponse = await fetch(asset.browser_download_url)
-  if (!metadataResponse.ok) throw new Error('No se pudo leer la información de versión Android.')
-  const metadata = await metadataResponse.json() as Partial<MobileRelease>
-  if (![metadata.version, metadata.minimumSupportedVersion, metadata.apkUrl, metadata.releaseUrl].every(value => typeof value === 'string')) {
-    throw new Error('La información de versión Android no es válida.')
+  const request = async (url: string, stage: string, headers?: HeadersInit) => {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 12000)
+    try { return await fetch(url, { headers, signal: controller.signal }) }
+    catch (error) {
+      if (controller.signal.aborted) throw new Error(`Tiempo agotado al ${stage} (12 s).`)
+      throw new Error(`Falló la conexión al ${stage}${error instanceof Error && error.message ? ` (${error.name}: ${error.message})` : '.'}`)
+    } finally { window.clearTimeout(timeout) }
   }
-  const apkUrl = new URL(metadata.apkUrl!)
-  if (apkUrl.protocol !== 'https:' || apkUrl.hostname !== 'github.com') throw new Error('El enlace de actualización no es de confianza.')
-  return metadata as MobileRelease
+  const response = await request(mobileReleaseApi, 'consultar la API de GitHub')
+  if (!response.ok) throw new Error(`GitHub respondió ${response.status} al consultar la última versión.`)
+  const release = await response.json() as {
+    tag_name?: string
+    html_url?: string
+    assets?: Array<{ name?: string; browser_download_url?: string }>
+  }
+  if (!release.tag_name) throw new Error('La última Release no tiene una etiqueta válida.')
+  const apkAsset = release.assets?.find(item => item.name === 'caballocci-android.apk')
+  if (!apkAsset?.browser_download_url) throw new Error('La última Release no incluye caballocci-android.apk.')
+  const apkUrl = new URL(apkAsset.browser_download_url)
+  if (apkUrl.protocol !== 'https:' || apkUrl.hostname !== 'github.com') throw new Error('El enlace del APK no es de confianza.')
+
+  // Consulta el package.json en la etiqueta de esta Release usando la API (CORS habilitado),
+  // en vez de hacer fetch al asset de Release, cuya redirección a CDN falla en Android WebView.
+  const packageUrl = `https://api.github.com/repos/gattocci/caballocci/contents/companion-apps/mobile-sync/package.json?ref=${encodeURIComponent(release.tag_name!)}`
+  const packageResponse = await request(packageUrl, 'consultar la configuración móvil de la Release')
+  if (!packageResponse.ok) throw new Error(`GitHub respondió ${packageResponse.status} al consultar la configuración móvil (${release.tag_name}).`)
+  const packageContent = await packageResponse.json() as { content?: string; encoding?: string }
+  if (packageContent.encoding !== 'base64' || typeof packageContent.content !== 'string') throw new Error('GitHub devolvió un package.json móvil en un formato inesperado.')
+  let packageJson: { version?: unknown; minimumSupportedVersion?: unknown }
+  try { packageJson = JSON.parse(decodeURIComponent(escape(atob(packageContent.content.replace(/\s/g, ''))))) as typeof packageJson }
+  catch { throw new Error('No se pudo interpretar el package.json móvil de la Release.') }
+  if (typeof packageJson.version !== 'string' || !/^\d+(?:\.\d+){1,3}$/.test(packageJson.version) || typeof packageJson.minimumSupportedVersion !== 'string' || !/^\d+(?:\.\d+){1,3}$/.test(packageJson.minimumSupportedVersion)) {
+    throw new Error(`La configuración móvil de la Release ${release.tag_name} no contiene versiones válidas.`)
+  }
+  return {
+    version: packageJson.version,
+    minimumSupportedVersion: packageJson.minimumSupportedVersion,
+    apkUrl: apkUrl.href,
+    releaseUrl: typeof release.html_url === 'string' ? release.html_url : 'https://github.com/gattocci/caballocci/releases/latest',
+  }
 }
 type DisplayMedia = { path: string; kind: 'image' | 'video'; order: number }
 type PublicationDisplay = { title: string; media: DisplayMedia[] }
@@ -135,7 +162,9 @@ async function loadEvents(): Promise<UsageEvent[]> {
 export default function App() {
   const [mobileRelease, setMobileRelease] = useState<MobileRelease | null>(null)
   const [releaseCheckError, setReleaseCheckError] = useState(false)
+  const [releaseCheckMessage, setReleaseCheckMessage] = useState('')
   const [releaseChecking, setReleaseChecking] = useState(true)
+  const [screen, setScreen] = useState<'home' | 'settings'>('home')
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [events, setEvents] = useState<UsageEvent[]>([])
   const [localEventsLoaded, setLocalEventsLoaded] = useState(false)
@@ -160,8 +189,12 @@ export default function App() {
   const checkForMobileUpdate = useCallback(async () => {
     setReleaseChecking(true)
     setReleaseCheckError(false)
+    setReleaseCheckMessage('')
     try { setMobileRelease(await fetchMobileRelease()) }
-    catch { setReleaseCheckError(true) }
+    catch (error) {
+      setReleaseCheckError(true)
+      setReleaseCheckMessage(errorText(error, 'Error desconocido al comprobar la versión.'))
+    }
     finally { setReleaseChecking(false) }
   }, [])
 
@@ -511,16 +544,15 @@ export default function App() {
   const currentUsed = current ? isUsed(current) : false
 
   return <main>
-    <header><span>CABALLOCci · MÓVIL</span><h1>Publicaciones</h1><p>Confirma el uso por destino. Esto no verifica la publicación externa.</p></header>
-    <section className={`app-version${updateRequired ? ' app-version-required' : updateAvailable ? ' app-version-available' : ''}`} aria-live="polite">
-      <div><strong>{updateRequired ? 'Actualización necesaria' : updateAvailable ? 'Hay una actualización' : 'App actualizada'}</strong><small>Versión instalada: {__MOBILE_APP_VERSION__}{mobileRelease ? ` · última: ${mobileRelease.version}` : ''}</small>
-        {updateRequired && <p>Esta versión ya no es compatible. Instala la versión nueva para seguir sincronizando.</p>}
-        {releaseCheckError && <p>No se pudo comprobar ahora la compatibilidad. Revisa tu conexión e inténtalo de nuevo.</p>}
-      </div>
-      {updateAvailable && mobileRelease && <button onClick={() => { window.location.href = mobileRelease.apkUrl }}>Actualizar app</button>}
-      {releaseCheckError && <button disabled={releaseChecking} onClick={() => void checkForMobileUpdate()}>{releaseChecking ? 'Comprobando…' : 'Reintentar'}</button>}
-    </section>
-    <section className="sync-help"><strong>Cómo funciona</strong><p>“Marcar como usada” solo guarda una confirmación; no publica ni cambia el estado editorial. “Borrar álbum” elimina la carpeta compartida del teléfono y envía una señal a la PC. Syncthing sincroniza ambas cosas; al importar señales, la PC registra el historial, y al conciliar archiva el catálogo antes de actualizarlo y limpiar carpetas. Android no modifica <code>catalog.json</code>.</p></section>
+    <header><span>CABALLOCci · MÓVIL</span><button className="menu-button" onClick={() => setScreen(value => value === 'home' ? 'settings' : 'home')}>{screen === 'home' ? '☰ Menú' : '← Volver'}</button><h1>{screen === 'home' ? 'Publicaciones' : 'Menú'}</h1>{screen === 'home' && <p>Confirma el uso por destino. Esto no verifica la publicación externa.</p>}</header>
+    {screen === 'settings' ? <section className={`app-version app-version-settings${updateRequired ? ' app-version-required' : updateAvailable ? ' app-version-available' : ''}`} aria-live="polite">
+      <h2>Aplicación</h2><small>Versión instalada: {__MOBILE_APP_VERSION__}</small>
+      {releaseChecking ? <p role="status">Comprobando la versión publicada en GitHub…</p>
+        : releaseCheckError ? <><p role="alert">No se pudo comprobar la compatibilidad: {releaseCheckMessage}</p><button onClick={() => void checkForMobileUpdate()}>Reintentar comprobación</button></>
+          : <><p>{updateRequired ? 'Actualización necesaria. Esta versión ya no es compatible; instala la nueva para seguir sincronizando.' : updateAvailable ? 'Hay una actualización disponible.' : 'La aplicación está actualizada.'}</p><small>Última versión: {mobileRelease?.version}</small>{mobileRelease && updateAvailable && <button onClick={() => { window.location.href = mobileRelease.apkUrl }}>Actualizar app</button>}</>}
+      {!releaseChecking && mobileRelease && releaseCheckError && <small>Última versión que se pudo consultar: {mobileRelease.version}</small>}
+    </section> : <>
+    <details className="sync-help"><summary>Cómo funciona</summary><p>“Marcar como usada” solo guarda una confirmación; no publica ni cambia el estado editorial. “Borrar álbum” elimina la carpeta compartida del teléfono y envía una señal a la PC. Syncthing sincroniza ambas cosas; al importar señales, la PC registra el historial, y al conciliar archiva el catálogo antes de actualizarlo y limpiar carpetas. Android no modifica <code>catalog.json</code>.</p></details>
     {!folderReady && <section className="setup"><h2>Conectar carpeta compartida</h2><p>Selecciona una vez la carpeta de Syncthing que contiene <code>pc-outbox</code>. Android solicitará permiso persistente.</p><button disabled={busy || !Capacitor.isNativePlatform()} onClick={() => void chooseFolder()}>{busy ? 'Conectando…' : 'Elegir carpeta Syncthing'}</button>{!Capacitor.isNativePlatform() && <small>El selector nativo está disponible en Android.</small>}</section>}
     {folderReady && <section className="toolbar"><button disabled={busy} onClick={() => void chooseFolder()}>Carpeta Syncthing</button><button disabled={busy} onClick={() => void refreshCatalog()}>Actualizar snapshot</button>{undelivered.length > 0 && <button disabled={busy} onClick={() => void retryPending()}>Reintentar eventos ({undelivered.length})</button>}</section>}
     {catalog && <section className={`catalog-integrity${problemAlbumPaths.length ? ' catalog-integrity-warning' : ''}`}>
@@ -579,6 +611,7 @@ export default function App() {
       </details>
       <div className="pagination"><button disabled={currentIndex <= 0} onClick={() => setOpenKey(shown[currentIndex - 1]!.key)}>Anterior</button><span>{pendingCount} pendientes</span><button disabled={currentIndex < 0 || currentIndex >= shown.length - 1} onClick={() => setOpenKey(shown[currentIndex + 1]!.key)}>Siguiente</button></div>
     </article>}
+    </>}
     {toast && <p className={`message${toast.error ? ' message-error' : ''}`} role="status" onClick={() => notify('')}>{toast.text}</p>}
   </main>
 }
