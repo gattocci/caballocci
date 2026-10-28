@@ -19,6 +19,8 @@ header p,.setup p,.empty p{color:#aab5ad;font-size:14px;line-height:1.5;margin:4
 .app-version-settings h2{margin:0 0 8px;font-size:20px}
 .app-version-settings p{margin:12px 0;color:#c7d2ca;font-size:14px;line-height:1.5}
 .app-version-settings button{margin-top:12px}
+.app-update-signature-help{padding:10px 12px;border-left:3px solid #d3a94f;background:#29251a;color:#e3d5a8!important}
+.app-version-settings button:disabled{opacity:.65}
 .sync-help{margin-top:14px;border:1px solid #303a33;border-radius:10px;background:#171e19;color:#c7d2ca;font-size:13px;line-height:1.5}
 .sync-help summary{min-height:44px;padding:12px 14px;font-weight:650;cursor:pointer}
 .sync-help[open] summary{border-bottom:1px solid #303a33}
