@@ -86,7 +86,7 @@ export function exportRecord(row: Record<string, unknown>, mediaAssets: Record<s
     id: row.content_id || row.post_id || row.id, externalRef: row.external_ref || '', sourceKind: row.source_kind || '',
     raw: jsonObject(row.raw_json), enriched: jsonObject(row.enriched_json), normalized: jsonObject(row.normalized_json),
     planning: { status: row.post_status || 'idea', date: row.post_scheduled_at || null, format: row.post_content_type || null, project },
-    post: { title: row.post_title || '', caption: row.post_caption || '', notes: row.post_notes || '', hashtags: parseArray(row.post_hashtags), mentions: parseArray(row.post_mentions), platforms: parseArray(row.post_platforms), media, mediaAssets: mediaAssets.filter(asset => mediaIds.includes(String(asset.id))), contentType: row.post_content_type || null },
+    post: { id: row.post_id || row.id || '', title: row.post_title || '', caption: row.post_caption || '', notes: row.post_notes || '', hashtags: parseArray(row.post_hashtags), mentions: parseArray(row.post_mentions), platforms: parseArray(row.post_platforms), media, mediaAssets: mediaAssets.filter(asset => mediaIds.includes(String(asset.id))), contentType: row.post_content_type || null },
     ideas: groupedIdeas,
   }
 }

@@ -47,6 +47,7 @@ export function SourcesView() {
   const [requestDetails, setRequestDetails] = useState('')
   const [mappingSuggestion, setMappingSuggestion] = useState<MappingSuggestion | null>(null)
   const [busy, setBusy] = useState(false)
+  const [batchPreview, setBatchPreview] = useState<Awaited<ReturnType<typeof window.planner.media.previewCsvBatch>>>(null)
   const selected = sources.find(source => source.id === selectedId) || null
 
   const loadSources = async () => setSources(await window.planner.sources.list())
@@ -189,6 +190,22 @@ export function SourcesView() {
       link.href = url; link.download = result.filename; link.click(); URL.revokeObjectURL(url); setMessage(`CSV exportado: ${result.count} filas${result.delta ? ` de ${result.total} con cambios` : ''}`)
     } catch (error) { reportAppError(error, 'No se pudo exportar el CSV'); setMessage(error instanceof Error ? error.message : 'No se pudo exportar el CSV') }
   }
+  const previewCsvBatch = async () => {
+    try {
+      if (batchPreview) await window.planner.media.cancelCsvBatch(batchPreview.token)
+      setBatchPreview(await window.planner.media.previewCsvBatch())
+    }
+    catch (error) { reportAppError(error, 'No se pudo leer el CSV y la carpeta de PNG'); setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'No se pudo preparar el lote') }
+  }
+  const applyCsvBatch = async () => {
+    if (!batchPreview) return
+    setBusy(true)
+    try {
+      const result = await window.planner.media.applyCsvBatch(batchPreview.token)
+      setBatchPreview(null); await reloadPlanner(); setMessageTone('success'); setMessage(`${result.files} PNG organizados en las carpetas de ${result.posts} publicaciones.`)
+    } catch (error) { reportAppError(error, 'No se pudo organizar el lote'); setMessageTone('error'); setMessage(error instanceof Error ? error.message : 'No se pudo organizar el lote') }
+    finally { setBusy(false) }
+  }
   return <section className="workspace sources-workspace">
     <ViewHeading title="Fuentes externas" subtitle="Consulta datos externos, mapéalos y tráelos al planificador."><button type="button" className="new-button" onClick={createSource}><Plus size={16} /> Nueva fuente</button><button type="button" className="icon-button" aria-label="Actualizar fuentes" title="Actualizar fuentes" onClick={() => void runWithErrorReporting(loadSources, 'No se pudieron actualizar las fuentes')}><RefreshCw size={16} /></button></ViewHeading>
     <div className="sources-layout">
@@ -199,7 +216,8 @@ export function SourcesView() {
         {preview && <SourceImportPreview preview={preview} busy={busy} onConfirm={() => void confirmImport()} />}
         {contentRecords.length > 0 && <ImportedSourceRecords records={contentRecords} templates={templates} onSaveEnriched={saveEnriched} />}
         <section className="source-panel configuration-panel"><header><div><span>PLANTILLAS</span><h2>Campos de enriquecimiento</h2></div></header><div className="source-grid"><label>Tipo de contenido<input value={templateType} onChange={event => setTemplateType(event.target.value)} placeholder="post" /></label><label>Campos JSON<textarea value={templateFieldsText} onChange={event => setTemplateFieldsText(event.target.value)} /></label></div><div className="source-actions"><button className="save-button" onClick={() => void saveTemplate()}><Save size={15} /> Guardar plantilla</button></div></section>
-        <SourceExportPanel profiles={profiles} selectedProfileId={selectedProfileId} onProfileChange={setSelectedProfileId} includeTitle={includeTitle} onIncludeTitleChange={setIncludeTitle} includeIntro={includeIntro} onIncludeIntroChange={setIncludeIntro} ideaColumns={ideaColumns} onIdeaColumnsChange={setIdeaColumns} onApplyRecipe={applyBlockRecipe} profileName={profileName} onProfileNameChange={setProfileName} selectedExportField={selectedExportField} onExportFieldChange={setSelectedExportField} profileColumnsText={profileColumnsText} onProfileColumnsChange={setProfileColumnsText} onAddField={addExportField} onSaveProfile={() => void saveProfile()} exportScope={exportScope} onExportScopeChange={setExportScope} hasSelectedSource={Boolean(selectedId)} exportProject={exportProject} onExportProjectChange={setExportProject} exportStatus={exportStatus} onExportStatusChange={setExportStatus} deltaOnly={deltaOnly} onDeltaOnlyChange={setDeltaOnly} onDownload={() => void downloadCsv()} />
+        <SourceExportPanel profiles={profiles} selectedProfileId={selectedProfileId} onProfileChange={setSelectedProfileId} includeTitle={includeTitle} onIncludeTitleChange={setIncludeTitle} includeIntro={includeIntro} onIncludeIntroChange={setIncludeIntro} ideaColumns={ideaColumns} onIdeaColumnsChange={setIdeaColumns} onApplyRecipe={applyBlockRecipe} profileName={profileName} onProfileNameChange={setProfileName} selectedExportField={selectedExportField} onExportFieldChange={setSelectedExportField} profileColumnsText={profileColumnsText} onProfileColumnsChange={setProfileColumnsText} onAddField={addExportField} onSaveProfile={() => void saveProfile()} exportScope={exportScope} onExportScopeChange={setExportScope} hasSelectedSource={Boolean(selectedId)} exportProject={exportProject} onExportProjectChange={setExportProject} exportStatus={exportStatus} onExportStatusChange={setExportStatus} deltaOnly={deltaOnly} onDeltaOnlyChange={setDeltaOnly} onDownload={() => void downloadCsv()} onVerifyBatch={() => void previewCsvBatch()} />
+        {batchPreview && <section className="source-panel configuration-panel"><header><div><span>VERIFICACIÓN DEL LOTE</span><h2>{batchPreview.csvName}</h2></div></header><p className="export-copy">Carpeta: {batchPreview.folderName}. Coincidencias: {batchPreview.matches.length}; incidencias: {batchPreview.unmatched.length}. R## elige la fila de datos y C## la columna del CSV.</p><div className="batch-preview-list">{batchPreview.matches.map(item => <div key={item.name}><strong>{item.code} · {item.name}</strong><span>{item.title} · {item.columnHeader}: {item.referenceText || '(celda vacía)'}</span></div>)}</div>{batchPreview.unmatched.length > 0 && <details open><summary>Archivos que requieren atención ({batchPreview.unmatched.length})</summary><ul>{batchPreview.unmatched.map(item => <li key={item}>{item}</li>)}</ul></details>}<div className="source-actions"><button type="button" className="save-button" disabled={busy || batchPreview.matches.length === 0 || batchPreview.unmatched.length > 0} onClick={() => void applyCsvBatch()}>Copiar PNG coincidentes a publicaciones</button><button type="button" className="settings-button" onClick={() => { void window.planner.media.cancelCsvBatch(batchPreview.token); setBatchPreview(null) }}>Cancelar</button></div></section>}
       </div>
     </div>
   </section>

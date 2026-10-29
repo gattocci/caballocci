@@ -476,7 +476,7 @@ app.whenReady().then(async () => {
   handle('updates:install', withoutArguments(() => updater.install()))
   handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))
   registerMobileSyncIpcHandlers({ database, getMainWindow: () => mainWindow, mobileSync, handle, withoutArguments })
-  registerMediaIpcHandlers({ database, dataDirectory, getMainWindow: () => mainWindow, handle, withoutArguments, ensurePostMediaFolder })
+  registerMediaIpcHandlers({ database, dataDirectory, getMainWindow: () => mainWindow, handle, withoutArguments, ensurePostMediaFolder, mapPost })
   await createWindow()
   updater.startAutomaticChecks()
 })

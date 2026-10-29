@@ -111,6 +111,9 @@ contextBridge.exposeInMainWorld('planner', {
     removeFolder: (id: string) => ipcRenderer.invoke('concept-map:remove-folder', id),
   },
   media: {
+    previewCsvBatch: () => ipcRenderer.invoke('media:preview-csv-batch'),
+    applyCsvBatch: (token: string) => ipcRenderer.invoke('media:apply-csv-batch', token),
+    cancelCsvBatch: (token: string) => ipcRenderer.invoke('media:cancel-csv-batch', token),
     list: () => ipcRenderer.invoke('media:list'),
     choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
     scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),

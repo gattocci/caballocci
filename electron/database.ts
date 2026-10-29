@@ -321,6 +321,19 @@ export class PlannerDatabase {
     this.media.save(assets)
   }
 
+  saveMediaBatchToPosts(assets: Row[], posts: Row[]) {
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.media.save(assets)
+      for (const post of posts) this.posts.save(post, id => this.ideas.get(id))
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
+  }
+
   private count() { return Number(this.db.exec('SELECT COUNT(*) AS n FROM posts')[0]?.values[0]?.[0] || 0) }
 
   flush() {

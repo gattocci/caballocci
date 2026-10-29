@@ -40,7 +40,7 @@ export class ExportsRepository {
 
   listRows(sourceId?: string, project?: string): Row[] {
     const projectClause = project ? ' AND p.project = ' + sqlString(project) : ''
-    if (sourceId) return rows(this.db, `SELECT c.id AS content_id, c.*, p.title AS post_title, p.caption AS post_caption, p.notes AS post_notes, p.hashtags AS post_hashtags, p.mentions AS post_mentions, p.platforms AS post_platforms, p.media AS post_media, p.idea_blocks AS post_idea_blocks, p.project AS post_project, p.status AS post_status, p.scheduled_at AS post_scheduled_at, p.content_type AS post_content_type
+    if (sourceId) return rows(this.db, `SELECT c.id AS content_id, p.id AS post_id, c.*, p.title AS post_title, p.caption AS post_caption, p.notes AS post_notes, p.hashtags AS post_hashtags, p.mentions AS post_mentions, p.platforms AS post_platforms, p.media AS post_media, p.idea_blocks AS post_idea_blocks, p.project AS post_project, p.status AS post_status, p.scheduled_at AS post_scheduled_at, p.content_type AS post_content_type
       FROM content_records c LEFT JOIN posts p ON p.id = c.post_id WHERE c.source_id = ${sqlString(sourceId)}${projectClause} ORDER BY COALESCE(p.scheduled_at, c.updated_at) ASC`)
     return rows(this.db, `SELECT c.id AS content_id, c.*, p.id AS post_id, p.title AS post_title, p.caption AS post_caption, p.notes AS post_notes, p.hashtags AS post_hashtags, p.mentions AS post_mentions, p.platforms AS post_platforms, p.media AS post_media, p.idea_blocks AS post_idea_blocks, p.project AS post_project, p.status AS post_status, p.scheduled_at AS post_scheduled_at, p.content_type AS post_content_type
       FROM posts p LEFT JOIN content_records c ON c.post_id = p.id WHERE 1 = 1${projectClause} ORDER BY COALESCE(p.scheduled_at, p.updated_at) ASC`)
