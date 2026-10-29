@@ -194,3 +194,10 @@
   .topbar { padding-right: 168px; }
   .update-indicator { max-width: 160px; }
 }
+.side-collections { display: grid; gap: 3px; margin-top: 18px; }
+.side-collections > p { margin: 0 0 5px; padding: 0 10px; color: #77847b; font-size: 9px; font-weight: 800; letter-spacing: 1px; }
+.side-collection { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 8px 10px; border: 0; border-radius: 5px; background: transparent; color: #aeb9b1; text-align: left; cursor: pointer; }
+.side-collection > svg { flex: none; color: #d0a64b; }
+.side-collection > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-collection > em { flex: none; margin-left: auto; color: #849087; font-size: 9px; font-style: normal; }
+.side-collection:hover, .side-collection.active { background: #222a24; color: #e7eee9; }

@@ -29,6 +29,7 @@ interface PlannerState {
   posts: Post[]
   ideas: Idea[]
   workGroups: WorkGroup[]
+  activeWorkGroupId: string | null
   undoHistory: WorkspaceUndoAction[]
   redoHistory: WorkspaceUndoAction[]
   undoNotice: string | null
@@ -69,6 +70,7 @@ interface PlannerState {
   selectIdea(id: string | null): void
   setQuery(query: string): void
   setActiveSpace(space: string | null): void
+  setActiveWorkGroup(id: string | null): void
   addSpace(space: string): void
   renameSpace(space: string, nextName: string): Promise<void>
   removeSpace(space: string, movePosts: boolean): Promise<void>
@@ -132,6 +134,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   posts: [],
   ideas: [],
   workGroups: [],
+  activeWorkGroupId: null,
   undoHistory: [],
   redoHistory: [],
   undoNotice: null,
@@ -158,6 +161,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         posts,
         ideas,
         workGroups,
+        activeWorkGroupId: state.activeWorkGroupId && workGroups.some(group => group.id === state.activeWorkGroupId && !group.archivedAt) ? state.activeWorkGroupId : null,
         loading: false,
         loadError: null,
         selectedId: state.selectedId && posts.some(post => post.id === state.selectedId) ? state.selectedId : null,
@@ -219,7 +223,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const before = get().workGroups.find(item => item.id === id) || null
     const saved = await window.planner.workGroups.setArchived(id, archived)
     set(state => ({
-      workGroups: [...state.workGroups.filter(item => item.id !== saved.id), saved],
+      workGroups: [...state.workGroups.filter(item => item.id !== saved.id), saved], activeWorkGroupId: archived && state.activeWorkGroupId === id ? null : state.activeWorkGroupId,
       undoHistory: options?.recordHistory === false || JSON.stringify(before) === JSON.stringify(saved) ? state.undoHistory : pushUndo(state.undoHistory, { kind: 'group', id: saved.id, before, after: saved, label: archived ? 'Archivar colección' : 'Restaurar colección' }),
       redoHistory: options?.recordHistory === false || JSON.stringify(before) === JSON.stringify(saved) ? state.redoHistory : [],
       undoNotice: null,
@@ -230,7 +234,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const before = get().workGroups.find(item => item.id === id) || null
     await window.planner.workGroups.remove(id)
     set(state => ({
-      workGroups: state.workGroups.filter(group => group.id !== id),
+      workGroups: state.workGroups.filter(group => group.id !== id), activeWorkGroupId: state.activeWorkGroupId === id ? null : state.activeWorkGroupId,
       undoHistory: options?.recordHistory === false || !before ? state.undoHistory : pushUndo(state.undoHistory, { kind: 'group', id, before, after: null, label: 'Eliminar colección' }),
       redoHistory: options?.recordHistory === false || !before ? state.redoHistory : [],
       undoNotice: null,
@@ -395,7 +399,8 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   select: (selectedId) => set({ selectedId }),
   selectIdea: (selectedIdeaId) => set({ selectedIdeaId }),
   setQuery: (query) => set({ query }),
-  setActiveSpace: (activeSpace) => set({ activeSpace }),
+  setActiveSpace: (activeSpace) => set({ activeSpace, activeWorkGroupId: null }),
+  setActiveWorkGroup: (activeWorkGroupId) => set({ activeWorkGroupId }),
   addSpace: (space) => {
     const name = space.trim()
     if (!name) return

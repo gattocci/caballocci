@@ -18,6 +18,7 @@ export function AboutUpdates() {
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [backupMessage, setBackupMessage] = useState('')
   const [notesOpen, setNotesOpen] = useState(false)
+  const [showCollectionDate, setShowCollectionDate] = useState(() => { try { return localStorage.getItem('caballocci.collection-label-date') === 'true' } catch { return false } })
 
   useEffect(() => {
     void Promise.all([window.planner.system.info(), window.planner.updates.getState()]).then(([system, state]) => {
@@ -35,6 +36,11 @@ export function AboutUpdates() {
   return <section className="workspace about-workspace">
     <ViewHeading title="Acerca de / Actualizaciones" subtitle="Versión, datos locales y actualizaciones de caballocci." />
     <div className="about-layout">
+      <section className="settings-section">
+        <div className="settings-heading"><div><span>PERSONALIZACIÓN</span><h2>Etiquetas de colecciones</h2></div></div>
+        <p className="settings-note">Elige qué información aparece junto a cada colección en la navegación lateral.</p>
+        <label className="collection-date-setting"><input type="checkbox" checked={showCollectionDate} onChange={event => { const checked = event.target.checked; setShowCollectionDate(checked); try { localStorage.setItem('caballocci.collection-label-date', String(checked)) } catch { /* La preferencia es opcional. */ } window.dispatchEvent(new Event('caballocci-collection-label-change')) }} /><span><strong>Mostrar fecha de creación</strong><small>Desactivado: nombre y cantidad. Activado: nombre, fecha y cantidad.</small></span></label>
+      </section>
       <section className="settings-section">
         <div className="settings-heading"><div><span>APLICACIÓN</span><h2>caballocci</h2></div><strong>v{info?.version || update?.installedVersion || '...'}</strong></div>
         <div className={`update-state ${update?.status || 'idle'}`}><span /><div><strong>{update?.message || 'Consultando estado...'}</strong>{update?.availableVersion && <small>Versión disponible: {update.availableVersion}</small>}</div></div>

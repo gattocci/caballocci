@@ -127,3 +127,8 @@
 @media(max-width:850px){.about-layout{grid-template-columns:1fr}.mobile-sync-steps{grid-template-columns:1fr}}
 @media(max-width:560px){.mobile-app-download{grid-template-columns:1fr}.mobile-app-download>a{justify-self:start}.mobile-app-download>ol{display:grid}}
 @media(max-width:560px){.catalog-backup-browser li{align-items:flex-start;flex-direction:column}.catalog-backup-browser li .settings-button{align-self:flex-start}}
+.collection-date-setting { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px; border: 1px solid #303a33; border-radius: 6px; background: #121714; cursor: pointer; }
+.collection-date-setting input { flex: none; width: 15px; height: 15px; margin: 2px 0 0; accent-color: #d0a64b; }
+.collection-date-setting span { display: grid; gap: 4px; }
+.collection-date-setting strong { color: #dce4de; font-size: 11px; }
+.collection-date-setting small { color: #98a39c; font-size: 10px; line-height: 1.5; }

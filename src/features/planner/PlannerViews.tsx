@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BoardCardColorPicker, MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
 import { createPortal } from 'react-dom'
 import {
@@ -6,7 +6,7 @@ import {
   isSameDay, isSameMonth, parseISO, startOfMonth, startOfWeek, subMonths,
 } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Archive, ArchiveRestore, CalendarDays, ChevronLeft, ChevronRight, FolderPlus, GripVertical, List, Pencil, Smartphone, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, FolderPlus, GripVertical, Layers3, List, Pencil, Smartphone, Trash2 } from 'lucide-react'
 import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { postColors } from '../../shared/postColors'
 import { PlatformMark, ViewHeading } from '../../components/layout/AppShell'
@@ -24,7 +24,7 @@ function fromLocalDateTimeInput(value: string) {
 
 
 export function Board() {
-  const { posts: allPosts, workGroups, move, select, save, activeSpace, query, setQuery, saveWorkGroup, setWorkGroupPosts, setWorkGroupArchived, removeWorkGroup } = usePlanner()
+  const { posts: allPosts, workGroups, move, select, save, activeSpace, activeWorkGroupId: selectedWorkGroupId, setActiveWorkGroup, query, setQuery, saveWorkGroup, setWorkGroupPosts, setWorkGroupArchived, removeWorkGroup } = usePlanner()
   const [visiblePerColumn, setVisiblePerColumn] = useState(30)
   const [boardMode, setBoardMode] = useState<'kanban' | 'list' | 'calendar'>(() => {
     try { return (localStorage.getItem('caballocci.board-view.all') as 'kanban' | 'list' | 'calendar') || 'kanban' } catch { return 'kanban' }
@@ -35,7 +35,13 @@ export function Board() {
       return saved === 'hidden' || saved === 'full' ? saved : 'discreet'
     } catch { return 'discreet' }
   })
-  const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(new Set())
+  const lanePreferenceKey = `caballocci.board-lanes.${activeSpace || 'all'}`
+  const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`${lanePreferenceKey}.collapsed`) || '[]') as string[]) } catch { return new Set() }
+  })
+  const [laneOrder, setLaneOrder] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(`${lanePreferenceKey}.order`) || '[]') as string[] } catch { return [] }
+  })
   const [listStatus, setListStatus] = useState('')
   const [listFormat, setListFormat] = useState('')
   const [listGroup, setListGroup] = useState('')
@@ -53,12 +59,16 @@ export function Board() {
   const [calendarMonth, setCalendarMonth] = useState(new Date())
   const [expandedCalendarDay, setExpandedCalendarDay] = useState<string | null>(null)
   const [calendarDefaultTime, setCalendarDefaultTime] = useState('10:00')
-  const { selected, toggle, clear } = useSelection()
+  const { selected, toggle, clear, set: setSelected } = useSelection()
+  const toggleStatusSelection = (ids: string[]) => {
+    const allSelected = ids.length > 0 && ids.every(id => selected.has(id))
+    const next = new Set(selected)
+    ids.forEach(id => allSelected ? next.delete(id) : next.add(id))
+    setSelected([...next])
+  }
   const dragIds = useRef<string[]>([])
   const [armed, setArmed] = useState<string | null>(null)
-  const [selectedWorkGroupId, setSelectedWorkGroupId] = useState('')
   const [membershipTargetGroupId, setMembershipTargetGroupId] = useState('')
-  const [showArchivedGroups, setShowArchivedGroups] = useState(false)
   const [showArchivedPosts, setShowArchivedPosts] = useState(false)
   const [showCompressedPosts, setShowCompressedPosts] = useState(false)
   const [groupFormOpen, setGroupFormOpen] = useState(false)
@@ -91,7 +101,6 @@ export function Board() {
     setGroupDeleteMode('group')
     setGroupPostsToDelete([])
   }, [pendingGroupAction?.group.id])
-  const availableGroups = workGroups.filter(group => showArchivedGroups || !group.archivedAt)
   const selectedWorkGroup = workGroups.find(group => group.id === selectedWorkGroupId) || null
   const boardPreferenceKey = `caballocci.board-view.${activeSpace || 'all'}`
   useEffect(() => {
@@ -114,6 +123,38 @@ export function Board() {
     : activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
   const posts = selectedWorkGroup ? matchingPosts.filter(post => selectedWorkGroup.postIds.includes(post.id)) : matchingPosts
   const visibleBoardPosts = posts.filter(post => post.status !== 'archived')
+  const activeGroups = workGroups.filter(group => !group.archivedAt)
+  const defaultLanes = selectedWorkGroup
+    ? [{ id: selectedWorkGroup.id, name: selectedWorkGroup.name, postIds: selectedWorkGroup.postIds, group: selectedWorkGroup }]
+    : [
+      ...activeGroups.map(group => ({ id: group.id, name: group.name, postIds: group.postIds, group })),
+      { id: '__unassigned__', name: 'Sin colección', postIds: visibleBoardPosts.filter(post => !activeGroups.some(group => group.postIds.includes(post.id))).map(post => post.id), group: null },
+    ]
+  const boardLanes = [...defaultLanes].sort((a, b) => {
+    const aIndex = laneOrder.indexOf(a.id), bIndex = laneOrder.indexOf(b.id)
+    if (aIndex >= 0 || bIndex >= 0) return (aIndex < 0 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex < 0 ? Number.MAX_SAFE_INTEGER : bIndex)
+    return a.id === '__unassigned__' ? 1 : b.id === '__unassigned__' ? -1 : a.name.localeCompare(b.name, 'es')
+  })
+  useEffect(() => {
+    try {
+      setCollapsedLanes(new Set(JSON.parse(localStorage.getItem(`${lanePreferenceKey}.collapsed`) || '[]') as string[]))
+      setLaneOrder(JSON.parse(localStorage.getItem(`${lanePreferenceKey}.order`) || '[]') as string[])
+    } catch { setCollapsedLanes(new Set()); setLaneOrder([]) }
+  }, [lanePreferenceKey])
+  const toggleLane = (id: string) => setCollapsedLanes(current => {
+    const next = new Set(current)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    try { localStorage.setItem(`${lanePreferenceKey}.collapsed`, JSON.stringify([...next])) } catch { /* Preferences are optional. */ }
+    return next
+  })
+  const reorderLane = (id: string, delta: number) => {
+    const ids = boardLanes.map(lane => lane.id)
+    const index = ids.indexOf(id), target = Math.max(0, Math.min(ids.length - 1, index + delta))
+    if (index < 0 || index === target) return
+    ids.splice(index, 1); ids.splice(target, 0, id)
+    setLaneOrder(ids)
+    try { localStorage.setItem(`${lanePreferenceKey}.order`, JSON.stringify(ids)) } catch { /* Preferences are optional. */ }
+  }
   const listPosts = useMemo(() => posts.filter(post =>
     (!listStatus || post.status === listStatus) &&
     (!listFormat || post.contentType === listFormat) &&
@@ -188,7 +229,7 @@ export function Board() {
     scheduledAt.setHours(hours || 0, minutes || 0, 0, 0)
     void runWithErrorReporting(() => usePlanner.getState().save({ ...post, scheduledAt: scheduledAt.toISOString(), status: 'scheduled' }), 'No se pudo programar la publicación')
   }
-  const moveDragged = (status: Post['status']) => runWithErrorReporting(async () => { const ids = dragIds.current; dragIds.current = []; for (const id of ids) await move(id, status); clear() }, 'No se pudieron mover las publicaciones')
+  const moveDragged = (status: Post['status']) => runWithErrorReporting(async () => { const ids = dragIds.current; dragIds.current = []; const changed = ids.filter(id => allPosts.some(post => post.id === id && post.status !== status)); for (const id of changed) await move(id, status); if (changed.length) clear() }, 'No se pudieron mover las publicaciones')
   const archivedCount = posts.filter(post => post.status === 'archived').length
   const openGroupForm = (group?: typeof selectedWorkGroup) => {
     setEditingGroupId(group?.id || null)
@@ -208,7 +249,7 @@ export function Board() {
           description: groupDescription.trim(),
         })
         if (!editingGroupId && selected.size) await setWorkGroupPosts(group.id, [...selected], { recordHistory: false })
-        setSelectedWorkGroupId(group.id)
+        setActiveWorkGroup(group.id)
         setMembershipTargetGroupId(group.id)
         setGroupFormOpen(false)
         clear()
@@ -243,13 +284,13 @@ export function Board() {
           if (!postIds.length && group.compressedMediaCount) await window.planner.workGroups.restoreMedia(group.id)
           await removeWorkGroup(group.id, { recordHistory: postIds.length === 0 })
           await usePlanner.getState().load()
-          setSelectedWorkGroupId('')
+          setActiveWorkGroup(null)
           if (membershipTargetGroupId === group.id) setMembershipTargetGroupId('')
         } else {
           const restoring = type === 'restore'
           await setWorkGroupArchived(group.id, !restoring)
           if (!restoring) {
-            setSelectedWorkGroupId('')
+            setActiveWorkGroup(null)
             if (membershipTargetGroupId === group.id) setMembershipTargetGroupId('')
           } else {
             setMembershipTargetGroupId(group.id)
@@ -298,19 +339,11 @@ export function Board() {
       if (post) void compressPostMedia(post)
     }
   }
-  const toggleArchivedGroups = () => {
-    const next = !showArchivedGroups
-    setShowArchivedGroups(next)
-    if (!next && selectedWorkGroup?.archivedAt) {
-      setSelectedWorkGroupId('')
-      if (membershipTargetGroupId === selectedWorkGroup.id) setMembershipTargetGroupId('')
-    }
-  }
   return <section className={`workspace board-mode-${boardMode}`}><ViewHeading title="Tablero de contenido" subtitle="Gestiona publicaciones por etapas, en lista o por fecha."><div className="segmented board-mode-switch" role="group" aria-label="Vista del tablero"><button type="button" aria-pressed={boardMode === 'kanban'} className={boardMode === 'kanban' ? 'active' : ''} onClick={() => changeBoardMode('kanban')}>Kanban</button><button type="button" aria-pressed={boardMode === 'list'} className={boardMode === 'list' ? 'active' : ''} onClick={() => changeBoardMode('list')}><List size={13} /> Lista</button><button type="button" aria-pressed={boardMode === 'calendar'} className={boardMode === 'calendar' ? 'active' : ''} onClick={() => changeBoardMode('calendar')}><CalendarDays size={13} /> Calendario</button></div>{boardMode === 'kanban' && <button className="settings-button" type="button" disabled={visiblePerColumn >= 100} onClick={() => setVisiblePerColumn(current => Math.min(100, current + 30))}>{visiblePerColumn >= 100 ? 'Límite de tarjetas' : `Cargar ${Math.min(30, 100 - visiblePerColumn)} más por etapa`}</button>}{boardMode === 'kanban' && <label className="board-card-detail-control">Detalles técnicos<select aria-label="Nivel de detalles técnicos en las tarjetas" value={boardCardDetailLevel} onChange={event => changeBoardCardDetailLevel(event.target.value as BoardCardDetailLevel)}><option value="discreet">Discretos</option><option value="full">Completos</option><option value="hidden">Ocultos</option></select></label>}</ViewHeading>
     <div className="work-group-toolbar">
-      <div className="work-group-picker"><label htmlFor="work-group-filter">Colección</label><select id="work-group-filter" value={selectedWorkGroupId} onChange={event => { const id = event.target.value; setSelectedWorkGroupId(id); setMediaCompressionMessage(''); if (id && !workGroups.find(group => group.id === id)?.archivedAt) setMembershipTargetGroupId(id) }}><option value="">Todas las publicaciones</option>{availableGroups.map(group => <option key={group.id} value={group.id}>{group.name}{group.archivedAt ? ' · Archivada' : ''} · {format(parseISO(group.createdAt), 'd MMM yyyy', { locale: es })} ({group.postIds.length})</option>)}</select></div>
-      <button type="button" className="settings-button" onClick={toggleArchivedGroups}>{showArchivedGroups ? 'Ocultar archivadas' : 'Ver archivadas'}</button>
       <button type="button" className="settings-button" onClick={() => openGroupForm()}><FolderPlus size={14} /> Nueva colección</button>
+      {boardMode === 'kanban' && archivedPosts.length > 0 && <button type="button" className="settings-button board-archive-toggle" aria-expanded={showArchivedPosts} onClick={() => setShowArchivedPosts(current => !current)}><Archive size={13} /> Archivadas <span>{archivedPosts.length}</span>{showArchivedPosts ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</button>}
+      {boardMode === 'kanban' && <div className="board-lane-controls"><span>{selectedWorkGroup ? `Viendo solo «${selectedWorkGroup.name}»` : `${boardLanes.length} carriles`}</span>{selectedWorkGroup && <button type="button" className="settings-button" onClick={() => setActiveWorkGroup(null)}>Mostrar todos</button>}<button type="button" className="settings-button" onClick={() => { const next = boardLanes.length > 0 && boardLanes.every(lane => collapsedLanes.has(lane.id)) ? new Set<string>() : new Set(boardLanes.map(lane => lane.id)); setCollapsedLanes(next); try { localStorage.setItem(`${lanePreferenceKey}.collapsed`, JSON.stringify([...next])) } catch { /* Preferences are optional. */ } }}>{boardLanes.length > 0 && boardLanes.every(lane => collapsedLanes.has(lane.id)) ? 'Expandir todos' : 'Colapsar todos'}</button></div>}
       {selectedWorkGroup && <div className="work-group-actions">
         <button type="button" className="settings-button" onClick={() => openGroupForm(selectedWorkGroup)}><Pencil size={13} /> Editar</button>
         <button type="button" className="settings-button" onClick={() => setPendingGroupAction({ type: selectedWorkGroup.archivedAt ? 'restore' : 'archive', group: selectedWorkGroup })}>{selectedWorkGroup.archivedAt ? <><ArchiveRestore size={14} /> Restaurar colección</> : <><Archive size={14} /> Archivar colección</>}</button>
@@ -404,19 +437,93 @@ export function Board() {
         <footer><button type="button" className="settings-button" onClick={() => setPendingMediaCompression(null)}>Cancelar</button><button type="button" className="work-group-danger-button" onClick={confirmMediaCompression}>Comprimir y liberar espacio</button></footer>
       </section>
     </div>}
-    {!selected.size && <p className="work-group-selection-hint">Para reunir publicaciones, marca las casillas de las tarjetas (pueden estar en distintas etapas) y elige una colección.</p>}
-    {selected.size > 0 && <div className="board-bulk-actions"><strong>{selected.size} seleccionadas</strong><button type="button" disabled={mobileExportBusy} onClick={() => void exportSelectedToMobile()}><Smartphone size={14} /> {mobileExportBusy ? 'Enviando…' : 'Enviar selección al celular'}</button>{boardMode === 'list' && <div className="bulk-schedule-control"><label htmlFor="bulk-schedule-at">Fecha y hora</label><input id="bulk-schedule-at" type="datetime-local" value={bulkScheduleAt} onChange={event => { setBulkScheduleAt(event.target.value); setBulkScheduleWarning('') }} /><button type="button" disabled={!bulkScheduleAt} onClick={bulkSchedule}>Programar selección</button></div>}<button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button><button type="button" onClick={clear}>Cancelar</button>{bulkScheduleWarning && <span className="bulk-schedule-warning" role="alert">{bulkScheduleWarning}</span>}</div>}
+    {selected.size > 0 && <div className="board-bulk-actions">
+      <strong>{selected.size} seleccionadas</strong>
+      {workGroups.some(group => !group.archivedAt) && <><select aria-label="Colección de destino" value={membershipTargetGroupId} onChange={event => setMembershipTargetGroupId(event.target.value)}><option value="">Añadir a una colección…</option>{workGroups.filter(group => !group.archivedAt).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select><button type="button" disabled={!membershipTargetGroupId} onClick={() => void updateGroupMembership(membershipTargetGroupId, true)}>Añadir</button></>}
+      {selectedWorkGroup && !selectedWorkGroup.archivedAt && selectedWorkGroup.postIds.some(id => selected.has(id)) && <button type="button" onClick={() => void updateGroupMembership(selectedWorkGroup.id, false)}>Quitar de esta colecci?n</button>}
+      <button type="button" onClick={() => openGroupForm()}>Crear colecci?n</button>
+      <button type="button" onClick={clear}>Limpiar</button>
+      <details className="board-bulk-more"><summary>Más acciones</summary><div>
+        <button type="button" disabled={mobileExportBusy} onClick={() => void exportSelectedToMobile()}><Smartphone size={14} /> {mobileExportBusy ? 'Enviando?' : 'Enviar al celular'}</button>
+        {boardMode === 'list' && <div className="bulk-schedule-control"><label htmlFor="bulk-schedule-at">Fecha y hora</label><input id="bulk-schedule-at" type="datetime-local" value={bulkScheduleAt} onChange={event => { setBulkScheduleAt(event.target.value); setBulkScheduleWarning('') }} /><button type="button" disabled={!bulkScheduleAt} onClick={bulkSchedule}>Programar</button></div>}
+        <button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisi?n</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button>
+      </div></details>
+      {bulkScheduleWarning && <span className="bulk-schedule-warning" role="alert">{bulkScheduleWarning}</span>}
+    </div>}
     {mobileExportMessage && <div className="work-group-export-message" role="status"><p>{mobileExportMessage}</p>{mobileExportSkipped.map((item, index) => <p key={`${index}-${item}`}>Omitida: {item}</p>)}</div>}
-    {selected.size > 0 && <div className="board-bulk-actions work-group-membership-actions"><strong>{selected.size} publicaciones seleccionadas</strong>{workGroups.some(group => !group.archivedAt) && <><select aria-label="Colección de destino" value={membershipTargetGroupId} onChange={event => setMembershipTargetGroupId(event.target.value)}><option value="">Añadir a una colección…</option>{workGroups.filter(group => !group.archivedAt).map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select><button type="button" disabled={!membershipTargetGroupId} onClick={() => void updateGroupMembership(membershipTargetGroupId, true)}>Añadir</button></>}{selectedWorkGroup && !selectedWorkGroup.archivedAt && selectedWorkGroup.postIds.some(id => selected.has(id)) && <button type="button" onClick={() => void updateGroupMembership(selectedWorkGroup.id, false)}>Quitar de esta colección</button>}<button type="button" onClick={() => openGroupForm()}>Crear colección con selección</button></div>}
-    {archivedPosts.length > 0 && <section className="board-archived-posts"><header><div><strong>Publicaciones archivadas</strong><span>{archivedPosts.length}</span></div><button type="button" className="settings-button" onClick={() => setShowArchivedPosts(current => !current)}>{showArchivedPosts ? 'Ocultar' : 'Mostrar'}</button></header>{showArchivedPosts && <div className="board-archived-post-list">{archivedPosts.map(post => {
+    {archivedPosts.length > 0 && showArchivedPosts && <section className="board-archived-posts"><div className="board-archived-post-list">{archivedPosts.map(post => {
       const compressedCount = post.media.filter(asset => asset.compressed).length
       return <article key={post.id}><button type="button" className="board-archived-post-title" onClick={() => select(post.id)}><strong>{post.title || 'Publicación sin título'}</strong><span>{post.media.length} medios · {compressedCount} comprimidos</span></button><div>{post.media.length > compressedCount && <button type="button" className="settings-button" onClick={() => setPendingMediaCompression({ target: 'post', id: post.id, name: post.title || 'Publicación sin título', mediaCount: post.media.length - compressedCount })}><Archive size={13} /> Comprimir medios</button>}{compressedCount > 0 && <button type="button" className="settings-button" onClick={() => void restorePostMedia(post)}><ArchiveRestore size={13} /> Restaurar medios</button>}</div></article>
-    })}</div>}</section>}
+    })}</div></section>}
     {compressedPosts.length > 0 && <section className="board-archived-posts"><header><div><strong>Medios comprimidos</strong><span>{compressedPosts.length}</span></div><button type="button" className="settings-button" onClick={() => setShowCompressedPosts(current => !current)}>{showCompressedPosts ? 'Ocultar' : 'Mostrar'}</button></header>{showCompressedPosts && <div className="board-archived-post-list">{compressedPosts.map(post => <article key={post.id}><div className="board-archived-post-title"><strong>{post.title || 'Publicación sin título'}</strong><span>{post.media.filter(asset => asset.compressed).length} medios dentro de archivo ZIP · {statusMeta[post.status].label}</span></div><div><button type="button" className="settings-button" onClick={() => void restorePostMedia(post)}><ArchiveRestore size={13} /> Restaurar medios</button></div></article>)}</div>}</section>}
-    {archivedCount > 0 && <p className="board-archive-note">{archivedCount} publicaciones archivadas no se muestran en el tablero.</p>}
     {!visibleBoardPosts.length && <div className="planner-empty-inline board-empty" role="status"><strong>{selectedWorkGroup && !posts.length ? 'Esta colección todavía no tiene publicaciones visibles' : query.trim() && posts.length === 0 ? 'No hay publicaciones que coincidan con la búsqueda' : archivedCount ? 'Todas las publicaciones de este espacio están archivadas' : 'Este espacio aún no tiene publicaciones'}</strong><span>{selectedWorkGroup && !posts.length ? 'Selecciona publicaciones del tablero y añádelas a esta colección.' : query.trim() && posts.length === 0 ? 'Limpia la búsqueda para volver a ver el tablero.' : 'Crea una publicación o convierte una idea para empezar.'}</span>{query.trim() && posts.length === 0 && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
-    {boardMode === 'kanban' && <div className={'board' + (selected.size ? ' selecting' : '')}>{stages.map(status => { const columnPosts = visibleBoardPosts.filter(post => post.status === status); const visiblePosts = columnPosts.slice(0, visiblePerColumn); const order = columnPosts.map(post => post.id); const collapsed = collapsedColumns.has(status); return <div className={'board-column' + (collapsed ? ' collapsed' : '')} key={status} onDragOver={event => event.preventDefault()} onDrop={() => void moveDragged(status)}><header><button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expandir' : 'Contraer'} ${statusMeta[status].label}`} onClick={() => setCollapsedColumns(current => { const next = new Set(current); if (next.has(status)) next.delete(status); else next.add(status); return next })}><span style={{ background: statusMeta[status].color }} /><strong>{statusMeta[status].label}</strong><em>{columnPosts.length}</em><ChevronRight size={13} /></button></header>{!collapsed && <div className="board-stack">{visiblePosts.map(post => <article className={(selected.has(post.id) ? 'selected' : '') + (post.color !== postColors[0].value ? ' has-custom-color' : '')} style={{ '--post-color': post.color } as React.CSSProperties} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) toggle(post.id, event.shiftKey, order); else select(post.id) }}><div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && (event.nativeEvent as MouseEvent).shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(p => <PlatformMark key={p} platform={p} small />)}<span className="board-content-type">{contentLabels[post.contentType]}</span>{selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => changePostCardColor(post, color)} />}</div><MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /><h3>{post.title || 'Publicación sin título'}</h3>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}</article>)}{!columnPosts.length && <p className="board-column-empty">Sin publicaciones en esta etapa</p>}{columnPosts.length > visiblePosts.length && <small className="board-more-hint">{columnPosts.length - visiblePosts.length} más, carga más tarjetas para verlas</small>}</div>}</div> })}</div>}
+    {boardMode === 'kanban' && <div className="board-lanes-scroll"><BoardLanes lanes={boardLanes} posts={visibleBoardPosts} activeGroups={activeGroups} selected={selected} collapsedLanes={collapsedLanes} toggleLane={toggleLane} reorderLane={reorderLane} visiblePerColumn={visiblePerColumn} mobilePublicationState={mobilePublicationState} boardCardDetailLevel={boardCardDetailLevel} armed={armed} setArmed={setArmed} dragIds={dragIds} onToggle={toggle} onSelect={select} onColor={changePostCardColor} onMove={moveDragged} onSelectStatus={toggleStatusSelection} /></div>}
   </section>
+}
+
+type BoardLane = { id: string; name: string; postIds: string[]; group: WorkGroup | null }
+
+function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, armed, setArmed, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus }: {
+  lanes: BoardLane[]; posts: Post[]; activeGroups: WorkGroup[]; selected: Set<string>; collapsedLanes: Set<string>
+  toggleLane(id: string): void; reorderLane(id: string, delta: number): void; visiblePerColumn: number
+  mobilePublicationState: MobilePublicationState | null; boardCardDetailLevel: BoardCardDetailLevel
+  armed: string | null; setArmed(id: string | null): void; dragIds: React.MutableRefObject<string[]>
+  onToggle(id: string, range?: boolean, order?: string[]): void; onSelect(id: string | null): void
+  onColor(post: Post, color: string): void; onMove(status: Post['status']): void; onSelectStatus(ids: string[]): void
+}) {
+  const [openCells, setOpenCells] = useState<Set<string>>(new Set())
+  const showBand = lanes.length > 1
+  const CELL_LIMIT = 8
+  const postById = new Map(posts.map(post => [post.id, post]))
+  const statusIds = new Map(stages.map(status => [status, posts.filter(post => post.status === status).map(post => post.id)]))
+  return <div className={`board-lanes${selected.size ? ' selection-active' : ''}`} role="grid" aria-label="Tablero agrupado por colecciones">
+    {stages.map(status => {
+      const ids = statusIds.get(status) || []
+      const selectedCount = ids.filter(id => selected.has(id)).length
+      return <div className="board-status-heading" role="columnheader" key={status} style={{ '--status-color': statusMeta[status].color } as React.CSSProperties}>
+        <label title={`Seleccionar todas las publicaciones en ${statusMeta[status].label}`}>
+          <input type="checkbox" checked={ids.length > 0 && selectedCount === ids.length} ref={input => { if (input) input.indeterminate = selectedCount > 0 && selectedCount < ids.length }} disabled={!ids.length} onChange={() => onSelectStatus(ids)} aria-label={`Seleccionar todas las publicaciones en ${statusMeta[status].label}`} />
+          <span>{statusMeta[status].label}</span><em>{ids.length}</em>
+        </label>
+      </div>
+    })}
+    {lanes.map((lane, laneIndex) => {
+      const isCollapsed = collapsedLanes.has(lane.id)
+      const lanePosts = [...new Set(lane.postIds)].map(id => postById.get(id)).filter((post): post is Post => Boolean(post))
+      return <div className={`board-lane-row${isCollapsed ? ' collapsed' : ''}`} role="row" key={lane.id}>
+        {showBand && <div className="board-lane-band" role="rowheader">
+          <button type="button" className="board-lane-toggle" aria-expanded={!isCollapsed} onClick={() => toggleLane(lane.id)}>
+            {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}{lane.group ? <FolderOpen size={15} /> : <FolderPlus size={15} />}
+            <strong>{lane.name}</strong><em>{lanePosts.length}</em>
+          </button>
+          {isCollapsed && <div className="board-lane-pips">
+            {stages.map(status => {
+              const n = lanePosts.filter(post => post.status === status).length
+              return n ? <span key={status} title={`${n} en ${statusMeta[status].label}`}><i style={{ background: statusMeta[status].color }} />{n}</span> : null
+            })}
+          </div>}
+          <div className="board-lane-order"><button type="button" aria-label={`Subir ${lane.name}`} title="Subir carril" disabled={laneIndex === 0} onClick={() => reorderLane(lane.id, -1)}><ArrowUp size={12} /></button><button type="button" aria-label={`Bajar ${lane.name}`} title="Bajar carril" disabled={laneIndex === lanes.length - 1} onClick={() => reorderLane(lane.id, 1)}><ArrowDown size={12} /></button></div>
+        </div>}
+        {!isCollapsed && stages.map(status => {
+          const columnPosts = lanePosts.filter(post => post.status === status)
+          const order = columnPosts.map(post => post.id)
+          const cellKey = `${lane.id}-${status}`
+          const limit = openCells.has(cellKey) ? visiblePerColumn : Math.min(CELL_LIMIT, visiblePerColumn)
+          const visiblePosts = columnPosts.slice(0, limit)
+          return <div className="board-lane-cell" role="gridcell" key={cellKey} onDragOver={event => event.preventDefault()} onDrop={() => onMove(status)}>
+              {visiblePosts.map(post => {
+                const otherMemberships = activeGroups.filter(group => group.id !== lane.group?.id && group.postIds.includes(post.id)).map(group => group.name)
+                return <article className={(selected.has(post.id) ? 'selected' : '') + (post.color !== postColors[0].value ? ' has-custom-color' : '')} style={{ '--post-color': post.color } as React.CSSProperties} draggable={armed === post.id} onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id) }} onDragEnd={() => { dragIds.current = []; setArmed(null) }} key={post.id} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) onToggle(post.id, event.shiftKey, order); else onSelect(post.id) }}>
+                  <div><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => onToggle(post.id, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-grip" title="Arrastrar para cambiar de etapa" onMouseDown={() => setArmed(post.id)} onMouseUp={() => setArmed(null)}><GripVertical size={14} /></span>{post.platforms.map(platform => <PlatformMark key={platform} platform={platform} small />)}<span className="board-content-type">{contentLabels[post.contentType]}</span>{otherMemberships.length > 0 && <span className="board-duplicate-marker" role="img" title={`La misma publicación también está en: ${otherMemberships.join(', ')}`} aria-label={`También en ${otherMemberships.join(', ')}`}><Layers3 size={12} /><span>{otherMemberships.length + 1}</span></span>}{selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => onColor(post, color)} />}</div>
+                  <MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /><h3>{post.title || 'Publicación sin título'}</h3>{post.scheduledAt && <small><CalendarDays size={12} />{format(parseISO(post.scheduledAt), 'd MMM · HH:mm', { locale: es })}</small>}
+                </article>
+              })}
+              {columnPosts.length > visiblePosts.length && <button type="button" className="board-more-btn" onClick={() => setOpenCells(current => new Set(current).add(cellKey))}>Ver {columnPosts.length - visiblePosts.length} más</button>}
+          </div>
+        })}
+      </div>
+    })}
+  </div>
 }
 
 export { LibraryView } from './LibraryView'

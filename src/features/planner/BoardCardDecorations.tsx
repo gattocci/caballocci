@@ -15,6 +15,7 @@ export function MobileCardStatus({ state, postId, detailLevel }: { state: Mobile
   }
   const current = state.currentPostIds.includes(postId)
   const previous = !current && state.previouslyExportedPostIds.includes(postId)
+  if (!current && !previous && detailLevel === 'discreet') return null
   const label = current ? 'En catálogo móvil' : previous ? 'Exportada antes' : 'No exportada'
   const kind = current ? 'current' : previous ? 'previous' : 'never'
   const title = current
