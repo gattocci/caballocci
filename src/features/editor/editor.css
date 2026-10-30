@@ -2,3 +2,4 @@
 @import './editor-writing.css';
 @import './editor-fields.css';
 @import './editor-preview.css';
+.editor-save-status { align-self:center; padding:0 8px; color:var(--muted,#8b938c); font-size:11px; white-space:nowrap; }.editor-save-pending,.editor-save-saving { color:#d6b967; }.editor-save-error { color:#e58b7d; }.notes-tab-hidden { display:none !important; }

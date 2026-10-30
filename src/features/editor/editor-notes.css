@@ -23,7 +23,7 @@
 }
 .notes-compact .notes-chevron { margin-left: auto; opacity: .6; transition: transform .15s; }
 .notes-compact[open] .notes-chevron { transform: rotate(180deg); }
-.notes-compact > .notes-list { padding: 0 12px 12px; }
+.notes-compact > .notes-list { max-height: min(42vh, 320px); padding: 0 12px 12px; overflow-y: auto; overscroll-behavior: contain; }
 
 .notes-list { display: grid; gap: 8px; }
 .note-row { position: relative; display: grid; gap: 6px; }

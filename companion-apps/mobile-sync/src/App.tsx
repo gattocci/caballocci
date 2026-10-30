@@ -610,6 +610,7 @@ export default function App() {
     })}</section> : <section className="empty"><h2>No hay publicaciones</h2><p>Genera un snapshot nuevo desde caballocci después de agregar publicaciones.</p></section>)}
     {current && <article className="publication">
       <div className="detail-bar"><button onClick={() => setOpenKey(null)}>← Volver</button><span>{currentIndex >= 0 ? `${currentIndex + 1} / ${shown.length}` : ''}</span></div>
+      {currentCaption && <section className="publication-caption"><div><strong>Texto para publicar</strong><button type="button" className="copy-caption" onClick={async () => { try { await navigator.clipboard.writeText(currentCaption); notify('Texto copiado. Ya puedes pegarlo en la red social.') } catch { notify('No se pudo copiar el texto. Mantén pulsado el texto para seleccionarlo.', true) } }}>Copiar texto</button></div><pre>{currentCaption}</pre></section>}
       <div className="target">{current.targetName}</div>
       {(folderAvailability[current.manifestPath]?.folder === false || folderAvailability[current.manifestPath]?.manifest === false) && <p className="missing-note">Esta publicación sigue referenciada en el catálogo, pero falta su carpeta o manifest.json en este teléfono. Espera la sincronización o bórrala para avisar a la PC.</p>}
       {currentUsed
@@ -617,7 +618,7 @@ export default function App() {
         : <button className="used" disabled={busy || !loadedPublications[currentKey]} onClick={() => void markUsed()}>{loadedPublications[currentKey] ? 'Marcar como usada' : 'Preparando publicación…'}</button>}
       <button className="remove-album" disabled={busy} onClick={() => deleteAlbum(current)}>Borrar álbum y carpeta del teléfono</button>
       <details key={currentKey} className="publication-details">
-        <summary>Ver contenido de la publicación</summary>
+        <summary>Ver título y medios</summary>
         <h2>{currentDisplay?.title || 'Publicación sin título'}</h2>
         {current.scheduledAt && <small>Programada: {new Date(current.scheduledAt).toLocaleString()}</small>}
         <div className="gallery">{(currentDisplay?.media || []).filter(media => media.kind === 'image').map(media => {
@@ -625,7 +626,6 @@ export default function App() {
           return src ? <img key={media.path} src={src} alt={`${currentDisplay?.title || current.postId} · imagen ${media.order + 1}`} /> : <div className="image-placeholder" key={media.path}>Cargando imagen {media.order + 1}…</div>
         })}</div>
         {currentDisplay && !currentDisplay.media.some(media => media.kind === 'image') && <p>No hay imágenes en esta publicación. Los videos no se muestran en esta versión.</p>}
-        {currentCaption && <pre>{currentCaption}</pre>}
       </details>
       <div className="pagination"><button disabled={currentIndex <= 0} onClick={() => setOpenKey(shown[currentIndex - 1]!.key)}>Anterior</button><span>{pendingCount} pendientes</span><button disabled={currentIndex < 0 || currentIndex >= shown.length - 1} onClick={() => setOpenKey(shown[currentIndex + 1]!.key)}>Siguiente</button></div>
     </article>}

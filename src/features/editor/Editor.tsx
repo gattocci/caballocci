@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Archive, ChevronLeft, ChevronRight, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Archive, ChevronLeft, ChevronRight, Copy, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
@@ -26,7 +26,11 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
     return { ...blankPost(project), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
   })[0]
   const { value: draft, setValue: setDraft, undo, redo, canUndo, canRedo } = useUndoableState<PostInput>(initialDraft)
-  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'assistant' | 'external' | 'catalog'>('content')
+  const lastSavedDraft = useRef(JSON.stringify(initialDraft))
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  const [saveState, setSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved')
+  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'assistant' | 'external' | 'catalog'>('content')
   const [assistantIdea, setAssistantIdea] = useState('')
   const [assistantTitles, setAssistantTitles] = useState('')
   const [assistantMaster, setAssistantMaster] = useState('')
@@ -105,6 +109,8 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
     setSaving(true)
     try {
       await save(draft)
+      lastSavedDraft.current = JSON.stringify(draft)
+      setSaveState('saved')
       onClose()
       return true
     } catch (error) {
@@ -114,6 +120,24 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
       setSaving(false)
     }
   }
+  useEffect(() => {
+    if (!initial) return
+    const serialized = JSON.stringify(draft)
+    if (serialized === lastSavedDraft.current) return
+    setSaveState('pending')
+    const timer = window.setTimeout(async () => {
+      setSaveState('saving')
+      try {
+        await save(draft, { recordHistory: false })
+        lastSavedDraft.current = JSON.stringify(draft)
+        setSaveState(JSON.stringify(draftRef.current) === lastSavedDraft.current ? 'saved' : 'pending')
+      } catch (error) {
+        setSaveState('error')
+        reportAppError(error, 'No se pudieron guardar automáticamente los cambios')
+      }
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [draft, initial, save])
   const exportToPhone = async (chooseFolder = false) => {
     if (!initial || !draft.id) return
     setPhoneExportBusy(true)
@@ -169,9 +193,18 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
     }
   }
   useEffect(() => { if (!initial) localStorage.setItem(draftKey, JSON.stringify(draft)) }, [draft, draftKey, initial])
-  const close = () => {
-    const changed = !initial && Boolean(draft.title || draft.caption || draft.notes || draft.media?.length || draft.ideaBlocks?.length)
-    if (changed && !window.confirm('Hay cambios sin guardar. ¿Quieres salir y conservar el borrador?')) return
+  const close = async () => {
+    if (initial && JSON.stringify(draft) !== lastSavedDraft.current) {
+      setSaving(true)
+      try {
+        await save(draft, { recordHistory: false })
+        lastSavedDraft.current = JSON.stringify(draft)
+        setSaveState('saved')
+      } catch (error) {
+        reportAppError(error, 'No se pudieron guardar los cambios antes de salir')
+        return
+      } finally { setSaving(false) }
+    }
     onClose()
   }
   const submitAndClear = async () => {
@@ -182,6 +215,22 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
     } catch (error) {
       reportAppError(error, 'No se pudo limpiar el borrador guardado')
     }
+  }
+  const duplicatePost = async () => {
+    setSaving(true)
+    try {
+      await save({
+        ...draft,
+        id: undefined,
+        title: `${draft.title.trim() || 'Publicación'} (copia)`,
+        status: 'draft',
+        scheduledAt: null,
+        distribution: (draft.distribution || []).map(target => ({ ...target, status: target.status === 'not_applicable' ? 'not_applicable' as const : 'pending' as const })),
+      })
+      onClose()
+    } catch (error) {
+      reportAppError(error, 'No se pudo duplicar la publicación')
+    } finally { setSaving(false) }
   }
   const attach = async () => {
     try { update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id, draft.project)], { label: 'Adjuntar medios' }) }
@@ -220,7 +269,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
   }}>
     {historyNotice && <div key={historyNotice.id} className={`undo-notice ${historyNotice.direction}`} role="status" aria-live="polite">{historyNotice.direction === 'undo' ? <Undo2 size={13} aria-hidden="true" /> : <Redo2 size={13} aria-hidden="true" />}<span>{historyNotice.text}</span></div>}
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><button className="icon-button" onClick={close}><X size={19} /></button></header>
-    <div className="editor-tabs editor-main-tabs" role="group" aria-label="Secciones de edición"><button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button type="button" aria-pressed={tab === 'notes'} className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button><button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>{externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
+    <div className="editor-tabs editor-main-tabs" role="group" aria-label="Secciones de edición"><button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button type="button" aria-pressed={false} className="notes-tab-hidden">Notas</button><button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>{externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
     <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
     <div className="editor-body">
       {tab === 'content' && <>
@@ -287,12 +336,11 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
       </>}
       {tab === 'content' && <EditorNotes compact items={noteItems} onChange={updateNotes} />}
       {tab === 'ideas' && <EditorIdeaBlocks blocks={draft.ideaBlocks || []} onChange={(blocks, change) => update('ideaBlocks', blocks, change)} />}
-      {tab === 'notes' && <EditorNotes items={noteItems} onChange={updateNotes} />}
       {tab === 'assistant' && <EditorAssistantPanel idea={assistantIdea} onIdeaChange={setAssistantIdea} titles={assistantTitles} onTitlesChange={setAssistantTitles} onSelectTitle={title => update('title', title)} master={assistantMaster} onMasterChange={setAssistantMaster} message={assistantMessage} onApply={applyAssistant} onCopyMark={() => void copyObsidianMark()} />}
       {tab === 'preview' && <Preview draft={draft} onMediaChange={media => update('media', media)} onError={message => reportAppError(message, 'Error en medios')} />}
       {tab === 'external' && externalRecord && <EditorExternalRecordPanel record={externalRecord} />}
       {tab === 'catalog' && <EditorCatalogPanel categoryId={catalogCategoryId} onCategoryIdChange={setCatalogCategoryId} summary={catalogSummary} onSummaryChange={setCatalogSummary} content={catalogContent} onContentChange={setCatalogContent} useHashtags={catalogUseHashtags} onUseHashtagsChange={setCatalogUseHashtags} sync={catalogSync} endpoint={catalogEndpoint} onEndpointChange={setCatalogEndpoint} createdBy={catalogCreatedBy} onCreatedByChange={setCatalogCreatedBy} token={catalogToken} onTokenChange={setCatalogToken} configured={catalogConfig.configured} kind={catalogKind} onKindChange={setCatalogKind} busy={catalogBusy} message={catalogMessage} onSaveConfig={() => void saveCatalog()} onSync={dryRun => void syncCatalog(dryRun)} preview={catalogPreview} />}
     </div>
-    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}</div><div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
+    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button type="button" className="ghost-button" title="Duplicar publicación" aria-label="Duplicar publicación" disabled={saving} onClick={() => void duplicatePost()}><Copy size={15} /></button><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}{initial && <span className={'editor-save-status editor-save-' + saveState} role="status">{saveState === 'saved' ? 'Guardado' : saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? 'Error al guardar' : 'Cambios pendientes'}</span>}</div><div><button className="ghost-button" onClick={() => void close()}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
   </aside></div>
 }
