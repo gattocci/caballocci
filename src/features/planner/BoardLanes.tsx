@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { BoardCardColorPicker, MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -8,8 +8,32 @@ import { postColors } from '../../shared/postColors'
 import { PlatformMark } from '../../components/layout/AppShell'
 import type { Post, WorkGroup } from '../../shared/types'
 
+const POST_IDS_MIME = 'application/x-caballocci-post-ids'
 
 export type BoardLane = { id: string; name: string; postIds: string[]; group: WorkGroup | null }
+
+/** Solo reaccionamos a arrastres de publicaciones, no a archivos u otros elementos externos. */
+const carriesPosts = (event: React.DragEvent) => Array.from(event.dataTransfer.types).includes(POST_IDS_MIME)
+
+/**
+ * Reemplaza el "fantasma" por defecto del navegador por un clon de la tarjeta (con borde dorado y sombra),
+ * y si se arrastran varias muestra un contador. El clon vive un instante dentro del mismo carril
+ * para heredar los estilos de `.board-lane-cell article`.
+ */
+function setCardDragImage(event: React.DragEvent<HTMLElement>, count: number) {
+  const card = event.currentTarget
+  const host = card.parentElement
+  if (!host) return
+  const rect = card.getBoundingClientRect()
+  const ghost = card.cloneNode(true) as HTMLElement
+  ghost.classList.add('board-drag-ghost')
+  ghost.classList.remove('is-dragging')
+  ;['data-area-select-id', 'draggable', 'tabindex'].forEach(name => ghost.removeAttribute(name))
+  if (count > 1) ghost.dataset.count = String(count)
+  host.appendChild(ghost)
+  event.dataTransfer.setDragImage(ghost, event.clientX - rect.left, event.clientY - rect.top)
+  setTimeout(() => ghost.remove(), 0)
+}
 
 export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus }: {
   lanes: BoardLane[]; posts: Post[]; activeGroups: WorkGroup[]; selected: Set<string>; collapsedLanes: Set<string>
@@ -20,15 +44,42 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
   onColor(post: Post, color: string): void; onMove(status: Post['status']): void; onSelectStatus(ids: string[]): void
 }) {
   const [openCells, setOpenCells] = useState<Set<string>>(new Set())
+  // Feedback del drag & drop: tarjetas que se están moviendo y destino bajo el cursor.
+  const [dragging, setDragging] = useState<Set<string>>(new Set())
+  const [dropTarget, setDropTarget] = useState<{ key: string; status: Post['status'] } | null>(null)
   const showBand = lanes.length > 1
   const CELL_LIMIT = 8
   const postById = new Map(posts.map(post => [post.id, post]))
   const statusIds = new Map(stages.map(status => [status, posts.filter(post => post.status === status).map(post => post.id)]))
-  return <div className={`board-lanes${selected.size ? ' selection-active' : ''}`} role="grid" aria-label="Tablero Kanban por etapas">
+
+  const resetDrag = useCallback(() => {
+    setDragging(current => current.size ? new Set() : current)
+    setDropTarget(null)
+  }, [])
+
+  // Si la tarjeta de origen se desmonta al moverse, su `dragend` no llega: usamos también `drop` global.
+  useEffect(() => {
+    window.addEventListener('dragend', resetDrag)
+    window.addEventListener('drop', resetDrag)
+    return () => { window.removeEventListener('dragend', resetDrag); window.removeEventListener('drop', resetDrag) }
+  }, [resetDrag])
+
+  const startDrag = (event: React.DragEvent<HTMLElement>, post: Post) => {
+    const ids = selected.has(post.id) ? [...selected] : [post.id]
+    dragIds.current = ids
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', post.id)
+    event.dataTransfer.setData(POST_IDS_MIME, JSON.stringify(ids))
+    setCardDragImage(event, ids.length)
+    // Se atenúan las tarjetas de origen DESPUÉS de que el navegador captura la imagen, para que el fantasma no salga apagado.
+    requestAnimationFrame(() => setDragging(new Set(ids)))
+  }
+
+  return <div className={`board-lanes${selected.size ? ' selection-active' : ''}${dragging.size ? ' is-dragging-cards' : ''}`} role="grid" aria-label="Tablero Kanban por etapas">
     {stages.map(status => {
       const ids = statusIds.get(status) || []
       const selectedCount = ids.filter(id => selected.has(id)).length
-      return <div className={`board-status-heading status-${status}`} role="columnheader" key={status} style={{ '--status-color': statusMeta[status].color } as React.CSSProperties}>
+      return <div className={`board-status-heading status-${status}${dropTarget?.status === status ? ' drop-target' : ''}`} role="columnheader" key={status} style={{ '--status-color': statusMeta[status].color } as React.CSSProperties}>
         <label title={`Seleccionar todas las publicaciones en ${statusMeta[status].label}`}>
           <input type="checkbox" checked={ids.length > 0 && selectedCount === ids.length} ref={input => { if (input) input.indeterminate = selectedCount > 0 && selectedCount < ids.length }} disabled={!ids.length} onChange={() => onSelectStatus(ids)} aria-label={`Seleccionar todas las publicaciones en ${statusMeta[status].label}`} />
           <span>{statusMeta[status].label}</span><em>{ids.length}</em>
@@ -58,18 +109,62 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
           const cellKey = `${lane.id}-${status}`
           const limit = openCells.has(cellKey) ? visiblePerColumn : Math.min(CELL_LIMIT, visiblePerColumn)
           const visiblePosts = columnPosts.slice(0, limit)
-          return <div className={`board-lane-cell${columnPosts.length ? '' : ' empty'}`} role="gridcell" key={cellKey} onDragOver={event => event.preventDefault()} onDrop={() => onMove(status)}>
-              {visiblePosts.map(post => {
-                const otherMemberships = activeGroups.filter(group => group.id !== lane.group?.id && group.postIds.includes(post.id)).map(group => group.name)
-                const overdue = (post.status === 'idea' || post.status === 'draft') && post.scheduledAt && parseISO(post.scheduledAt).getTime() < Date.now()
-                const ContentIcon = post.contentType === 'reel' ? Film : post.contentType === 'carousel' ? Images : FileText
-                return <div className="board-card-slot" key={post.id}><article tabIndex={0} className={`board-card${selected.has(post.id) ? ' selected' : ''}${post.color !== postColors[0].value ? ' has-custom-color' : ''}`} style={{ '--post-color': post.color } as React.CSSProperties} draggable onDragStart={event => { dragIds.current = selected.has(post.id) ? [...selected] : [post.id]; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', post.id); event.dataTransfer.setData('application/x-caballocci-post-ids', JSON.stringify(dragIds.current)) }} onDragEnd={() => { dragIds.current = [] }} onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) onToggle(post.id, event.shiftKey, order); else onSelect(post.id) }}>
-                  <div className="board-card-top"><label className="board-select-hit" onClick={event => event.stopPropagation()}><input type="checkbox" checked={selected.has(post.id)} onChange={event => onToggle(post.id, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} /></label><span className="board-platforms">{post.platforms.map(platform => <PlatformMark key={platform} platform={platform} small />)}</span>{otherMemberships.length > 0 && <span className="board-duplicate-marker" role="img" title={`La misma publicación también está en: ${otherMemberships.join(', ')}`} aria-label={`También en ${otherMemberships.join(', ')}`}><Layers3 size={12} /><span>{otherMemberships.length + 1}</span></span>}<span className="board-content-type" title={contentLabels[post.contentType]}><ContentIcon size={12} /><span>{contentLabels[post.contentType].slice(0, 5)}</span></span><div className="board-card-mobile-slot"><MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /></div>{selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => onColor(post, color)} />}</div>
-                  <h3>{post.title || 'Publicación sin título'}</h3><div className="board-card-meta">{post.scheduledAt && <small className={overdue ? 'overdue' : ''} title={format(parseISO(post.scheduledAt), 'd MMMM yyyy · HH:mm', { locale: es })}><CalendarDays size={12} /><span>{format(parseISO(post.scheduledAt), 'd MMM', { locale: es })}</span><time dateTime={post.scheduledAt}>{format(parseISO(post.scheduledAt), 'HH:mm')}</time>{overdue && <b>Atrasada</b>}</small>}</div>
-                </article></div>
-              })}
-              {!columnPosts.length && <div className="board-drop-hint">Arrastrá una publicación acá</div>}
-              {columnPosts.length > visiblePosts.length && <button type="button" className="board-more-btn" onClick={() => setOpenCells(current => new Set(current).add(cellKey))}>Ver {columnPosts.length - visiblePosts.length} más</button>}
+          const inDropColumn = dropTarget?.status === status
+          const cellClass = `board-lane-cell${columnPosts.length ? '' : ' empty'}${inDropColumn ? ' drop-column' : ''}${dropTarget?.key === cellKey ? ' drop-over' : ''}`
+          return <div
+            className={cellClass}
+            style={{ '--status-color': statusMeta[status].color } as React.CSSProperties}
+            role="gridcell"
+            key={cellKey}
+            onDragOver={event => {
+              event.preventDefault()
+              if (!carriesPosts(event)) return
+              event.dataTransfer.dropEffect = 'move'
+              if (dropTarget?.key !== cellKey) setDropTarget({ key: cellKey, status })
+            }}
+            onDragLeave={event => {
+              // dragleave también se dispara al pasar sobre hijos: solo limpiamos si realmente salimos de la celda.
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(current => current?.key === cellKey ? null : current)
+            }}
+            onDrop={() => { resetDrag(); onMove(status) }}
+          >
+            {visiblePosts.map(post => {
+              const otherMemberships = activeGroups.filter(group => group.id !== lane.group?.id && group.postIds.includes(post.id)).map(group => group.name)
+              const overdue = (post.status === 'idea' || post.status === 'draft') && post.scheduledAt && parseISO(post.scheduledAt).getTime() < Date.now()
+              const ContentIcon = post.contentType === 'reel' ? Film : post.contentType === 'carousel' ? Images : FileText
+              const cardClass = `board-card${selected.has(post.id) ? ' selected' : ''}${post.color !== postColors[0].value ? ' has-custom-color' : ''}${dragging.has(post.id) ? ' is-dragging' : ''}`
+              return <div className="board-card-slot" key={post.id}>
+                <article
+                  data-area-select-id={post.id}
+                  tabIndex={0}
+                  className={cardClass}
+                  style={{ '--post-color': post.color } as React.CSSProperties}
+                  draggable
+                  onDragStart={event => startDrag(event, post)}
+                  onDragEnd={() => { dragIds.current = []; resetDrag() }}
+                  onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) onToggle(post.id, event.shiftKey, order); else onSelect(post.id) }}
+                >
+                  <div className="board-card-top">
+                    <label className="board-select-hit" onClick={event => event.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(post.id)} onChange={event => onToggle(post.id, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey, order)} aria-label={`Seleccionar ${post.title || 'publicación'}`} />
+                    </label>
+                    <span className="board-platforms">{post.platforms.map(platform => <PlatformMark key={platform} platform={platform} small />)}</span>
+                    {otherMemberships.length > 0 && <span className="board-duplicate-marker" role="img" title={`La misma publicación también está en: ${otherMemberships.join(', ')}`} aria-label={`También en ${otherMemberships.join(', ')}`}><Layers3 size={12} /><span>{otherMemberships.length + 1}</span></span>}
+                    <span className="board-content-type" title={contentLabels[post.contentType]}><ContentIcon size={12} /><span>{contentLabels[post.contentType].slice(0, 5)}</span></span>
+                    <div className="board-card-mobile-slot"><MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /></div>
+                    {selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => onColor(post, color)} />}
+                  </div>
+                  <h3>{post.title || 'Publicación sin título'}</h3>
+                  <div className="board-card-meta">
+                    {post.scheduledAt && <small className={overdue ? 'overdue' : ''} title={format(parseISO(post.scheduledAt), 'd MMMM yyyy · HH:mm', { locale: es })}>
+                      <CalendarDays size={12} /><span>{format(parseISO(post.scheduledAt), 'd MMM', { locale: es })}</span><time dateTime={post.scheduledAt}>{format(parseISO(post.scheduledAt), 'HH:mm')}</time>{overdue && <b>Atrasada</b>}
+                    </small>}
+                  </div>
+                </article>
+              </div>
+            })}
+            {!columnPosts.length && <div className="board-drop-hint">{inDropColumn ? 'Soltá acá' : 'Arrastrá una publicación acá'}</div>}
+            {columnPosts.length > visiblePosts.length && <button type="button" className="board-more-btn" onClick={() => setOpenCells(current => new Set(current).add(cellKey))}>Ver {columnPosts.length - visiblePosts.length} más</button>}
           </div>
         })}
       </div>

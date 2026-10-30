@@ -99,7 +99,7 @@ export function useBoardSelection({ allPosts, query, activeSpace, selectedWorkGr
   }, 'No se pudo enviar la selección al celular')
 
   return {
-    selected, toggle, clear, toggleStatusSelection,
+    selected, toggle, clear, set: setSelected, toggleStatusSelection,
     bulkScheduleAt, setBulkScheduleAt, bulkScheduleWarning, setBulkScheduleWarning,
     mobileExportBusy, mobileExportMessage, mobileExportSkipped, mobilePublicationState,
     bulkMove, bulkSchedule, exportSelectedToMobile,
