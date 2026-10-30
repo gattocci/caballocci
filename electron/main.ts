@@ -14,8 +14,13 @@ import { registerConceptMapIpcHandlers } from './concept-map-ipc-handlers'
 import { registerPostsIpcHandlers } from './posts-ipc-handlers'
 import { validateArgumentCount, validateClipboardText, validateId, validateNoArguments } from './ipc-validation'
 import { UpdateManager } from './updater'
+import { createSplashWindow } from './splash'
 
 let mainWindow: BrowserWindow | null = null
+let splashWindow: BrowserWindow | null = null
+let splashShownAt = 0
+let splashReady = false
+let splashStatus = 'Iniciando caballocci'
 let database: PlannerDatabase
 let updater: UpdateManager
 let mediaWorkspaceRoot = ''
@@ -23,6 +28,14 @@ let activeIpcOperations = 0
 let ipcQuiescingForUpdate = false
 let ipcOperationsPaused = false
 const ipcIdleWaiters = new Set<() => void>()
+
+function setSplashStatus(status: string) {
+  splashStatus = status
+  if (splashReady && splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.send('splash:status', status)
+  }
+}
+
 const devServerUrl = app.isPackaged ? undefined : process.env.VITE_DEV_SERVER_URL
 const rendererFilePath = path.join(__dirname, '../dist/index.html')
 const rendererFileUrl = pathToFileURL(rendererFilePath).href
@@ -354,7 +367,17 @@ async function createWindow() {
 
   if (devServerUrl) await mainWindow.loadURL(devServerUrl)
   else await mainWindow.loadFile(rendererFilePath)
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  mainWindow.once('ready-to-show', () => {
+    void (async () => {
+      const minimumSplashDurationMs = 1_800
+      const remainingMs = Math.max(0, minimumSplashDurationMs - (Date.now() - splashShownAt))
+      if (remainingMs > 0) await new Promise(resolve => setTimeout(resolve, remainingMs))
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.show()
+      if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close()
+      splashWindow = null
+    })()
+  })
 }
 
 app.setAppUserModelId('com.caballocci.desktop')
@@ -372,6 +395,14 @@ if (!hasSingleInstanceLock) {
   })
 
 app.whenReady().then(async () => {
+  splashShownAt = Date.now()
+  splashWindow = createSplashWindow()
+  splashWindow.webContents.once('did-finish-load', () => {
+    splashReady = true
+    setSplashStatus(splashStatus)
+  })
+  splashWindow.once('closed', () => { splashReady = false; splashWindow = null })
+  setSplashStatus('Abriendo la base de datos')
   const wasmPath = app.isPackaged ? path.join(process.resourcesPath, 'sql-wasm.wasm') : path.join(__dirname, '../node_modules/sql.js/dist/sql-wasm.wasm')
   const dataDirectory = app.getPath('userData')
   mediaWorkspaceRoot = dataDirectory
@@ -391,6 +422,7 @@ app.whenReady().then(async () => {
   }
   database = new PlannerDatabase(databasePath, wasmPath, backupsDirectory)
   await database.init()
+  setSplashStatus('Preparando tus publicaciones')
   database.list().forEach(row => ensurePostMediaFolder(String(row.project || ''), String(row.id)))
   registerMediaProtocol()
   updater = new UpdateManager(
@@ -477,6 +509,7 @@ app.whenReady().then(async () => {
   handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))
   registerMobileSyncIpcHandlers({ database, getMainWindow: () => mainWindow, mobileSync, handle, withoutArguments })
   registerMediaIpcHandlers({ database, dataDirectory, getMainWindow: () => mainWindow, handle, withoutArguments, ensurePostMediaFolder, mapPost })
+  setSplashStatus('Cargando el tablero')
   await createWindow()
   updater.startAutomaticChecks()
 })
