@@ -1,0 +1,40 @@
+.ideas-import-preview { display: grid; gap: 14px; margin: 0 0 16px; padding: 16px; border: 1px solid #495b4d; border-radius: 8px; background: linear-gradient(145deg, #19221b, #141a16); }
+.ideas-import-preview > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.ideas-import-preview > header > div { min-width: 0; }
+.ideas-import-preview > header span { color: #91c5a7; font-size: 9px; font-weight: 800; letter-spacing: 1px; }
+.ideas-import-preview h2 { overflow: hidden; margin: 4px 0; color: #eff4f0; font-size: 16px; text-overflow: ellipsis; }
+.ideas-import-preview header p { margin: 0; color: #9ba69e; font-size: 11px; line-height: 1.5; }
+.ideas-import-preview-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ideas-import-preview-stats article { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid #35443a; border-radius: 6px; background: #141b16; }
+.ideas-import-preview-stats strong { color: #e8d2b6; font: 700 18px 'DM Mono', monospace; }
+.ideas-import-preview-stats span { color: #aab5ad; font-size: 10px; }
+.ideas-import-warning { margin: 0; padding: 9px 11px; border-left: 3px solid #d0a64b; background: #252018; color: #e4c7a2; font-size: 11px; line-height: 1.5; }
+.ideas-import-preview-list { border-top: 1px solid #303d34; padding-top: 10px; color: #cbd5ce; font-size: 11px; }
+.ideas-import-preview-list summary { cursor: pointer; color: #d7e0d9; }
+.ideas-import-preview-list ul { display: grid; gap: 7px; max-height: 220px; overflow: auto; margin: 9px 0 0; padding: 0; list-style: none; }
+.ideas-import-preview-list li { display: grid; gap: 3px; padding: 8px 10px; border: 1px solid #303d34; border-radius: 5px; background: #171e19; }
+.ideas-import-preview-list li strong { color: #e7eee9; font-size: 11px; }
+.ideas-import-preview-list li span { color: #9ba69e; font-size: 10px; line-height: 1.45; }
+.ideas-import-preview > footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.ideas-import-preview > footer button { min-height: 36px; padding: 0 12px; font-size: 11px; }
+.idea-analysis-intro { max-width: 720px; margin: 10px 0 14px; color: #9ba69e; font-size: 11px; line-height: 1.55; }
+.idea-analysis-settings > label { font-size: 11px; }
+.idea-analysis-settings > label::after { color: #79857d; font-size: 10px; font-weight: 400; text-transform: none; }
+.idea-analysis-settings > label:nth-of-type(1)::after { content: 'Se excluyen del análisis las palabras que no ayudan a distinguir temas.'; }
+.idea-analysis-settings > label:nth-of-type(2)::after { content: 'Útil para quitar prefijos repetidos propios de una fuente o formato.'; }
+.idea-analysis-settings .idea-analysis-advanced { margin-top: 12px; border-top: 1px solid #303833; padding-top: 10px; }
+.idea-analysis-advanced > summary { cursor: pointer; color: #cbd5ce; font-size: 11px; }
+.idea-analysis-advanced > p { margin: 9px 0; color: #87938b; font-size: 10px; line-height: 1.5; }
+.idea-analysis-advanced .idea-analysis-preview { margin-top: 10px; }
+
+@media (max-width: 760px) {
+  .ideas-workspace > .view-heading { align-items: flex-start; flex-direction: column; }
+  .ideas-workspace > .view-heading .view-tools { justify-content: flex-start; }
+  .ideas-toolbar > span { margin-left: 0; }
+  .idea-status-filters { width: 100%; }
+  .idea-status-filters button { flex: 1 1 auto; }
+  .ideas-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+  .ideas-import-preview-stats { grid-template-columns: 1fr; }
+  .ideas-import-preview > footer { flex-direction: column-reverse; }
+  .ideas-import-preview > footer button { width: 100%; }
+}

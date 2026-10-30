@@ -1,0 +1,124 @@
+@media (max-width: 600px) {
+  .global-error-center { top: 8px; right: 8px; width: calc(100vw - 16px); }
+}
+
+.update-indicator span { overflow: hidden; text-overflow: ellipsis; }
+.update-indicator.available, .update-indicator.downloaded { border-color: #54715d; color: #9ed5ad; }
+.update-indicator.error { border-color: #77433d; color: #ef9b8c; }
+.update-indicator progress { width: 42px; height: 5px; accent-color: var(--accent); }
+
+.sidebar { min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: #404842 #111512; }
+.sidebar nav, .side-section, .sidebar-bottom { flex: none; }
+
+.space-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.space-row .space {
+  min-width: 0;
+  flex: 1;
+}
+
+.space-menu-button {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #909a94;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.space-menu-button:hover {
+  background: #242a26;
+  color: #fff;
+}
+
+.space-menu {
+  position: absolute;
+  z-index: 20;
+  top: 36px;
+  right: 0;
+  width: 164px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #1a1f1c;
+  box-shadow: 0 12px 28px #0008;
+}
+
+.space-menu button {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #d7ddd9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.space-menu button:hover { background: #282e2a; }
+.space-menu small { display: block; padding: 3px 8px 6px; color: #7f8983; font-size: 9px; line-height: 13px; }
+.space-menu .danger-menu-item { color: #f08a74; }
+
+.space-context { margin: 12px 6px 0; padding: 12px 10px; border: 1px solid #303832; background: #171c19; border-radius: 6px; display: grid; gap: 10px; }
+.space-context-heading { display: flex; align-items: center; gap: 6px; }
+.space-context-heading strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.space-context-heading .icon-button { width: 27px; height: 27px; }
+.space-context-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.space-context-stats span { display: grid; gap: 2px; color: #7e8982; font-size: 8px; }
+.space-context-stats b { color: #e5ebe7; font: 500 14px 'DM Mono', monospace; }
+.space-context label { display: grid; gap: 6px; color: #8f9992; font-size: 8px; font-weight: 800; letter-spacing: .6px; }
+.space-context textarea { min-height: 92px; resize: vertical; border: 1px solid #343d37; border-radius: 4px; background: #111512; color: #dfe5e1; padding: 8px; font-size: 10px; line-height: 15px; }
+.space-folder-hint { color: #68736c; font-size: 8px; line-height: 12px; }
+
+.app-menu-wrap { position: relative; }
+.app-menu { position: absolute; z-index: 30; top: 41px; right: 0; width: 210px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: #1a1f1c; box-shadow: 0 14px 34px #0009; }
+.app-menu button { width: 100%; height: 35px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: #d7ddd9; display: flex; align-items: center; gap: 9px; font-size: 11px; cursor: pointer; }
+.app-menu button:hover { background: #282e2a; color: #fff; }
+.app-menu hr { margin: 5px 3px; border: 0; border-top: 1px solid var(--line); }
+
+.space-dialog-backdrop {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  background: #050706b8;
+  display: grid;
+  place-items: center;
+}
+
+.space-dialog {
+  width: min(390px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid #353d38;
+  border-radius: 7px;
+  background: #171b19;
+  box-shadow: 0 24px 70px #000a;
+}
+
+.space-dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.space-dialog header span { color: var(--accent); font-size: 9px; font-weight: 800; }
+.space-dialog h2 { margin: 4px 0 0; font-size: 18px; }
+.space-dialog label { display: grid; gap: 8px; color: #9da69f; font-size: 10px; font-weight: 700; }
+.space-dialog input { height: 40px; padding: 0 11px; border: 1px solid #353d38; border-radius: 4px; background: #1d231f; color: #fff; }
+.space-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.remove-space-dialog p { margin: 0 0 20px; color: #9da69f; font-size: 11px; line-height: 18px; }
+.remove-space-options { display: flex; justify-content: flex-end; gap: 8px; }
+.danger-action { height: 36px; padding: 0 13px; border: 1px solid #7c3d32; border-radius: 4px; background: #41221d; color: #ffab98; font-size: 10px; cursor: pointer; }
+.danger-action:hover { background: #562a23; }

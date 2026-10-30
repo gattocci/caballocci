@@ -1,8 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react'
 import { type BoardCardDetailLevel } from './BoardCardDecorations'
 import { createPortal } from 'react-dom'
-import { format, parseISO } from 'date-fns'
-import { es } from 'date-fns/locale'
 import { statusMeta } from '../../shared/constants'
 import { BoardLanes } from './BoardLanes'
 import { BoardListView } from './BoardListView'
@@ -10,6 +8,7 @@ import { BoardListFilters } from './BoardListFilters'
 import { BoardHeader } from './BoardHeader'
 import { BoardArchivedMedia } from './BoardArchivedMedia'
 import { BoardWorkGroupToolbar } from './BoardWorkGroupToolbar'
+import { BoardCollectionNav } from './BoardCollectionNav'
 import { BoardBulkActions } from './BoardBulkActions'
 import { BoardCalendarView } from './BoardCalendarView'
 import { BoardWorkGroupDialogs } from './BoardWorkGroupDialogs'
@@ -89,12 +88,13 @@ export function Board() {
     setBoardCardDetailLevel(level)
     try { localStorage.setItem('caballocci.board-card-details', level) } catch { /* Preferences are optional. */ }
   }
-  const matchingPosts = (selectedWorkGroup
+  const scopedPosts = (selectedWorkGroup
     ? allPosts.filter(post => selectedWorkGroup.postIds.includes(post.id))
     : activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
-  const posts = selectedWorkGroup ? matchingPosts.filter(post => selectedWorkGroup.postIds.includes(post.id)) : matchingPosts
+  const posts = selectedWorkGroup ? scopedPosts : scopedPosts.filter(post => !workGroups.some(group => !group.archivedAt && group.postIds.includes(post.id)))
   const visibleBoardPosts = posts.filter(post => post.status !== 'archived')
-  const { activeGroups, boardLanes, collapsedLanes, toggleLane, reorderLane, toggleAllLanes } = useBoardLanes({ activeSpace, posts: visibleBoardPosts, workGroups, selectedWorkGroup })
+  const collectionNavPosts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
+  const { activeGroups, boardLanes, collapsedLanes, toggleLane, reorderLane } = useBoardLanes({ activeSpace, posts: visibleBoardPosts, workGroups, selectedWorkGroup })
   const { listPosts, listPageCount, visibleListPosts } = useBoardList({ posts, workGroups, status: listStatus, format: listFormat, group: listGroup, from: listFrom, to: listTo, sort: listSort, direction: listSortDirection, page: listPage })
   const archivedPosts = posts.filter(post => post.status === 'archived')
   const compressedPosts = allPosts.filter(post => post.media.some(asset => asset.compressed))
@@ -110,11 +110,20 @@ export function Board() {
     void runWithErrorReporting(() => usePlanner.getState().save({ ...post, scheduledAt: scheduledAt.toISOString(), status: 'scheduled' }), 'No se pudo programar la publicación')
   }
   const moveDragged = (status: Post['status']) => runWithErrorReporting(async () => { const ids = dragIds.current; dragIds.current = []; const changed = ids.filter(id => allPosts.some(post => post.id === id && post.status !== status)); for (const id of changed) await move(id, status); if (changed.length) clear() }, 'No se pudieron mover las publicaciones')
+  const dropPostsInCollection = (groupId: string, ids: string[]) => {
+    const group = workGroups.find(item => item.id === groupId && !item.archivedAt)
+    const postIds = ids.filter(id => allPosts.some(post => post.id === id))
+    if (!group || !postIds.length) return
+    void runWithErrorReporting(async () => {
+      await usePlanner.getState().setWorkGroupPosts(groupId, [...new Set([...group.postIds, ...postIds])])
+      clear()
+    }, 'No se pudieron añadir las publicaciones a la colección')
+  }
   const archivedCount = posts.filter(post => post.status === 'archived').length
   return <section className={`workspace board-mode-${boardMode}`}><BoardHeader boardMode={boardMode} changeBoardMode={changeBoardMode} visiblePerColumn={visiblePerColumn} loadMore={() => setVisiblePerColumn(current => Math.min(100, current + 30))} detailLevel={boardCardDetailLevel} changeDetailLevel={changeBoardCardDetailLevel} />
-    <BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archivedCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} boardLanes={boardLanes} collapsedLanes={collapsedLanes} toggleAllLanes={toggleAllLanes} openGroupForm={openGroupForm} setActiveWorkGroup={setActiveWorkGroup} setPendingGroupAction={setPendingGroupAction} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={setPendingMediaCompression} restoreGroupMedia={restoreGroupMedia} />
+    {boardMode === 'kanban' && <BoardCollectionNav groups={workGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={() => openGroupForm()} onDropPosts={dropPostsInCollection} onEditGroup={group => openGroupForm(group)} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archivedCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />} />}
+    {boardMode !== 'kanban' && <BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archivedCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />}
     {boardMode === 'list' && <BoardListFilters workGroups={workGroups} status={listStatus} setStatus={setListStatus} format={listFormat} setFormat={setListFormat} group={listGroup} setGroup={setListGroup} from={listFrom} setFrom={setListFrom} to={listTo} setTo={setListTo} />}
-    {selectedWorkGroup && <div className="work-group-summary" role="status"><strong>{selectedWorkGroup.name}</strong><span>{selectedWorkGroup.postIds.length} publicaciones · Creada el {format(parseISO(selectedWorkGroup.createdAt), 'd MMMM yyyy', { locale: es })}{selectedWorkGroup.compressedMediaCount ? ` · ${selectedWorkGroup.compressedMediaCount} medios comprimidos` : ''} · Los estados individuales no cambian al archivar la colección.</span>{selectedWorkGroup.archivedAt && <b>Archivada</b>}</div>}
     {mediaCompressionMessage && <p className="work-group-export-message" role="status">{mediaCompressionMessage}</p>}
     {boardMode === 'list' && <BoardListView
       listPosts={listPosts}
@@ -136,7 +145,7 @@ export function Board() {
     <BoardBulkActions selected={selected} workGroups={workGroups} selectedWorkGroup={selectedWorkGroup} membershipTargetGroupId={membershipTargetGroupId} setMembershipTargetGroupId={setMembershipTargetGroupId} updateGroupMembership={updateGroupMembership} openGroupForm={openGroupForm} clear={clear} boardMode={boardMode} mobileExportBusy={mobileExportBusy} exportSelectedToMobile={exportSelectedToMobile} bulkScheduleAt={bulkScheduleAt} setBulkScheduleAt={setBulkScheduleAt} setBulkScheduleWarning={setBulkScheduleWarning} bulkSchedule={bulkSchedule} bulkMove={bulkMove} bulkScheduleWarning={bulkScheduleWarning} />
     {mobileExportMessage && <div className="work-group-export-message" role="status"><p>{mobileExportMessage}</p>{mobileExportSkipped.map((item, index) => <p key={`${index}-${item}`}>Omitida: {item}</p>)}</div>}
     <BoardArchivedMedia archivedPosts={archivedPosts} compressedPosts={compressedPosts} showArchivedPosts={showArchivedPosts} showCompressedPosts={showCompressedPosts} setShowCompressedPosts={setShowCompressedPosts} select={select} setPendingMediaCompression={setPendingMediaCompression} restorePostMedia={restorePostMedia} />
-    {!visibleBoardPosts.length && <div className="planner-empty-inline board-empty" role="status"><strong>{selectedWorkGroup && !posts.length ? 'Esta colección todavía no tiene publicaciones visibles' : query.trim() && posts.length === 0 ? 'No hay publicaciones que coincidan con la búsqueda' : archivedCount ? 'Todas las publicaciones de este espacio están archivadas' : 'Este espacio aún no tiene publicaciones'}</strong><span>{selectedWorkGroup && !posts.length ? 'Selecciona publicaciones del tablero y añádelas a esta colección.' : query.trim() && posts.length === 0 ? 'Limpia la búsqueda para volver a ver el tablero.' : 'Crea una publicación o convierte una idea para empezar.'}</span>{query.trim() && posts.length === 0 && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
+    {!visibleBoardPosts.length && <div className="planner-empty-inline board-empty" role="status"><strong>{selectedWorkGroup && !posts.length ? 'Esta colección todavía no tiene publicaciones visibles' : query.trim() && posts.length === 0 ? 'No hay publicaciones que coincidan con la búsqueda' : archivedCount ? 'Todas las publicaciones de este espacio están archivadas' : workGroups.some(group => !group.archivedAt && group.postIds.some(id => posts.some(post => post.id === id))) ? 'No hay publicaciones sin colección' : 'Este espacio aún no tiene publicaciones'}</strong><span>{selectedWorkGroup && !posts.length ? 'Selecciona publicaciones del tablero y añádelas a esta colección.' : query.trim() && posts.length === 0 ? 'Limpia la búsqueda para volver a ver el tablero.' : workGroups.some(group => !group.archivedAt && group.postIds.some(id => posts.some(post => post.id === id))) ? 'Las publicaciones que pertenecen a colecciones aparecen al entrar en ellas.' : 'Crea una publicación o convierte una idea para empezar.'}</span>{query.trim() && posts.length === 0 && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
     {boardMode === 'kanban' && <div className="board-lanes-scroll"><BoardLanes lanes={boardLanes} posts={visibleBoardPosts} activeGroups={activeGroups} selected={selected} collapsedLanes={collapsedLanes} toggleLane={toggleLane} reorderLane={reorderLane} visiblePerColumn={visiblePerColumn} mobilePublicationState={mobilePublicationState} boardCardDetailLevel={boardCardDetailLevel} dragIds={dragIds} onToggle={toggle} onSelect={select} onColor={changePostCardColor} onMove={moveDragged} onSelectStatus={toggleStatusSelection} /></div>}
   </section>
 }
@@ -145,6 +154,3 @@ export function Board() {
 export { LibraryView } from './LibraryView'
 export { Timeline } from './TimelineView'
 export { CalendarView, BoardDaySwitcher } from './CalendarViews'
-
-
-

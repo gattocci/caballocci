@@ -20,10 +20,7 @@ export function useBoardLanes({ activeSpace, posts, workGroups, selectedWorkGrou
   const activeGroups = workGroups.filter(group => !group.archivedAt)
   const defaultLanes: BoardLane[] = selectedWorkGroup
     ? [{ id: selectedWorkGroup.id, name: selectedWorkGroup.name, postIds: selectedWorkGroup.postIds, group: selectedWorkGroup }]
-    : [
-      ...activeGroups.map(group => ({ id: group.id, name: group.name, postIds: group.postIds, group })),
-      { id: '__unassigned__', name: 'Sin colección', postIds: posts.filter(post => !activeGroups.some(group => group.postIds.includes(post.id))).map(post => post.id), group: null },
-    ]
+    : [{ id: '__unassigned__', name: 'Sin colección', postIds: posts.filter(post => !activeGroups.some(group => group.postIds.includes(post.id))).map(post => post.id), group: null }]
   const boardLanes = [...defaultLanes].sort((a, b) => {
     const aIndex = laneOrder.indexOf(a.id), bIndex = laneOrder.indexOf(b.id)
     if (aIndex >= 0 || bIndex >= 0) return (aIndex < 0 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex < 0 ? Number.MAX_SAFE_INTEGER : bIndex)

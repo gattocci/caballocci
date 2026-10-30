@@ -1,0 +1,15 @@
+.board-stack article.has-custom-color { background: color-mix(in srgb, var(--post-color) 16%, #1b201d); }
+.board-stack article:hover { border-color: #4a574e; background: #202722; transform: translateY(-1px); }
+.board-stack article.has-custom-color:hover { background: color-mix(in srgb, var(--post-color) 21%, #202722); }
+.board-card-color-picker { position: relative; z-index: 2; margin-left: auto; }
+.board-card-color-trigger { display: block; width: 14px; height: 14px; padding: 0; border: 1px solid #879189; border-radius: 4px; box-shadow: 0 0 0 1px #111612; cursor: pointer; }
+.board-card-color-trigger:hover,.board-card-color-trigger[aria-expanded="true"] { outline: 1px solid #d3ddd5; outline-offset: 2px; }
+.board-card-color-options { position: absolute; top: calc(100% + 7px); right: 0; z-index: 20; display: grid; grid-template-columns: repeat(5, 20px); gap: 6px; min-width: 132px; padding: 9px; border: 1px solid #465149; border-radius: 6px; background: #171d19; box-shadow: 0 8px 24px #000a; }
+.board-card-color-options button { width: 20px; height: 20px; padding: 0; border: 1px solid #101411; border-radius: 4px; cursor: pointer; }
+.board-card-color-options button[aria-pressed="true"] { outline: 2px solid #e0e8e2; outline-offset: 1px; }
+.board-card-color-options button:hover { transform: scale(1.12); }
+.board-card-color-options .board-card-color-reset { grid-column: 1 / -1; width: auto; height: 23px; border: 1px solid #39443c; background: #202722; color: #d1dad3; font-size: 9px; }
+.board-stack h3 { color: #e8eee9; font-size: 11px; font-weight: 600; line-height: 1.45; }
+.board-stack p { color: #a2ada5; font-size: 10px; line-height: 1.5; }
+.library-workspace .segmented { min-height: 36px; }
+.library-workspace .segmented button { min-height: 34px; padding: 0 10px; font-size: 10px; }
