@@ -4,12 +4,6 @@
 .board-archive-toggle span { padding: 2px 6px; border-radius: 9px; background: #252c27; color: #c4cec7; font-size: 9px; }
 /* Sin caja con scroll propio: el tablero scrollea con la página, como antes */
 .board-lanes-scroll { width: 100%; min-height: 50vh; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #465149 #171c18; }
-.area-selection-surface { position: relative; }
-.area-selection-box { position: fixed; z-index: 10000; box-sizing: border-box; border: 1px solid #d0a64b; border-radius: 3px; background: #d0a64b22; pointer-events: none; }
-body.area-selecting { user-select: none; -webkit-user-select: none; }
-body.area-selecting, body.area-selecting * { cursor: crosshair !important; }
-/* Durante la selección las tarjetas no reaccionan al hover: así no se expanden y sus medidas no cambian a mitad del arrastre */
-body.area-selecting .board-lane-cell article { pointer-events: none; }
 .board-list-view.area-selection-surface { display: block; }
 /* 6 columnas, sin columna lateral de carriles */
 .board-lanes { display: grid; grid-template-columns: repeat(6, minmax(180px, 1fr)); gap: 0 8px; min-width: 1120px; align-items: start; }

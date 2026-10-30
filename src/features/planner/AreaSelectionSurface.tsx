@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import './area-selection.css'
 
 type Point = { x: number; y: number }
 
@@ -65,13 +66,15 @@ function edgeSpeed(position: number, min: number, max: number) {
  * - Esc cancela y devuelve la selección previa.
  * - Hace autoscroll al acercarse a los bordes y mantiene el rectángulo anclado al contenido.
  */
-export function AreaSelectionSurface({ children, selected, setSelected, className = '', startOnItems = false }: {
+export function AreaSelectionSurface({ children, selected, setSelected, className = '', startOnItems = false, disabled = false }: {
   children: ReactNode
   selected: Set<string>
   setSelected(ids: string[]): void
   className?: string
   /** Permite iniciar el arrastre sobre los propios elementos (útil en listas, donde no hay drag & drop). */
   startOnItems?: boolean
+  /** Desactiva la selección (por ejemplo cuando la lista misma depende de la selección). */
+  disabled?: boolean
 }) {
   const surface = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -86,7 +89,7 @@ export function AreaSelectionSurface({ children, selected, setSelected, classNam
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const element = surface.current
-    if (!element || event.button !== 0 || event.pointerType === 'touch') return
+    if (disabled || !element || event.button !== 0 || event.pointerType === 'touch') return
     const target = event.target as HTMLElement
     const startedOnItem = Boolean(target.closest('[data-area-select-id]'))
     if (target.closest(BLOCKING) || (startedOnItem && !startOnItems)) return
