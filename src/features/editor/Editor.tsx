@@ -16,13 +16,14 @@ import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
 import { Preview } from './EditorMediaPreview'
 import './editor.css'
 
-export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; onClose(): void }) {
+export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; onClose(): void }) {
   const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
   const initialDraft = useState<PostInput>(() => {
     if (initial) return { ...initial }
     try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return scheduledAtForNew ? { ...saved, scheduledAt: scheduledAtForNew, status: 'scheduled' } : saved } catch { /* Ignore invalid drafts. */ }
-    return { ...blankPost(activeSpace || 'Mi contenido'), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
+    const project = spaceForNew === undefined ? activeSpace || 'Mi contenido' : spaceForNew || 'Mi contenido'
+    return { ...blankPost(project), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
   })[0]
   const { value: draft, setValue: setDraft, undo, redo, canUndo, canRedo } = useUndoableState<PostInput>(initialDraft)
   const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'assistant' | 'external' | 'catalog'>('content')

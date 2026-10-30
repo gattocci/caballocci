@@ -361,4 +361,23 @@ export const migrations: Migration[] = [
         ON mobile_album_cleanup_events(occurred_at);
     `,
   },
+  {
+    version: 30,
+    name: 'work_groups_belong_to_spaces',
+    up: `
+      ALTER TABLE work_groups ADD COLUMN space TEXT NOT NULL DEFAULT '';
+      UPDATE work_groups
+        SET space = (
+          SELECT MIN(p.project)
+          FROM work_group_posts gp JOIN posts p ON p.id = gp.post_id
+          WHERE gp.group_id = work_groups.id
+        )
+        WHERE (
+          SELECT COUNT(DISTINCT p.project)
+          FROM work_group_posts gp JOIN posts p ON p.id = gp.post_id
+          WHERE gp.group_id = work_groups.id
+        ) = 1;
+      CREATE INDEX IF NOT EXISTS work_groups_space_idx ON work_groups(space, archived_at);
+    `,
+  },
 ]

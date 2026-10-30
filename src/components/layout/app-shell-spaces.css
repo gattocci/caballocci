@@ -21,6 +21,13 @@
   flex: 1;
 }
 
+.space-row.space-drop-target .space {
+  background: #2b3024;
+  color: #fff;
+  outline: 1px solid #d0a64b;
+  outline-offset: -1px;
+}
+
 .space-menu-button {
   width: 30px;
   height: 30px;

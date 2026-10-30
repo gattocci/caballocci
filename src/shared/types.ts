@@ -36,6 +36,8 @@ export interface WorkGroup {
   id: string
   name: string
   description: string
+  /** Espacio propietario; cadena vacía indica una colección general. */
+  space: string
   archivedAt: string | null
   postIds: string[]
   compressedMediaCount: number
@@ -43,7 +45,7 @@ export interface WorkGroup {
   updatedAt: string
 }
 
-export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description'> & { id?: string }
+export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> & { id?: string }
 
 export interface MediaAsset {
   id: string

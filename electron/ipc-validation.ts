@@ -324,6 +324,7 @@ export function validateWorkGroupInput(value: unknown): Record<string, unknown> 
   const validated: Record<string, unknown> = {
     name: text(group.name, 'workGroup.name', 120, false).trim(),
     description: text(group.description ?? '', 'workGroup.description', 2_000).trim(),
+    space: text(group.space ?? '', 'workGroup.space', 200).trim(),
   }
   const id = optionalId(group.id, 'workGroup.id')
   if (id) validated.id = id

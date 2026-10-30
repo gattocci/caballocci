@@ -255,6 +255,7 @@ function mapWorkGroup(row: Record<string, unknown>) {
     id: row.id,
     name: row.name,
     description: row.description,
+    space: row.space || '',
     archivedAt: row.archived_at || null,
     postIds,
     compressedMediaCount,

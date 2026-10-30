@@ -9,12 +9,13 @@ type PendingMediaCompression = { target: 'group' | 'post'; id: string; name: str
 type UseBoardWorkGroupsOptions = {
   allPosts: Post[]
   workGroups: WorkGroup[]
+  activeSpace: string | null
   selectedWorkGroup: WorkGroup | null
   selected: Set<string>
   clear(): void
 }
 
-export function useBoardWorkGroups({ allPosts, workGroups, selectedWorkGroup, selected, clear }: UseBoardWorkGroupsOptions) {
+export function useBoardWorkGroups({ allPosts, workGroups, activeSpace, selectedWorkGroup, selected, clear }: UseBoardWorkGroupsOptions) {
   const saveWorkGroup = usePlanner(state => state.saveWorkGroup)
   const setWorkGroupPosts = usePlanner(state => state.setWorkGroupPosts)
   const setWorkGroupArchived = usePlanner(state => state.setWorkGroupArchived)
@@ -51,10 +52,14 @@ export function useBoardWorkGroups({ allPosts, workGroups, selectedWorkGroup, se
     void runWithErrorReporting(async () => {
       setSavingGroup(true)
       try {
+        const existingGroup = editingGroupId ? workGroups.find(item => item.id === editingGroupId) : null
+        const selectedProjects = new Set([...selected].map(id => allPosts.find(post => post.id === id)?.project).filter((project): project is string => project !== undefined))
+        const groupSpace = existingGroup?.space ?? activeSpace ?? (selectedProjects.size === 1 ? [...selectedProjects][0] : '')
         const group = await saveWorkGroup({
           ...(editingGroupId ? { id: editingGroupId } : {}),
           name: groupName.trim(),
           description: groupDescription.trim(),
+          space: groupSpace,
         })
         if (!editingGroupId && selected.size) await setWorkGroupPosts(group.id, [...selected], { recordHistory: false })
         setActiveWorkGroup(group.id)
@@ -70,7 +75,11 @@ export function useBoardWorkGroups({ allPosts, workGroups, selectedWorkGroup, se
   const updateGroupMembership = (groupId: string, add: boolean) => runWithErrorReporting(async () => {
     const group = workGroups.find(item => item.id === groupId)
     if (!group || group.archivedAt || !selected.size) return
-    const selectedIds = [...selected]
+    const selectedIds = [...selected].filter(id => {
+      if (!add || !group.space) return true
+      return allPosts.find(post => post.id === id)?.project === group.space
+    })
+    if (add && !selectedIds.length) return
     const nextIds = add
       ? [...new Set([...group.postIds, ...selectedIds])]
       : group.postIds.filter(id => !selected.has(id))
