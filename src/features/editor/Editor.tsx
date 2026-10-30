@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
@@ -284,12 +284,11 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
         </details>
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
-      {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}
+      {tab === 'content' && <EditorNotes compact items={noteItems} onChange={updateNotes} />}
       {tab === 'ideas' && <EditorIdeaBlocks blocks={draft.ideaBlocks || []} onChange={(blocks, change) => update('ideaBlocks', blocks, change)} />}
       {tab === 'notes' && <EditorNotes items={noteItems} onChange={updateNotes} />}
       {tab === 'assistant' && <EditorAssistantPanel idea={assistantIdea} onIdeaChange={setAssistantIdea} titles={assistantTitles} onTitlesChange={setAssistantTitles} onSelectTitle={title => update('title', title)} master={assistantMaster} onMasterChange={setAssistantMaster} message={assistantMessage} onApply={applyAssistant} onCopyMark={() => void copyObsidianMark()} />}
       {tab === 'preview' && <Preview draft={draft} onMediaChange={media => update('media', media)} onError={message => reportAppError(message, 'Error en medios')} />}
-      {tab === 'notes' && <label>Notas internas<textarea data-undo-control className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value, { label: 'Editar notas', groupKey: 'post:notes' })} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <EditorExternalRecordPanel record={externalRecord} />}
       {tab === 'catalog' && <EditorCatalogPanel categoryId={catalogCategoryId} onCategoryIdChange={setCatalogCategoryId} summary={catalogSummary} onSummaryChange={setCatalogSummary} content={catalogContent} onContentChange={setCatalogContent} useHashtags={catalogUseHashtags} onUseHashtagsChange={setCatalogUseHashtags} sync={catalogSync} endpoint={catalogEndpoint} onEndpointChange={setCatalogEndpoint} createdBy={catalogCreatedBy} onCreatedByChange={setCatalogCreatedBy} token={catalogToken} onTokenChange={setCatalogToken} configured={catalogConfig.configured} kind={catalogKind} onKindChange={setCatalogKind} busy={catalogBusy} message={catalogMessage} onSaveConfig={() => void saveCatalog()} onSync={dryRun => void syncCatalog(dryRun)} preview={catalogPreview} />}
     </div>
