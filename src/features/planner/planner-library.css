@@ -11,3 +11,13 @@
 .empty-library { margin: 72px auto; padding: 28px; border: 1px dashed #3a463e; border-radius: 10px; background: #131815; }
 .empty-library > div { border-radius: 12px; color: #d0a64b; background: #27251e; }
 .empty-library p { max-width: 380px; margin-inline: auto; }
+.library-skeleton article { min-width: 0; padding: 12px; border: 1px solid #29322c; border-radius: 8px; background: #151a17; }
+.library-skeleton .asset-preview, .library-skeleton span, .library-skeleton strong, .library-skeleton small, .library-skeleton i { display: block; border: 0; border-radius: 4px; background: linear-gradient(100deg, #202722 25%, #2a332d 42%, #202722 60%); background-size: 200% 100%; animation: library-skeleton-shimmer 1.5s ease-in-out infinite; }
+.library-skeleton .asset-preview { min-height: 118px; margin: -2px -2px 14px; }
+.library-skeleton span { width: 32%; height: 9px; margin: 0 0 9px; }
+.library-skeleton strong { width: 72%; height: 12px; margin-bottom: 10px; }
+.library-skeleton small { width: 50%; height: 9px; margin-bottom: 18px; }
+.library-skeleton i { width: 42%; height: 28px; }
+.library-load-error > div { color: #ff9b86; }
+@keyframes library-skeleton-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .library-skeleton .asset-preview, .library-skeleton span, .library-skeleton strong, .library-skeleton small, .library-skeleton i { animation: none; } }
