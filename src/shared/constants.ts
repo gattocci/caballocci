@@ -1,12 +1,12 @@
 import type { ContentType, Platform, PostStatus } from './types'
 
 export const statusMeta: Record<PostStatus, { label: string; color: string }> = {
-  idea: { label: 'Pendiente', color: '#9978d5' },
-  draft: { label: 'Borradores', color: '#5f88d8' },
+  idea: { label: 'Pendiente', color: '#858d87' },
+  draft: { label: 'Borradores', color: '#59a9e8' },
   review: { label: 'En revisión', color: '#d5a03c' },
-  approved: { label: 'Aprobado', color: '#3f9f7a' },
+  approved: { label: 'Aprobado', color: '#8fbf4a' },
   scheduled: { label: 'Programado', color: '#e76042' },
-  published: { label: 'Publicado', color: '#2f9563' },
+  published: { label: 'Publicado', color: '#1f7a52' },
   archived: { label: 'Archivado', color: '#737d77' },
 }
 
