@@ -6,7 +6,7 @@ export type ContentType = 'reel' | 'carousel' | 'story' | 'post' | 'thread'
 export type IdeaStatus = 'inbox' | 'developing' | 'ready' | 'converted' | 'archived'
 export type IdeaPriority = 'low' | 'normal' | 'high'
 export type ConceptNodeKind = 'idea' | 'post' | 'resource'
-export type ConceptRelation = 'references' | 'depends_on' | 'related'
+export type ConceptRelation = 'references' | 'depends_on' | 'related' | 'develops' | 'example_of' | 'requires' | 'contradicts'
 
 export interface Post {
   id: string
@@ -190,7 +190,7 @@ export interface ConceptMapLink {
   id: string
   fromNodeId: string
   toNodeId: string
-  relation: ConceptRelation
+  relation: ConceptRelation | null
   createdAt: string
 }
 

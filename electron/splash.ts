@@ -70,6 +70,9 @@ function createSplash(showTip: boolean) {
     },
   })
 
+  // Variante de la tarjeta viajera, al azar en cada arranque (A = recorrido original, B = pasa por "En revisión").
+  const heroB = Math.random() < 0.5
+
   // CSS puro (sin scripts): el CSP sigue cerrado.
   // Una publicación viaja por el flujo real del Tablero: Borradores → Aprobado → Programado → Publicado.
   const html = `<!doctype html>
@@ -110,6 +113,7 @@ function createSplash(showTip: boolean) {
 
     .hero { position: absolute; top: 24px; left: 0; width: calc((100% - 30px) / 6); z-index: 2; opacity: 0; outline: 1px solid #d0a64b;
       animation: journey 5.6s cubic-bezier(.5, 0, .2, 1) 1s infinite; }
+    .hero-b { animation: journeyB 6.4s cubic-bezier(.5, 0, .2, 1) 1s infinite; }
     .hero::before { content: ''; position: absolute; left: 10px; top: 8px; width: 9px; height: 9px; border-radius: 2px; background: #d94b73; }
 
     /* Estado + consejo */
@@ -144,6 +148,17 @@ function createSplash(showTip: boolean) {
       80%, 92% { opacity: 1; transform: translateX(calc(400% + 24px)) scale(1); box-shadow: none; }
       100% { opacity: 0; transform: translateX(calc(400% + 24px)) scale(1); box-shadow: none; }
     }
+    /* Variante B: Borradores → la ranura vacía de En revisión → Programado → Publicado, levantando la tarjeta al moverla. */
+    @keyframes journeyB {
+      0%   { opacity: 0; transform: translateX(calc(100% + 6px)) translateY(-8px) rotate(0) scale(.92); box-shadow: none; }
+      8%, 18% { opacity: 1; transform: translateX(calc(100% + 6px)) translateY(0) rotate(0) scale(1); box-shadow: 0 6px 18px #0008; }
+      28% { opacity: 1; transform: translateX(calc(150% + 9px)) translateY(-6px) rotate(-3deg) scale(1.05); box-shadow: 0 10px 22px #000a; }
+      38%, 54% { opacity: 1; transform: translateX(calc(200% + 12px)) translateY(0) rotate(0) scale(1); box-shadow: 0 6px 18px #0008; }
+      66% { opacity: 1; transform: translateX(calc(350% + 21px)) translateY(-6px) rotate(2deg) scale(1.05); box-shadow: 0 10px 22px #000a; }
+      76% { opacity: 1; transform: translateX(calc(500% + 30px)) translateY(0) rotate(0) scale(1.05); box-shadow: 0 6px 18px #0008; }
+      84%, 92% { opacity: 1; transform: translateX(calc(500% + 30px)) translateY(0) rotate(0) scale(1); box-shadow: none; }
+      100% { opacity: 0; transform: translateX(calc(500% + 30px)) translateY(0) rotate(0) scale(1); box-shadow: none; }
+    }
     @media (prefers-reduced-motion: reduce) {
       * { animation: none !important; }
       .card, .slot, .tip-wrap { opacity: 1; }
@@ -157,7 +172,7 @@ function createSplash(showTip: boolean) {
   <main aria-label="Iniciando caballocci">
     <div class="brand"><div class="mark" aria-hidden="true"><i></i><i></i><i></i></div><h1>caballocci</h1></div>
     <div class="board" aria-hidden="true">
-      <div class="cols">${boardHtml()}<div class="hero" style="--post-color:#5e9ed2"></div></div>
+      <div class="cols">${boardHtml()}<div class="hero${heroB ? ' hero-b' : ''}" style="--post-color:${heroB ? '#8a83d6' : '#5e9ed2'}"></div></div>
     </div>
     ${showTip ? `<section class="tip-wrap" aria-label="Consejo de caballocci"><p class="tip-label">Consejo</p><p class="tip">${startupTips[Math.floor(Math.random() * startupTips.length)]}</p></section>` : ''}
     <div class="progress">

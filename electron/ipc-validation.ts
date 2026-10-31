@@ -6,7 +6,7 @@ const ideaPriorities = ['low', 'normal', 'high'] as const
 const mediaKinds = ['image', 'video', 'document'] as const
 const mediaModes = ['copy', 'reference'] as const
 const conceptNodeKinds = ['idea', 'post', 'resource'] as const
-const conceptRelations = ['references', 'depends_on', 'related'] as const
+const conceptRelations = ['references', 'depends_on', 'related', 'develops', 'example_of', 'requires', 'contradicts'] as const
 const sourceMethods = ['GET', 'POST'] as const
 const sourceFormats = ['json', 'ndjson', 'csv'] as const
 const sourceAuthTypes = ['none', 'apiKey', 'bearer', 'basic'] as const
@@ -388,7 +388,7 @@ export function validateConceptLinkInput(value: unknown): Record<string, unknown
   const validated: Record<string, unknown> = {
     fromNodeId,
     toNodeId,
-    relation: enumValue(link.relation, 'conceptMap.link.relation', conceptRelations),
+    relation: link.relation === null || link.relation === undefined ? null : enumValue(link.relation, 'conceptMap.link.relation', conceptRelations),
   }
   const id = optionalId(link.id, 'conceptMap.link.id')
   if (id) validated.id = id

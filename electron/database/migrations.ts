@@ -380,4 +380,20 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS work_groups_space_idx ON work_groups(space, archived_at);
     `,
   },
+  {
+    version: 31,
+    name: 'optional_concept_link_relations',
+    up: `
+      ALTER TABLE concept_map_links RENAME TO concept_map_links_v1;
+      CREATE TABLE concept_map_links (
+        id TEXT PRIMARY KEY, from_node_id TEXT NOT NULL, to_node_id TEXT NOT NULL,
+        relation TEXT, created_at TEXT NOT NULL
+      );
+      INSERT INTO concept_map_links (id,from_node_id,to_node_id,relation,created_at)
+        SELECT id,from_node_id,to_node_id,relation,created_at FROM concept_map_links_v1;
+      DROP TABLE concept_map_links_v1;
+      CREATE INDEX concept_map_links_from_idx ON concept_map_links(from_node_id);
+      CREATE INDEX concept_map_links_to_idx ON concept_map_links(to_node_id);
+    `,
+  },
 ]
