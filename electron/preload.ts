@@ -149,4 +149,11 @@ contextBridge.exposeInMainWorld('planner', {
       return () => ipcRenderer.removeListener('updates:state', handler)
     },
   },
+  lifecycle: {
+    onCloseWarning: (listener: () => void) => {
+      const handler = () => listener()
+      ipcRenderer.on('app:close-warning', handler)
+      return () => ipcRenderer.removeListener('app:close-warning', handler)
+    },
+  },
 })

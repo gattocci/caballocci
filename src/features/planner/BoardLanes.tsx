@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { BoardCardColorPicker, MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { ArrowDown, ArrowUp, CalendarDays, ChevronDown, ChevronRight, FileText, Film, FolderOpen, FolderPlus, Images, Layers3 } from 'lucide-react'
+import { ArrowDown, ArrowUp, CalendarDays, ChevronDown, ChevronRight, ClipboardCopy, Copy, FileText, Film, FolderOpen, FolderPlus, Images, Layers3, MoreHorizontal, Trash2 } from 'lucide-react'
 import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { postColors } from '../../shared/postColors'
+import { runWithErrorReporting } from '../../app/errors'
 import { PlatformMark } from '../../components/layout/AppShell'
 import type { Post, WorkGroup } from '../../shared/types'
 
@@ -35,15 +37,20 @@ function setCardDragImage(event: React.DragEvent<HTMLElement>, count: number) {
   setTimeout(() => ghost.remove(), 0)
 }
 
-export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus }: {
+export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus }: {
   lanes: BoardLane[]; posts: Post[]; activeGroups: WorkGroup[]; selected: Set<string>; collapsedLanes: Set<string>
   toggleLane(id: string): void; reorderLane(id: string, delta: number): void; visiblePerColumn: number
   mobilePublicationState: MobilePublicationState | null; boardCardDetailLevel: BoardCardDetailLevel
   dragIds: React.MutableRefObject<string[]>
   onToggle(id: string, range?: boolean, order?: string[]): void; onSelect(id: string | null): void
   onColor(post: Post, color: string): void; onMove(status: Post['status']): void; onSelectStatus(ids: string[]): void
+  onDuplicate(post: Post): Promise<Post | undefined>; onDelete(post: Post): void; onStatus(post: Post, status: Post['status']): void
 }) {
+  const [context, setContext] = useState<{ post: Post; x: number; y: number } | null>(null)
+  const [showStatuses, setShowStatuses] = useState(false)
   const [openCells, setOpenCells] = useState<Set<string>>(new Set())
+  const [duplicatedPostId, setDuplicatedPostId] = useState<string | null>(null)
+  const duplicateFeedbackTimer = useRef<number | null>(null)
   // Feedback del drag & drop: tarjetas que se están moviendo y destino bajo el cursor.
   const [dragging, setDragging] = useState<Set<string>>(new Set())
   const [dropTarget, setDropTarget] = useState<{ key: string; status: Post['status'] } | null>(null)
@@ -64,6 +71,34 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
     return () => { window.removeEventListener('dragend', resetDrag); window.removeEventListener('drop', resetDrag) }
   }, [resetDrag])
 
+  useEffect(() => {
+    if (!context) return
+    const dismiss = () => { setContext(null); setShowStatuses(false) }
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', onKeyDown)
+    return () => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', onKeyDown) }
+  }, [context])
+
+  useEffect(() => () => {
+    if (duplicateFeedbackTimer.current !== null) window.clearTimeout(duplicateFeedbackTimer.current)
+  }, [])
+
+  const duplicatePost = async (post: Post) => {
+    const duplicate = await onDuplicate(post)
+    if (!duplicate) return
+    setDuplicatedPostId(duplicate.id)
+    if (duplicateFeedbackTimer.current !== null) window.clearTimeout(duplicateFeedbackTimer.current)
+    duplicateFeedbackTimer.current = window.setTimeout(() => setDuplicatedPostId(null), 2500)
+  }
+
+  const openContextMenu = (event: React.MouseEvent<HTMLElement>, post: Post) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setShowStatuses(false)
+    setContext({ post, x: Math.min(event.clientX, window.innerWidth - 224), y: Math.min(event.clientY, window.innerHeight - 280) })
+  }
+
   const startDrag = (event: React.DragEvent<HTMLElement>, post: Post) => {
     const ids = selected.has(post.id) ? [...selected] : [post.id]
     dragIds.current = ids
@@ -75,7 +110,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
     requestAnimationFrame(() => setDragging(new Set(ids)))
   }
 
-  return <div className={`board-lanes${selected.size ? ' selection-active' : ''}${dragging.size ? ' is-dragging-cards' : ''}`} role="grid" aria-label="Tablero Kanban por etapas">
+  return <><div className={`board-lanes${selected.size ? ' selection-active' : ''}${dragging.size ? ' is-dragging-cards' : ''}`} role="grid" aria-label="Tablero Kanban por etapas">
     {stages.map(status => {
       const ids = statusIds.get(status) || []
       const selectedCount = ids.filter(id => selected.has(id)).length
@@ -132,7 +167,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
               const otherMemberships = activeGroups.filter(group => group.id !== lane.group?.id && group.postIds.includes(post.id)).map(group => group.name)
               const overdue = (post.status === 'idea' || post.status === 'draft') && post.scheduledAt && parseISO(post.scheduledAt).getTime() < Date.now()
               const ContentIcon = post.contentType === 'reel' ? Film : post.contentType === 'carousel' ? Images : FileText
-              const cardClass = `board-card${selected.has(post.id) ? ' selected' : ''}${post.color !== postColors[0].value ? ' has-custom-color' : ''}${dragging.has(post.id) ? ' is-dragging' : ''}`
+              const cardClass = `board-card${selected.has(post.id) ? ' selected' : ''}${post.color !== postColors[0].value ? ' has-custom-color' : ''}${dragging.has(post.id) ? ' is-dragging' : ''}${duplicatedPostId === post.id ? ' just-duplicated' : ''}`
               return <div className="board-card-slot" key={post.id}>
                 <article
                   data-area-select-id={post.id}
@@ -142,6 +177,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
                   draggable
                   onDragStart={event => startDrag(event, post)}
                   onDragEnd={() => { dragIds.current = []; resetDrag() }}
+                  onContextMenu={event => openContextMenu(event, post)}
                   onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) onToggle(post.id, event.shiftKey, order); else onSelect(post.id) }}
                 >
                   <div className="board-card-top">
@@ -170,4 +206,12 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
       </div>
     })}
   </div>
+  {context ? createPortal(<div className="board-context-menu" role="menu" aria-label={`Acciones para ${context.post.title || 'publicación'}`} style={{ left: Math.max(8, context.x), top: Math.max(8, context.y) }} onPointerDown={event => event.stopPropagation()}>
+    <button type="button" role="menuitem" onClick={() => { onSelect(context.post.id); setContext(null) }}>Abrir / editar publicación</button>
+    <button type="button" role="menuitem" onClick={() => { void duplicatePost(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
+    <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
+    <button type="button" role="menuitem" disabled={!context.post.caption.trim()} onClick={() => { void runWithErrorReporting(() => window.planner.clipboard.write(context.post.caption), 'No se pudo copiar el texto'); setContext(null) }}><ClipboardCopy size={14} />Copiar texto</button>
+    <button type="button" role="menuitem" aria-expanded={showStatuses} onClick={() => setShowStatuses(value => !value)}><MoreHorizontal size={14} />Cambiar etapa…</button>
+    {showStatuses && <div className="board-context-statuses" role="group" aria-label="Cambiar etapa">{stages.filter(status => status !== context.post.status && (status !== 'scheduled' || Boolean(context.post.scheduledAt))).map(status => <button type="button" key={status} onClick={() => { onStatus(context.post, status); setContext(null); setShowStatuses(false) }}>{statusMeta[status].label}</button>)}</div>}
+  </div>, document.body) : null}</>
 }

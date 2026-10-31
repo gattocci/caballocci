@@ -409,6 +409,9 @@ export interface ElectronAPI {
     openReleaseNotes(): Promise<void>
     onStateChange(listener: (state: UpdateState) => void): () => void
   }
+  lifecycle: {
+    onCloseWarning(listener: () => void): () => void
+  }
 }
 
 export interface CatalogSync { postId: string; source: string; externalId: string; kind: string; remoteId: string | null; publicUrl: string | null; action: string; error: string | null; requestUrl: string; responseStatus: number | null; responseHeaders: Record<string, string>; responseBody: string; updatedAt: string }

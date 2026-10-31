@@ -24,7 +24,7 @@ import { AreaSelectionSurface } from './AreaSelectionSurface'
 
 
 export function Board() {
-  const { posts: allPosts, workGroups, move, select, save, activeSpace, activeWorkGroupId: selectedWorkGroupId, setActiveWorkGroup, query, setQuery } = usePlanner()
+  const { posts: allPosts, workGroups, move, select, save, remove, activeSpace, activeWorkGroupId: selectedWorkGroupId, setActiveWorkGroup, query, setQuery } = usePlanner()
   const [visiblePerColumn, setVisiblePerColumn] = useState(30)
   const [boardMode, setBoardMode] = useState<'kanban' | 'list' | 'calendar'>(() => {
     try { return (localStorage.getItem('caballocci.board-view.all') as 'kanban' | 'list' | 'calendar') || 'kanban' } catch { return 'kanban' }
@@ -61,6 +61,16 @@ export function Board() {
       if (target) await save({ ...target, color })
     }
   }, 'No se pudo cambiar el color de las tarjetas')
+  const duplicateBoardPost = (post: Post) => runWithErrorReporting(() => save({
+    ...post,
+    id: undefined,
+    title: `${post.title.trim() || 'Publicación'} (copia)`,
+    distribution: (post.distribution || []).map(target => ({ ...target, status: target.status === 'not_applicable' ? 'not_applicable' as const : 'pending' as const })),
+  }), 'No se pudo duplicar la publicación')
+  const deleteBoardPost = (post: Post) => runWithErrorReporting(async () => {
+    if (window.confirm(`¿Eliminar “${post.title || 'Publicación sin título'}”? Esta acción no se puede deshacer.`)) await remove(post.id)
+  }, 'No se pudo eliminar la publicación')
+  const changeBoardPostStatus = (post: Post, status: Post['status']) => runWithErrorReporting(() => save({ ...post, status }), 'No se pudo cambiar la etapa')
   const scopedWorkGroups = activeSpace ? workGroups.filter(group => group.space === activeSpace) : workGroups
   const selectedWorkGroup = scopedWorkGroups.find(group => group.id === selectedWorkGroupId) || null
   const workGroupControls = useBoardWorkGroups({ allPosts, workGroups: scopedWorkGroups, activeSpace, selectedWorkGroup, selected, clear })
@@ -146,6 +156,8 @@ export function Board() {
       setListPage={setListPage}
       listPageCount={listPageCount}
       setSelected={boardSelection.set}
+      onDuplicate={duplicateBoardPost}
+      onDelete={deleteBoardPost}
     />}
     {boardMode === 'calendar' && <BoardCalendarView posts={posts} select={select} onScheduleDrop={scheduleDroppedPost} />}
     <BoardWorkGroupDialogs selectedCount={selected.size} allPosts={allPosts} groupFormOpen={groupFormOpen} setGroupFormOpen={setGroupFormOpen} editingGroupId={editingGroupId} groupName={groupName} setGroupName={setGroupName} groupDescription={groupDescription} setGroupDescription={setGroupDescription} savingGroup={savingGroup} submitGroupForm={submitGroupForm} pendingGroupAction={pendingGroupAction} setPendingGroupAction={setPendingGroupAction} groupDeleteMode={groupDeleteMode} setGroupDeleteMode={setGroupDeleteMode} groupPostsToDelete={groupPostsToDelete} setGroupPostsToDelete={setGroupPostsToDelete} workingOnGroup={workingOnGroup} confirmGroupAction={confirmGroupAction} pendingMediaCompression={pendingMediaCompression} setPendingMediaCompression={setPendingMediaCompression} confirmMediaCompression={confirmMediaCompression} />
@@ -153,7 +165,7 @@ export function Board() {
     {mobileExportMessage && <div className="work-group-export-message" role="status"><p>{mobileExportMessage}</p>{mobileExportSkipped.map((item, index) => <p key={`${index}-${item}`}>Omitida: {item}</p>)}</div>}
     <BoardArchivedMedia archivedPosts={archivedPosts} compressedPosts={compressedPosts} showArchivedPosts={showArchivedPosts} showCompressedPosts={showCompressedPosts} setShowCompressedPosts={setShowCompressedPosts} select={select} setPendingMediaCompression={setPendingMediaCompression} restorePostMedia={restorePostMedia} />
     {!visibleBoardPosts.length && <div className="planner-empty-inline board-empty" role="status"><strong>{selectedWorkGroup && !posts.length ? 'Esta colección todavía no tiene publicaciones visibles' : query.trim() && posts.length === 0 ? 'No hay publicaciones que coincidan con la búsqueda' : archivedCount ? 'Todas las publicaciones de este espacio están archivadas' : scopedWorkGroups.some(group => !group.archivedAt && group.postIds.some(id => posts.some(post => post.id === id))) ? 'No hay publicaciones sin colección' : 'Este espacio aún no tiene publicaciones'}</strong><span>{selectedWorkGroup && !posts.length ? 'Selecciona publicaciones del tablero y añádelas a esta colección.' : query.trim() && posts.length === 0 ? 'Limpia la búsqueda para volver a ver el tablero.' : scopedWorkGroups.some(group => !group.archivedAt && group.postIds.some(id => posts.some(post => post.id === id))) ? 'Las publicaciones que pertenecen a colecciones aparecen al entrar en ellas.' : 'Crea una publicación o convierte una idea para empezar.'}</span>{query.trim() && posts.length === 0 && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
-    {boardMode === 'kanban' && <AreaSelectionSurface className="board-lanes-scroll" selected={selected} setSelected={boardSelection.set}><BoardLanes lanes={boardLanes} posts={visibleBoardPosts} activeGroups={activeGroups} selected={selected} collapsedLanes={collapsedLanes} toggleLane={toggleLane} reorderLane={reorderLane} visiblePerColumn={visiblePerColumn} mobilePublicationState={mobilePublicationState} boardCardDetailLevel={boardCardDetailLevel} dragIds={dragIds} onToggle={toggle} onSelect={select} onColor={changePostCardColor} onMove={moveDragged} onSelectStatus={toggleStatusSelection} /></AreaSelectionSurface>}
+    {boardMode === 'kanban' && <AreaSelectionSurface className="board-lanes-scroll" selected={selected} setSelected={boardSelection.set}><BoardLanes lanes={boardLanes} posts={visibleBoardPosts} activeGroups={activeGroups} selected={selected} collapsedLanes={collapsedLanes} toggleLane={toggleLane} reorderLane={reorderLane} visiblePerColumn={visiblePerColumn} mobilePublicationState={mobilePublicationState} boardCardDetailLevel={boardCardDetailLevel} dragIds={dragIds} onToggle={toggle} onSelect={select} onColor={changePostCardColor} onMove={moveDragged} onSelectStatus={toggleStatusSelection} onDuplicate={duplicateBoardPost} onDelete={deleteBoardPost} onStatus={changeBoardPostStatus} /></AreaSelectionSurface>}
   </section>
 }
 

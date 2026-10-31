@@ -45,6 +45,14 @@
 .board-card-slot { position: relative; height: 124px; min-width: 0; }
 .board-lane-cell article { position: absolute; top: 0; right: 0; left: 0; z-index: 0; display: flex; flex-direction: column; min-width: 0; height: 124px; box-sizing: border-box; padding: 9px 10px; border: 1px solid #2d3730; border-radius: 6px; background: #171d19; container-type: inline-size; cursor: grab; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
 .board-lane-cell article.selected { border-color: #d0a64b; box-shadow: inset 0 0 0 1px #d0a64b; }
+.board-lane-cell article.just-duplicated { animation: board-duplicate-feedback 2.5s ease-out forwards; }
+@keyframes board-duplicate-feedback {
+  0%, 78% { outline: 2px solid #d0a64b; outline-offset: 2px; box-shadow: 0 0 0 3px #d0a64b35; }
+  100% { outline-color: transparent; outline-offset: 4px; box-shadow: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-lane-cell article.just-duplicated { animation: none; outline: 2px solid #d0a64b; outline-offset: 2px; }
+}
 .board-lane-cell article.has-custom-color { background: color-mix(in srgb, var(--post-color) 13%, #171d19); }
 .board-lane-pips .status-mark { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
 .board-lane-pips .status-mark.draft { border-radius: 1px; }

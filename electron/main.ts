@@ -17,6 +17,9 @@ import { UpdateManager } from './updater'
 import { createSplashWindow } from './splash'
 
 let mainWindow: BrowserWindow | null = null
+let allowMainWindowClose = false
+let lastCloseRequestAt = 0
+let closeRequestTimer: NodeJS.Timeout | undefined
 let splashWindow: BrowserWindow | null = null
 let splashShownAt = 0
 let splashReady = false
@@ -358,6 +361,21 @@ async function createWindow() {
       allowRunningInsecureContent: false,
     },
   })
+  mainWindow.on('close', event => {
+    if (allowMainWindowClose) return
+    const now = Date.now()
+    if (now - lastCloseRequestAt <= 2_000) {
+      allowMainWindowClose = true
+      clearTimeout(closeRequestTimer)
+      closeRequestTimer = undefined
+      return
+    }
+    event.preventDefault()
+    lastCloseRequestAt = now
+    mainWindow?.webContents.send('app:close-warning')
+    clearTimeout(closeRequestTimer)
+    closeRequestTimer = setTimeout(() => { lastCloseRequestAt = 0; closeRequestTimer = undefined }, 2_000)
+  })
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   const preventUntrustedNavigation = (event: Electron.Event, targetUrl: string) => {
     if (!isTrustedRendererUrl(targetUrl)) event.preventDefault()
@@ -506,7 +524,11 @@ app.whenReady().then(async () => {
   handle('updates:get-state', withoutArguments(() => updater.getState()))
   handle('updates:check', withoutArguments(() => updater.check()))
   handle('updates:download', withoutArguments(() => updater.download()))
-  handle('updates:install', withoutArguments(() => updater.install()))
+  handle('updates:install', withoutArguments(async () => {
+    const started = await updater.install()
+    if (started) allowMainWindowClose = true
+    return started
+  }))
   handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))
   registerMobileSyncIpcHandlers({ database, getMainWindow: () => mainWindow, mobileSync, handle, withoutArguments })
   registerMediaIpcHandlers({ database, dataDirectory, getMainWindow: () => mainWindow, handle, withoutArguments, ensurePostMediaFolder, mapPost })
