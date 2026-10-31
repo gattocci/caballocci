@@ -14,7 +14,7 @@ import { registerConceptMapIpcHandlers } from './concept-map-ipc-handlers'
 import { registerPostsIpcHandlers } from './posts-ipc-handlers'
 import { validateArgumentCount, validateClipboardText, validateId, validateNoArguments } from './ipc-validation'
 import { UpdateManager } from './updater'
-import { createSplashWindow } from './splash'
+import { createStartupSplashWindow } from './splash'
 
 let mainWindow: BrowserWindow | null = null
 let allowMainWindowClose = false
@@ -388,7 +388,7 @@ async function createWindow() {
   else await mainWindow.loadFile(rendererFilePath)
   mainWindow.once('ready-to-show', () => {
     void (async () => {
-      const minimumSplashDurationMs = 1_800
+      const minimumSplashDurationMs = 4_500
       const remainingMs = Math.max(0, minimumSplashDurationMs - (Date.now() - splashShownAt))
       if (remainingMs > 0) await new Promise(resolve => setTimeout(resolve, remainingMs))
       if (!mainWindow || mainWindow.isDestroyed()) return
@@ -415,7 +415,7 @@ if (!hasSingleInstanceLock) {
 
 app.whenReady().then(async () => {
   splashShownAt = Date.now()
-  splashWindow = createSplashWindow()
+  splashWindow = createStartupSplashWindow()
   splashWindow.webContents.once('did-finish-load', () => {
     splashReady = true
     setSplashStatus(splashStatus)
