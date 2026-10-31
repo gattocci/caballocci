@@ -27,6 +27,7 @@ type BoardListViewProps = {
   setSelected(ids: string[]): void
   onDuplicate(post: Post): Promise<Post | undefined>
   onDelete(post: Post): void
+  onEditSelection(): void
 }
 
 export function BoardListView({
@@ -46,6 +47,7 @@ export function BoardListView({
   setSelected,
   onDuplicate,
   onDelete,
+  onEditSelection,
 }: BoardListViewProps) {
   const [context, setContext] = useState<{ post: Post; x: number; y: number } | null>(null)
   useEffect(() => {
@@ -85,7 +87,9 @@ export function BoardListView({
       <div className="board-list-pagination"><span>{listPosts.length} publicaciones · página {listPage + 1} de {listPageCount}</span><div><button type="button" className="settings-button" disabled={listPage === 0} onClick={() => setListPage(current => current - 1)}>Anterior</button><button type="button" className="settings-button" disabled={listPage + 1 >= listPageCount} onClick={() => setListPage(current => current + 1)}>Siguiente</button></div></div>
     </>}
     {context ? createPortal(<div className="board-context-menu" role="menu" aria-label={`Acciones para ${context.post.title || 'publicación'}`} style={{ left: Math.max(8, context.x), top: Math.max(8, context.y) }} onPointerDown={event => event.stopPropagation()}>
-      <button type="button" role="menuitem" onClick={() => { select(context.post.id); setContext(null) }}>Abrir / editar publicación</button>
+      {selected.size > 1 && selected.has(context.post.id) && <div className="board-context-selection-note">{selected.size} publicaciones seleccionadas</div>}
+      <button type="button" role="menuitem" onClick={() => { select(context.post.id); setContext(null) }}>{selected.size > 1 && selected.has(context.post.id) ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
+      {selected.size > 1 && selected.has(context.post.id) && <button type="button" role="menuitem" onClick={() => { onEditSelection(); setContext(null) }}>Editar selección en pestañas</button>}
       <button type="button" role="menuitem" onClick={() => { void onDuplicate(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
       <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
     </div>, document.body) : null}

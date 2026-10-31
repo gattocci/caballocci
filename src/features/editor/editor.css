@@ -2,4 +2,39 @@
 @import './editor-writing.css';
 @import './editor-fields.css';
 @import './editor-preview.css';
+.editor-session-tabs { position:relative; display:flex; align-items:center; gap:7px; min-width:0; padding:0 24px 9px; border-bottom:1px solid var(--line); }
+.editor-session-tablist { display:flex; flex:1; align-items:center; gap:4px; min-width:0; overflow-x:auto; scrollbar-width:thin; }
+.editor-session-count { display:grid; flex:none; width:22px; height:22px; place-items:center; border:1px solid #3b463e; border-radius:6px; background:#1b211d; color:#aab7ad; font:9px 'DM Mono',monospace; }
+.editor-session-tab { display:flex; align-items:center; flex:none; max-width:190px; height:32px; border:1px solid transparent; border-radius:5px; background:transparent; }
+.editor-session-tab > button:first-child { display:flex; align-items:center; gap:7px; min-width:0; height:30px; flex:1; padding:0 3px 0 9px; border:0; background:transparent; color:#8f9992; text-align:left; font-size:9px; cursor:pointer; }
+.editor-session-tab > button:first-child small { flex:none; color:#758078; font:8px 'DM Mono',monospace; }
+.editor-session-tab > button:first-child span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.editor-session-tab:hover { background:#1b211d; }
+.editor-session-tab.active { border-color:#625638; background:#28251d; }
+.editor-session-tab.active > button:first-child { color:#f1e5c5; }
+.editor-session-tab.active > button:first-child small { color:#d0a64b; }
+.editor-session-tab button:disabled { opacity:.55; cursor:wait; }
+.editor-session-close { display:grid; flex:none; width:25px; height:28px; place-items:center; padding:0; border:0; border-radius:4px; background:transparent; color:#7e8981; cursor:pointer; }
+.editor-session-close:hover:not(:disabled) { background:#49302b; color:#f2a08e; }
+.editor-session-add { position:relative; flex:none; }
+.editor-session-add-trigger { display:grid; width:29px; height:29px; place-items:center; border:1px dashed #465148; border-radius:5px; background:#191f1b; color:#b4c0b7; cursor:pointer; }
+.editor-session-add-trigger:hover:not(:disabled),.editor-session-add-trigger[aria-expanded="true"] { border-color:#927b48; background:#29251c; color:#efd68f; }
+.editor-session-add-trigger:disabled { opacity:.5; cursor:wait; }
+.editor-session-add-menu { position:absolute; top:calc(100% + 8px); right:-8px; z-index:20; display:grid; gap:7px; width:min(310px, calc(100vw - 32px)); padding:10px; border:1px solid #46534a; border-radius:6px; background:#171c19; box-shadow:0 12px 30px #000a; }
+.editor-session-add-modes { display:flex; gap:4px; padding-bottom:7px; border-bottom:1px solid #303a33; }
+.editor-session-add-modes button { flex:1; min-height:28px; padding:0 8px; border:1px solid transparent; border-radius:4px; background:transparent; color:#8c9890; font-size:9px; cursor:pointer; }
+.editor-session-add-modes button:hover { background:#202722; color:#dbe3dd; }
+.editor-session-add-modes button.active { border-color:#4a594d; background:#273129; color:#d7ead8; }
+.editor-session-add-menu label { display:grid; gap:6px; color:#9da69f; font-size:9px; font-weight:700; text-transform:uppercase; }
+.editor-session-add-menu input { height:33px; padding:0 9px; border:1px solid #353f38; border-radius:4px; background:#101512; color:#e6ebe8; font-size:10px; text-transform:none; }
+.editor-session-add-menu [role="listbox"] { display:grid; gap:2px; max-height:240px; overflow:auto; }
+.editor-session-add-menu [role="option"] { display:grid; gap:3px; min-width:0; padding:7px 8px; border:0; border-radius:4px; background:transparent; color:#dbe2dd; text-align:left; cursor:pointer; }
+.editor-session-add-menu [role="option"]:hover { background:#28332b; }
+.editor-session-add-menu [role="option"] span { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.editor-session-add-menu [role="option"] small { color:#8a968e; font-size:8px; }
+.editor-session-project-group { display:grid; gap:2px; padding-top:5px; }
+.editor-session-project-group + .editor-session-project-group { margin-top:5px; border-top:1px solid #303a33; }
+.editor-session-project-group > strong { padding:4px 8px; color:#91a18f; font-size:8px; font-weight:750; letter-spacing:.6px; text-transform:uppercase; }
+.editor-session-add-menu p { margin:0; padding:8px; color:#89958d; font-size:9px; }
+.editor-session-feedback { flex:none; color:#9ec9a9; font-size:8px; white-space:nowrap; }
 .editor-save-status { align-self:center; padding:0 8px; color:var(--muted,#8b938c); font-size:11px; white-space:nowrap; }.editor-save-pending,.editor-save-saving { color:#d6b967; }.editor-save-error { color:#e58b7d; }.notes-tab-hidden { display:none !important; }

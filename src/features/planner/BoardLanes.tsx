@@ -37,7 +37,7 @@ function setCardDragImage(event: React.DragEvent<HTMLElement>, count: number) {
   setTimeout(() => ghost.remove(), 0)
 }
 
-export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus }: {
+export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus, onEditSelection }: {
   lanes: BoardLane[]; posts: Post[]; activeGroups: WorkGroup[]; selected: Set<string>; collapsedLanes: Set<string>
   toggleLane(id: string): void; reorderLane(id: string, delta: number): void; visiblePerColumn: number
   mobilePublicationState: MobilePublicationState | null; boardCardDetailLevel: BoardCardDetailLevel
@@ -45,6 +45,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
   onToggle(id: string, range?: boolean, order?: string[]): void; onSelect(id: string | null): void
   onColor(post: Post, color: string): void; onMove(status: Post['status']): void; onSelectStatus(ids: string[]): void
   onDuplicate(post: Post): Promise<Post | undefined>; onDelete(post: Post): void; onStatus(post: Post, status: Post['status']): void
+  onEditSelection(): void
 }) {
   const [context, setContext] = useState<{ post: Post; x: number; y: number } | null>(null)
   const [showStatuses, setShowStatuses] = useState(false)
@@ -207,7 +208,9 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
     })}
   </div>
   {context ? createPortal(<div className="board-context-menu" role="menu" aria-label={`Acciones para ${context.post.title || 'publicación'}`} style={{ left: Math.max(8, context.x), top: Math.max(8, context.y) }} onPointerDown={event => event.stopPropagation()}>
-    <button type="button" role="menuitem" onClick={() => { onSelect(context.post.id); setContext(null) }}>Abrir / editar publicación</button>
+    {selected.size > 1 && selected.has(context.post.id) && <div className="board-context-selection-note">{selected.size} publicaciones seleccionadas</div>}
+    <button type="button" role="menuitem" onClick={() => { onSelect(context.post.id); setContext(null) }}>{selected.size > 1 && selected.has(context.post.id) ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
+    {selected.size > 1 && selected.has(context.post.id) && <button type="button" role="menuitem" onClick={() => { onEditSelection(); setContext(null) }}>Editar selección en pestañas</button>}
     <button type="button" role="menuitem" onClick={() => { void duplicatePost(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
     <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
     <button type="button" role="menuitem" disabled={!context.post.caption.trim()} onClick={() => { void runWithErrorReporting(() => window.planner.clipboard.write(context.post.caption), 'No se pudo copiar el texto'); setContext(null) }}><ClipboardCopy size={14} />Copiar texto</button>

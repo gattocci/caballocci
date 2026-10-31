@@ -100,6 +100,8 @@
 .workspace.board-mode-kanban .board-bulk-actions { position: static; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 0 0 8px; padding: 7px 9px; border: 1px solid #4c4130; background: #252018; }
 .workspace.board-mode-kanban .board-bulk-actions strong { margin-right: 4px; }
 .workspace.board-mode-kanban .board-bulk-actions select { max-width: 220px; height: 28px; padding: 0 6px; border: 1px solid #6b5840; border-radius: 3px; background: #1b1a17; color: #e8d2b6; font-size: 9px; }
+.bulk-space-control { display: inline-flex; align-items: center; gap: 6px; color: #b9aa8a; font-size: 9px; }
+.board-context-selection-note { padding: 5px 9px 7px; border-bottom: 1px solid #303a33; color: #9fac9f; font-size: 9px; }
 .board-bulk-more { position: relative; }
 .board-bulk-more summary { padding: 5px 8px; border: 1px solid #6b5840; border-radius: 3px; color: #e8d2b6; font-size: 9px; cursor: pointer; list-style: none; }
 .board-bulk-more summary::-webkit-details-marker { display: none; }

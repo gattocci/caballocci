@@ -16,8 +16,8 @@ import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
 import { Preview } from './EditorMediaPreview'
 import './editor.css'
 
-export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; onClose(): void }) {
-  const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
+export function Editor({ initial, scheduledAtForNew = null, spaceForNew, sessionPosts = [], onSessionNavigate, onSessionAdd, onSessionClose, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; sessionPosts?: Post[]; onSessionNavigate?(id: string): void; onSessionAdd?(id: string): void; onSessionClose?(id: string, nextId: string | null): void; onClose(): void }) {
+  const { save, remove, uncombinePost, activeSpace, customSpaces, posts, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
   const initialDraft = useState<PostInput>(() => {
     if (initial) return { ...initial }
@@ -26,6 +26,8 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
     return { ...blankPost(project), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
   })[0]
   const { value: draft, setValue: setDraft, undo, redo, canUndo, canRedo } = useUndoableState<PostInput>(initialDraft)
+  const projectOptions = Array.from(new Set([...customSpaces, ...posts.map(post => post.project), draft.project].filter(Boolean)))
+  const sessionIndex = sessionPosts.findIndex(post => post.id === initial?.id)
   const lastSavedDraft = useRef(JSON.stringify(initialDraft))
   const draftRef = useRef(draft)
   draftRef.current = draft
@@ -46,6 +48,60 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
     return () => window.clearTimeout(timeout)
   }, [historyNotice])
   const [saving, setSaving] = useState(false)
+  const [sessionBusy, setSessionBusy] = useState(false)
+  const [sessionFeedback, setSessionFeedback] = useState('')
+  const [sessionAddOpen, setSessionAddOpen] = useState(false)
+  const [sessionAddQuery, setSessionAddQuery] = useState('')
+  const [sessionAddMode, setSessionAddMode] = useState<'search' | 'overview'>('search')
+  const sessionPostIds = new Set(sessionPosts.map(post => post.id))
+  const availableSessionPosts = posts.filter(post => !sessionPostIds.has(post.id) && `${post.title} ${post.project}`.toLocaleLowerCase().includes(sessionAddQuery.trim().toLocaleLowerCase()))
+  const sessionProjectGroups = Array.from(new Set(availableSessionPosts.map(post => post.project || 'Mi contenido'))).map(project => ({ project, posts: availableSessionPosts.filter(post => (post.project || 'Mi contenido') === project) }))
+  const saveSessionDraft = async () => {
+    if (!initial || JSON.stringify(draft) === lastSavedDraft.current) return true
+    setSaving(true)
+    setSaveState('saving')
+    try {
+      await save(draft, { recordHistory: false })
+      lastSavedDraft.current = JSON.stringify(draft)
+      setSaveState('saved')
+      return true
+    } catch (error) {
+      setSaveState('error')
+      reportAppError(error, 'No se pudo guardar antes de cambiar la selección')
+      return false
+    } finally { setSaving(false) }
+  }
+  const navigateSession = async (post: Post) => {
+    if (!onSessionNavigate || !initial || saving || sessionBusy) return
+    if (!await saveSessionDraft()) return
+    setSessionAddOpen(false)
+    setSessionFeedback('')
+    onSessionNavigate(post.id)
+  }
+  const closeSessionPost = async (post: Post) => {
+    if (!onSessionClose || !initial || saving || sessionBusy) return
+    if (!await saveSessionDraft()) return
+    if (sessionPosts.length === 1) { onClose(); return }
+    const closingIndex = sessionPosts.findIndex(item => item.id === post.id)
+    const fallback = post.id === initial.id ? sessionPosts[(closingIndex + 1) % sessionPosts.length]?.id || null : initial.id
+    setSessionBusy(true)
+    setSessionFeedback('Guardado · cerrando pestaña')
+    window.setTimeout(() => {
+      onSessionClose(post.id, fallback)
+      setSessionBusy(false)
+      setSessionFeedback('Pestaña cerrada · cambios guardados')
+      window.setTimeout(() => setSessionFeedback(''), 1800)
+    }, 450)
+  }
+  const addSessionPost = async (post: Post) => {
+    if (!onSessionAdd || saving || sessionBusy) return
+    if (!await saveSessionDraft()) return
+    setSessionAddOpen(false)
+    setSessionAddQuery('')
+    setSessionAddMode('search')
+    setSessionFeedback('Publicación añadida a la sesión')
+    onSessionAdd(post.id)
+  }
   const [phoneExportBusy, setPhoneExportBusy] = useState(false)
   const [phoneExportFolder, setPhoneExportFolder] = useState<string | null>(null)
   const [phoneExportMessage, setPhoneExportMessage] = useState('')
@@ -269,6 +325,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
   }}>
     {historyNotice && <div key={historyNotice.id} className={`undo-notice ${historyNotice.direction}`} role="status" aria-live="polite">{historyNotice.direction === 'undo' ? <Undo2 size={13} aria-hidden="true" /> : <Redo2 size={13} aria-hidden="true" />}<span>{historyNotice.text}</span></div>}
     <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><button className="icon-button" onClick={close}><X size={19} /></button></header>
+    {sessionPosts.length > 0 && <div className="editor-session-tabs">{sessionPosts.length > 1 && <span className="editor-session-count" title={`${sessionPosts.length} publicaciones en esta sesión`} aria-label={`${sessionPosts.length} publicaciones en esta sesión`}>{sessionPosts.length}</span>}<div className="editor-session-tablist" role="tablist" aria-label="Publicaciones seleccionadas" onKeyDown={event => { if (event.target instanceof HTMLInputElement || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return; event.preventDefault(); const direction = event.key === 'ArrowRight' ? 1 : -1; const nextIndex = (sessionIndex + direction + sessionPosts.length) % sessionPosts.length; void navigateSession(sessionPosts[nextIndex]) }}>{sessionPosts.map((post, index) => <div className={`editor-session-tab${post.id === initial?.id ? ' active' : ''}`} role="group" aria-label={`Pestaña ${index + 1}: ${post.title || 'sin título'}`} key={post.id}><button type="button" role="tab" aria-selected={post.id === initial?.id} title={post.title || 'Publicación sin título'} disabled={saving || sessionBusy} onClick={() => void navigateSession(post)}><small>{String(index + 1).padStart(2, '0')}</small><span>{post.title || 'Sin título'}</span></button><button type="button" className="editor-session-close" aria-label={`Cerrar pestaña ${post.title || 'sin título'}`} title="Cerrar pestaña" disabled={saving || sessionBusy} onClick={() => void closeSessionPost(post)}><X size={12} /></button></div>)}</div>{onSessionAdd && <div className="editor-session-add"><button type="button" className="editor-session-add-trigger" aria-label="Añadir publicación a la sesión" title="Añadir publicación" aria-expanded={sessionAddOpen} disabled={saving || sessionBusy} onClick={() => { setSessionAddOpen(open => !open); setSessionAddQuery(''); setSessionAddMode('overview') }}><Plus size={15} /></button>{sessionAddOpen && <div className="editor-session-add-menu"><div className="editor-session-add-modes" role="group" aria-label="Origen de la publicación"><button type="button" aria-pressed={sessionAddMode === 'overview'} className={sessionAddMode === 'overview' ? 'active' : ''} onClick={() => setSessionAddMode('overview')}>Vista general</button><button type="button" aria-pressed={sessionAddMode === 'search'} className={sessionAddMode === 'search' ? 'active' : ''} onClick={() => setSessionAddMode('search')}>Buscar</button></div><label>{sessionAddMode === 'overview' ? 'Elegir desde la vista general' : 'Buscar por título o proyecto'}<input autoFocus value={sessionAddQuery} onChange={event => setSessionAddQuery(event.target.value)} placeholder={sessionAddMode === 'overview' ? 'Filtrar publicaciones…' : 'Título o proyecto…'} onKeyDown={event => { if (event.key === 'Escape') setSessionAddOpen(false) }} /></label><div role="listbox" aria-label="Publicaciones disponibles">{sessionAddMode === 'overview' ? sessionProjectGroups.map(group => <section className="editor-session-project-group" key={group.project}><strong>{group.project}</strong>{group.posts.map(post => <button type="button" role="option" aria-selected="false" key={post.id} disabled={sessionBusy} onClick={() => void addSessionPost(post)}><span>{post.title || 'Sin título'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</section>) : sessionAddQuery.trim() ? availableSessionPosts.slice(0, 40).map(post => <button type="button" role="option" aria-selected="false" key={post.id} disabled={sessionBusy} onClick={() => void addSessionPost(post)}><span>{post.title || 'Sin título'}</span><small>{post.project || 'Mi contenido'}</small></button>) : <p>Escribe para buscar por título o proyecto.</p>}{!availableSessionPosts.length && <p>{sessionAddQuery ? 'No hay coincidencias.' : 'Todas las publicaciones ya están en esta sesión.'}</p>}{sessionAddMode === 'search' && availableSessionPosts.length > 40 && <p>Escribe para afinar los resultados.</p>}</div></div>}</div>}{sessionFeedback && <span className="editor-session-feedback" role="status" aria-live="polite">{sessionFeedback}</span>}</div>}
     <div className="editor-tabs editor-main-tabs" role="group" aria-label="Secciones de edición"><button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button type="button" aria-pressed={false} className="notes-tab-hidden">Notas</button><button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>{externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
     <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
     <div className="editor-body">
@@ -280,7 +337,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, onClose
         <section className="distribution-panel"><header><strong>Estado por destino</strong><small>Marca dónde está publicada cada versión.</small></header>{(draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const }))).map((target, index) => <div className="distribution-row" key={target.id}><span>{target.name}</span><select value={target.status} onChange={event => { const current = draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const })); update('distribution', current.map((item, i) => i === index ? { ...item, status: event.target.value as any } : item)) }}><option value="pending">Pendiente</option><option value="preparing">En preparación</option><option value="scheduled">Programado</option><option value="published">Publicado</option><option value="not_applicable">No aplica</option><option value="failed">Requiere atención</option></select></div>)}</section>
         <label>Texto de la publicación<div className="caption-box"><textarea data-undo-control value={draft.caption} onChange={e => update('caption', e.target.value, { label: 'Editar texto', groupKey: 'post:caption' })} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input data-undo-control value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean), { label: 'Editar hashtags', groupKey: 'post:hashtags' })} placeholder="#contenido #campaña" /></label>
-        <div className="field-row"><label>Fecha y hora<input data-undo-control type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); setDraft(current => ({ ...current, scheduledAt, ...(!scheduledAt && current.status === 'scheduled' ? { status: 'approved' as const } : {}) }), { label: !scheduledAt && draft.status === 'scheduled' ? 'Quitar fecha y volver a Aprobado' : 'Cambiar fecha', groupKey: 'post:scheduledAt' }); if (!scheduledAt && draft.status === 'scheduled') setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.'); else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input data-undo-control value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /></label></div>
+        <div className="field-row"><label>Fecha y hora<input data-undo-control type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); setDraft(current => ({ ...current, scheduledAt, ...(!scheduledAt && current.status === 'scheduled' ? { status: 'approved' as const } : {}) }), { label: !scheduledAt && draft.status === 'scheduled' ? 'Quitar fecha y volver a Aprobado' : 'Cambiar fecha', groupKey: 'post:scheduledAt' }); if (!scheduledAt && draft.status === 'scheduled') setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.'); else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input data-undo-control list="editor-project-options" value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /><datalist id="editor-project-options">{projectOptions.map(project => <option key={project} value={project} />)}</datalist></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         <details className="media-export-section" open>
           <summary><Smartphone size={15} /> Enviar álbumes al celular</summary>
