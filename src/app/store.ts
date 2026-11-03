@@ -63,7 +63,7 @@ interface PlannerState {
   clearUndoNotice(): void
   ideaNeighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
   refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
+  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
   previewIdeaAnalysis(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
   listIdeaClusters(): Promise<IdeaCluster[]>
   setView(view: PlannerView): void
@@ -415,7 +415,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   clearUndoNotice: () => set({ undoNotice: null }),
   ideaNeighbors: (id, limit, ignoredTerms, options) => window.planner.ideas.neighbors(id, limit, ignoredTerms, options),
   refreshEmbeddings: (ids, ignoredTerms, options) => window.planner.ideas.refreshEmbeddings(ids, ignoredTerms, options),
-  proposeClusters: async (threshold, ignoredTerms, options, onProgress) => window.planner.ideas.clusters(threshold, ignoredTerms, options, onProgress),
+  proposeClusters: async (threshold, ignoredTerms, options, ideaIds, onProgress) => window.planner.ideas.clusters(threshold, ignoredTerms, options, ideaIds, onProgress),
   previewIdeaAnalysis: (ignoredTerms, options) => window.planner.ideas.analysisPreview(ignoredTerms, options),
   listIdeaClusters: () => window.planner.ideas.clustersList(),
   setView: (view) => set({ view }),

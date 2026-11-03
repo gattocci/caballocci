@@ -254,8 +254,8 @@ export class PlannerDatabase {
   listIdeaNeighbors(id: string, limit = 8, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
     return this.analysis.listIdeaNeighbors(id, limit, ignoredTerms, options)
   }
-  proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void) {
-    return this.analysis.proposeIdeaClusters(threshold, ignoredTerms, options, onProgress)
+  proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void) {
+    return this.analysis.proposeIdeaClusters(threshold, ignoredTerms, options, ideaIds, onProgress)
   }
   previewIdeaAnalysis(ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
     return this.analysis.previewIdeaAnalysis(ignoredTerms, options)

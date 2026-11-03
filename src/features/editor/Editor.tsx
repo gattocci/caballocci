@@ -16,7 +16,7 @@ import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
 import { Preview } from './EditorMediaPreview'
 import './editor.css'
 
-export function Editor({ initial, scheduledAtForNew = null, spaceForNew, sessionPosts = [], onSessionNavigate, onSessionAdd, onSessionClose, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; sessionPosts?: Post[]; onSessionNavigate?(id: string): void; onSessionAdd?(id: string): void; onSessionClose?(id: string, nextId: string | null): void; onClose(): void }) {
+export function Editor({ initial, scheduledAtForNew = null, spaceForNew, sessionPosts = [], onSessionNavigate, onSessionAdd, onSessionClose, onClose, minimized: minimizedProp, onMinimizedChange, boardPick = false }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; sessionPosts?: Post[]; onSessionNavigate?(id: string): void; onSessionAdd?(id: string): void; onSessionClose?(id: string, nextId: string | null): void; onClose(): void; minimized?: boolean; onMinimizedChange?(minimized: boolean): void; boardPick?: boolean }) {
   const { save, remove, uncombinePost, activeSpace, customSpaces, posts, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
   const initialDraft = useState<PostInput>(() => {
@@ -52,10 +52,9 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
   const [sessionFeedback, setSessionFeedback] = useState('')
   const [sessionAddOpen, setSessionAddOpen] = useState(false)
   const [sessionAddQuery, setSessionAddQuery] = useState('')
-  const [sessionAddMode, setSessionAddMode] = useState<'search' | 'overview'>('search')
   const sessionPostIds = new Set(sessionPosts.map(post => post.id))
   const availableSessionPosts = posts.filter(post => !sessionPostIds.has(post.id) && `${post.title} ${post.project}`.toLocaleLowerCase().includes(sessionAddQuery.trim().toLocaleLowerCase()))
-  const sessionProjectGroups = Array.from(new Set(availableSessionPosts.map(post => post.project || 'Mi contenido'))).map(project => ({ project, posts: availableSessionPosts.filter(post => (post.project || 'Mi contenido') === project) }))
+  const sessionBrowsePosts = [...availableSessionPosts].sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')).slice(0, 30)
   const saveSessionDraft = async () => {
     if (!initial || JSON.stringify(draft) === lastSavedDraft.current) return true
     setSaving(true)
@@ -98,10 +97,44 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
     if (!await saveSessionDraft()) return
     setSessionAddOpen(false)
     setSessionAddQuery('')
-    setSessionAddMode('search')
     setSessionFeedback('Publicación añadida a la sesión')
     onSessionAdd(post.id)
   }
+  const [minimizedState, setMinimizedState] = useState(false)
+  const minimized = minimizedProp ?? minimizedState
+  const setMinimized = (value: boolean) => { setMinimizedState(value); onMinimizedChange?.(value) }
+  const minimize = async () => {
+    if (saving || sessionBusy) return
+    if (initial && !await saveSessionDraft()) return
+    setSessionAddOpen(false)
+    setMinimized(true)
+  }
+  const restore = () => setMinimized(false)
+  const addMenuRef = useRef<HTMLDivElement>(null)
+  const mainTabsRef = useRef<HTMLDivElement>(null)
+  const sessionListRef = useRef<HTMLDivElement>(null)
+  const previousSessionCount = useRef(sessionPosts.length)
+  useEffect(() => {
+    if (!minimized) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setMinimized(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [minimized, onMinimizedChange])
+  useEffect(() => {
+    if (minimized && sessionPosts.length > previousSessionCount.current) {
+      setSessionFeedback(`Añadida · ${sessionPosts.length} pestañas abiertas`)
+      window.setTimeout(() => setSessionFeedback(''), 2200)
+    }
+    previousSessionCount.current = sessionPosts.length
+  }, [sessionPosts.length, minimized])
+  useEffect(() => {
+    if (!sessionAddOpen) return
+    const onDown = (event: MouseEvent) => { if (!addMenuRef.current?.contains(event.target as Node)) setSessionAddOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [sessionAddOpen])
+  useEffect(() => { mainTabsRef.current?.querySelector<HTMLElement>('button.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }) }, [tab])
+  useEffect(() => { sessionListRef.current?.querySelector<HTMLElement>('.editor-session-tab.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }) }, [initial?.id, sessionPosts.length])
   const [phoneExportBusy, setPhoneExportBusy] = useState(false)
   const [phoneExportFolder, setPhoneExportFolder] = useState<string | null>(null)
   const [phoneExportMessage, setPhoneExportMessage] = useState('')
@@ -309,7 +342,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
   const catalogPreview = { source: 'caballocci', dry_run: true, publish: false, items: [{ kind: catalogKind, external_id: `post-${initial?.id || ''}`, title: draft.title, ...(catalogKind === 'resource' && catalogCategorySlug ? { category_slug: catalogCategorySlug } : catalogKind === 'resource' && catalogCategoryId ? { category_id: Number(catalogCategoryId) } : {}), summary: catalogSummary, content: catalogContent }] }
   const sourceIdea = initial?.sourceIdeaId ? ideas.find(idea => idea.id === initial.sourceIdeaId) : undefined
 
-  return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor" role="dialog" aria-modal="true" aria-label={initial ? 'Editar publicación' : 'Nueva publicación'} onKeyDownCapture={event => {
+  return <div className={'editor-backdrop' + (minimized ? ' minimized' : '')} onMouseDown={e => { if (!minimized && e.target === e.currentTarget) close() }}><aside className="editor" role="dialog" aria-modal={!minimized} aria-hidden={minimized} aria-label={initial ? 'Editar publicación' : 'Nueva publicación'} onKeyDownCapture={event => {
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return
     const key = event.key.toLocaleLowerCase()
     if (key !== 'z' && key !== 'y') return
@@ -324,9 +357,39 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
     else undoDraft()
   }}>
     {historyNotice && <div key={historyNotice.id} className={`undo-notice ${historyNotice.direction}`} role="status" aria-live="polite">{historyNotice.direction === 'undo' ? <Undo2 size={13} aria-hidden="true" /> : <Redo2 size={13} aria-hidden="true" />}<span>{historyNotice.text}</span></div>}
-    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><button className="icon-button" onClick={close}><X size={19} /></button></header>
-    {sessionPosts.length > 0 && <div className="editor-session-tabs">{sessionPosts.length > 1 && <span className="editor-session-count" title={`${sessionPosts.length} publicaciones en esta sesión`} aria-label={`${sessionPosts.length} publicaciones en esta sesión`}>{sessionPosts.length}</span>}<div className="editor-session-tablist" role="tablist" aria-label="Publicaciones seleccionadas" onKeyDown={event => { if (event.target instanceof HTMLInputElement || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return; event.preventDefault(); const direction = event.key === 'ArrowRight' ? 1 : -1; const nextIndex = (sessionIndex + direction + sessionPosts.length) % sessionPosts.length; void navigateSession(sessionPosts[nextIndex]) }}>{sessionPosts.map((post, index) => <div className={`editor-session-tab${post.id === initial?.id ? ' active' : ''}`} role="group" aria-label={`Pestaña ${index + 1}: ${post.title || 'sin título'}`} key={post.id}><button type="button" role="tab" aria-selected={post.id === initial?.id} title={post.title || 'Publicación sin título'} disabled={saving || sessionBusy} onClick={() => void navigateSession(post)}><small>{String(index + 1).padStart(2, '0')}</small><span>{post.title || 'Sin título'}</span></button><button type="button" className="editor-session-close" aria-label={`Cerrar pestaña ${post.title || 'sin título'}`} title="Cerrar pestaña" disabled={saving || sessionBusy} onClick={() => void closeSessionPost(post)}><X size={12} /></button></div>)}</div>{onSessionAdd && <div className="editor-session-add"><button type="button" className="editor-session-add-trigger" aria-label="Añadir publicación a la sesión" title="Añadir publicación" aria-expanded={sessionAddOpen} disabled={saving || sessionBusy} onClick={() => { setSessionAddOpen(open => !open); setSessionAddQuery(''); setSessionAddMode('overview') }}><Plus size={15} /></button>{sessionAddOpen && <div className="editor-session-add-menu"><div className="editor-session-add-modes" role="group" aria-label="Origen de la publicación"><button type="button" aria-pressed={sessionAddMode === 'overview'} className={sessionAddMode === 'overview' ? 'active' : ''} onClick={() => setSessionAddMode('overview')}>Vista general</button><button type="button" aria-pressed={sessionAddMode === 'search'} className={sessionAddMode === 'search' ? 'active' : ''} onClick={() => setSessionAddMode('search')}>Buscar</button></div><label>{sessionAddMode === 'overview' ? 'Elegir desde la vista general' : 'Buscar por título o proyecto'}<input autoFocus value={sessionAddQuery} onChange={event => setSessionAddQuery(event.target.value)} placeholder={sessionAddMode === 'overview' ? 'Filtrar publicaciones…' : 'Título o proyecto…'} onKeyDown={event => { if (event.key === 'Escape') setSessionAddOpen(false) }} /></label><div role="listbox" aria-label="Publicaciones disponibles">{sessionAddMode === 'overview' ? sessionProjectGroups.map(group => <section className="editor-session-project-group" key={group.project}><strong>{group.project}</strong>{group.posts.map(post => <button type="button" role="option" aria-selected="false" key={post.id} disabled={sessionBusy} onClick={() => void addSessionPost(post)}><span>{post.title || 'Sin título'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</section>) : sessionAddQuery.trim() ? availableSessionPosts.slice(0, 40).map(post => <button type="button" role="option" aria-selected="false" key={post.id} disabled={sessionBusy} onClick={() => void addSessionPost(post)}><span>{post.title || 'Sin título'}</span><small>{post.project || 'Mi contenido'}</small></button>) : <p>Escribe para buscar por título o proyecto.</p>}{!availableSessionPosts.length && <p>{sessionAddQuery ? 'No hay coincidencias.' : 'Todas las publicaciones ya están en esta sesión.'}</p>}{sessionAddMode === 'search' && availableSessionPosts.length > 40 && <p>Escribe para afinar los resultados.</p>}</div></div>}</div>}{sessionFeedback && <span className="editor-session-feedback" role="status" aria-live="polite">{sessionFeedback}</span>}</div>}
-    <div className="editor-tabs editor-main-tabs" role="group" aria-label="Secciones de edición"><button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button type="button" aria-pressed={false} className="notes-tab-hidden">Notas</button><button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>{externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
+    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><div className="editor-header-actions"><button type="button" className="icon-button" title="Minimizar y ver el tablero (Esc para volver)" aria-label="Minimizar editor" disabled={saving || sessionBusy} onClick={() => void minimize()}><ChevronRight size={19} /></button><button type="button" className="icon-button" title="Cerrar" aria-label="Cerrar editor" onClick={close}><X size={19} /></button></div></header>
+    {sessionPosts.length > 0 && <div className="editor-session-tabs">
+      {sessionPosts.length > 1 && <span className="editor-session-count" title={`${sessionPosts.length} publicaciones en esta sesión`} aria-label={`${sessionPosts.length} publicaciones en esta sesión`}>{sessionPosts.length}</span>}
+      <div className="editor-session-tablist" ref={sessionListRef} role="tablist" aria-label="Publicaciones seleccionadas" onWheel={event => { if (event.deltaY && !event.shiftKey) event.currentTarget.scrollLeft += event.deltaY }} onKeyDown={event => { if (event.target instanceof HTMLInputElement || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return; event.preventDefault(); const direction = event.key === 'ArrowRight' ? 1 : -1; const nextIndex = (sessionIndex + direction + sessionPosts.length) % sessionPosts.length; void navigateSession(sessionPosts[nextIndex]) }}>
+        {sessionPosts.map((post, index) => <div className={`editor-session-tab${post.id === initial?.id ? ' active' : ''}`} role="group" aria-label={`Pestaña ${index + 1}: ${post.title || 'sin título'}`} key={post.id}>
+          <button type="button" role="tab" aria-selected={post.id === initial?.id} title={post.title || 'Publicación sin título'} disabled={saving || sessionBusy} onClick={() => void navigateSession(post)}><small>{String(index + 1).padStart(2, '0')}</small><span>{post.title || 'Sin título'}</span></button>
+          <button type="button" className="editor-session-close" aria-label={`Cerrar pestaña ${post.title || 'sin título'}`} title="Cerrar pestaña" disabled={saving || sessionBusy} onClick={() => void closeSessionPost(post)}><X size={12} /></button>
+        </div>)}
+      </div>
+      {onSessionAdd && <div className="editor-session-add" ref={addMenuRef}>
+        <button type="button" className="editor-session-add-trigger" aria-label="Añadir publicación a la sesión" title="Añadir publicación" aria-expanded={sessionAddOpen} disabled={saving || sessionBusy} onClick={() => { setSessionAddOpen(open => !open); setSessionAddQuery('') }}><Plus size={15} /></button>
+        {sessionAddOpen && <div className="editor-session-add-menu">
+          <div className="editor-session-add-heading"><strong>Abrir en esta sesión</strong><span>{sessionPosts.length} {sessionPosts.length === 1 ? 'pestaña abierta' : 'pestañas abiertas'}</span></div>
+          {boardPick && <button type="button" className="editor-session-board-pick" disabled={saving || sessionBusy} onClick={() => void minimize()}><span><strong>Elegir en el tablero</strong><small>Minimiza el editor y haz clic en las publicaciones que quieras sumar</small></span><ChevronRight size={16} aria-hidden="true" /></button>}
+          <label>Buscar por nombre<input autoFocus value={sessionAddQuery} onChange={event => setSessionAddQuery(event.target.value)} placeholder="Título o proyecto…" onKeyDown={event => { if (event.key === 'Escape') setSessionAddOpen(false); if (event.key === 'Enter' && sessionBrowsePosts[0]) { event.preventDefault(); void addSessionPost(sessionBrowsePosts[0]) } }} /></label>
+          <div className="editor-session-add-results" role="listbox" aria-label="Publicaciones disponibles">
+            {sessionBrowsePosts.length ? sessionBrowsePosts.map(post => <button type="button" role="option" aria-selected="false" key={post.id} disabled={sessionBusy} onClick={() => void addSessionPost(post)}><span>{post.title || 'Sin título'}</span><small>{post.project || 'Mi contenido'}</small><Plus size={13} aria-hidden="true" /></button>) : <p>{sessionAddQuery.trim() ? 'No hay coincidencias. Prueba con otro título o proyecto.' : 'Todas las publicaciones ya están abiertas.'}</p>}
+            {availableSessionPosts.length > sessionBrowsePosts.length && <p>Escribe para acotar los resultados.</p>}
+          </div>
+          <small className="editor-session-add-hint">Enter agrega el primer resultado. Tus cambios se guardan antes de cambiar.</small>
+        </div>}
+      </div>}
+      {sessionFeedback && !minimized && <span className="editor-session-feedback" role="status" aria-live="polite">{sessionFeedback}</span>}
+    </div>}
+    <div className="editor-tabs editor-main-tabs" ref={mainTabsRef} role="group" aria-label="Secciones de edición">
+      <button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button>
+      <button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? <em className="editor-tab-count">{draft.ideaBlocks.length}</em> : null}</button>
+      <button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button>
+      <button type="button" aria-pressed={false} className="notes-tab-hidden">Notas</button>
+      <button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>
+      {externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}
+      {initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}
+    </div>
     <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
     <div className="editor-body">
       {tab === 'content' && <>
@@ -399,5 +462,11 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
       {tab === 'catalog' && <EditorCatalogPanel categoryId={catalogCategoryId} onCategoryIdChange={setCatalogCategoryId} summary={catalogSummary} onSummaryChange={setCatalogSummary} content={catalogContent} onContentChange={setCatalogContent} useHashtags={catalogUseHashtags} onUseHashtagsChange={setCatalogUseHashtags} sync={catalogSync} endpoint={catalogEndpoint} onEndpointChange={setCatalogEndpoint} createdBy={catalogCreatedBy} onCreatedByChange={setCatalogCreatedBy} token={catalogToken} onTokenChange={setCatalogToken} configured={catalogConfig.configured} kind={catalogKind} onKindChange={setCatalogKind} busy={catalogBusy} message={catalogMessage} onSaveConfig={() => void saveCatalog()} onSync={dryRun => void syncCatalog(dryRun)} preview={catalogPreview} />}
     </div>
     <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button type="button" className="ghost-button" title="Duplicar publicación" aria-label="Duplicar publicación" disabled={saving} onClick={() => void duplicatePost()}><Copy size={15} /></button><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}{initial && <span className={'editor-save-status editor-save-' + saveState} role="status">{saveState === 'saved' ? 'Guardado' : saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? 'Error al guardar' : 'Cambios pendientes'}</span>}</div><div><button className="ghost-button" onClick={() => void close()}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
-  </aside></div>
+  </aside>
+  {minimized && <div className="editor-dock" role="region" aria-label="Editor minimizado">
+    <button type="button" className="editor-dock-main" onClick={restore} title="Expandir el editor (Esc)"><ChevronLeft size={16} aria-hidden="true" /><span><strong>{draft.title || 'Sin título todavía'}</strong><small aria-live="polite">{sessionFeedback || (boardPick ? 'Haz clic en una publicación del tablero para añadirla' : 'Editor minimizado')}</small></span></button>
+    {sessionPosts.length > 1 && <span className="editor-session-count" title={`${sessionPosts.length} publicaciones en esta sesión`}>{sessionPosts.length}</span>}
+    <button type="button" className="ghost-button editor-dock-done" onClick={restore}>{boardPick ? 'Listo' : 'Expandir'}</button>
+  </div>}
+  </div>
 }

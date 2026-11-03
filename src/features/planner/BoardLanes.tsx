@@ -37,12 +37,12 @@ function setCardDragImage(event: React.DragEvent<HTMLElement>, count: number) {
   setTimeout(() => ghost.remove(), 0)
 }
 
-export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus, onEditSelection }: {
+export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onPickPost, pickedPostIds = new Set<string>(), onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus, onEditSelection }: {
   lanes: BoardLane[]; posts: Post[]; activeGroups: WorkGroup[]; selected: Set<string>; collapsedLanes: Set<string>
   toggleLane(id: string): void; reorderLane(id: string, delta: number): void; visiblePerColumn: number
   mobilePublicationState: MobilePublicationState | null; boardCardDetailLevel: BoardCardDetailLevel
   dragIds: React.MutableRefObject<string[]>
-  onToggle(id: string, range?: boolean, order?: string[]): void; onSelect(id: string | null): void
+  onToggle(id: string, range?: boolean, order?: string[]): void; onSelect(id: string | null): void; onPickPost?(id: string): boolean; pickedPostIds?: Set<string>
   onColor(post: Post, color: string): void; onMove(status: Post['status']): void; onSelectStatus(ids: string[]): void
   onDuplicate(post: Post): Promise<Post | undefined>; onDelete(post: Post): void; onStatus(post: Post, status: Post['status']): void
   onEditSelection(): void
@@ -168,7 +168,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
               const otherMemberships = activeGroups.filter(group => group.id !== lane.group?.id && group.postIds.includes(post.id)).map(group => group.name)
               const overdue = (post.status === 'idea' || post.status === 'draft') && post.scheduledAt && parseISO(post.scheduledAt).getTime() < Date.now()
               const ContentIcon = post.contentType === 'reel' ? Film : post.contentType === 'carousel' ? Images : FileText
-              const cardClass = `board-card${selected.has(post.id) ? ' selected' : ''}${post.color !== postColors[0].value ? ' has-custom-color' : ''}${dragging.has(post.id) ? ' is-dragging' : ''}${duplicatedPostId === post.id ? ' just-duplicated' : ''}`
+              const cardClass = `board-card${selected.has(post.id) ? ' selected' : ''}${pickedPostIds.has(post.id) ? ' session-picked' : ''}${post.color !== postColors[0].value ? ' has-custom-color' : ''}${dragging.has(post.id) ? ' is-dragging' : ''}${duplicatedPostId === post.id ? ' just-duplicated' : ''}`
               return <div className="board-card-slot" key={post.id}>
                 <article
                   data-area-select-id={post.id}
@@ -179,7 +179,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
                   onDragStart={event => startDrag(event, post)}
                   onDragEnd={() => { dragIds.current = []; resetDrag() }}
                   onContextMenu={event => openContextMenu(event, post)}
-                  onClick={event => { if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) onToggle(post.id, event.shiftKey, order); else onSelect(post.id) }}
+                  onClick={event => { if (onPickPost?.(post.id)) return; if (event.shiftKey || event.ctrlKey || event.metaKey || selected.size > 0) onToggle(post.id, event.shiftKey, order); else onSelect(post.id) }}
                 >
                   <div className="board-card-top">
                     <label className="board-select-hit" onClick={event => event.stopPropagation()}>

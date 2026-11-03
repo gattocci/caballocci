@@ -17,6 +17,8 @@ type BoardListViewProps = {
   selected: Set<string>
   toggle(id: string, range?: boolean, order?: string[]): void
   select(id: string | null): void
+  onPickPost?(id: string): boolean
+  pickedPostIds?: Set<string>
   query: string
   listSort: BoardListSort
   setListSort: Dispatch<SetStateAction<BoardListSort>>
@@ -37,6 +39,8 @@ export function BoardListView({
   selected,
   toggle,
   select,
+  onPickPost,
+  pickedPostIds = new Set<string>(),
   query,
   listSort,
   setListSort,
@@ -75,8 +79,8 @@ export function BoardListView({
         <th>Destinos</th>
       </tr></thead><tbody>{visibleListPosts.map(post => {
         const memberships = workGroups.filter(group => group.postIds.includes(post.id))
-        return <tr data-area-select-id={post.id} key={post.id} className={selected.has(post.id) ? 'selected' : ''} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setContext({ post, x: Math.min(event.clientX, window.innerWidth - 224), y: Math.min(event.clientY, window.innerHeight - 160) }) }}>
-          <td><label className="board-list-select"><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey, listPosts.map(item => item.id))} aria-label={`Seleccionar ${post.title || 'publicación'}`} /><button type="button" onClick={() => select(post.id)}>{post.title || 'Publicación sin título'}</button></label></td>
+        return <tr data-area-select-id={post.id} key={post.id} className={`${selected.has(post.id) ? 'selected' : ''}${pickedPostIds.has(post.id) ? ' session-picked' : ''}`} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setContext({ post, x: Math.min(event.clientX, window.innerWidth - 224), y: Math.min(event.clientY, window.innerHeight - 160) }) }}>
+          <td><label className="board-list-select"><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey, listPosts.map(item => item.id))} aria-label={`Seleccionar ${post.title || 'publicación'}`} /><button type="button" onClick={() => { if (!onPickPost?.(post.id)) select(post.id) }}>{post.title || 'Publicación sin título'}</button></label></td>
           <td><span className="board-list-stage"><i style={{ background: statusMeta[post.status].color }} />{statusMeta[post.status].label}</span></td>
           <td>{contentLabels[post.contentType]}</td>
           <td>{memberships.length ? memberships.map(group => group.name).join(', ') : '—'}</td>

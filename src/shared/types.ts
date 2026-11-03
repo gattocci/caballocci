@@ -374,7 +374,7 @@ export interface ElectronAPI {
     combine(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>
     neighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
     refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
+    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
     analysisPreview(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
     clustersList(): Promise<IdeaCluster[]>
   }

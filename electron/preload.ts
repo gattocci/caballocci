@@ -86,14 +86,14 @@ contextBridge.exposeInMainWorld('planner', {
     combine: (ids: string[]) => ipcRenderer.invoke('ideas:combine', ids),
     neighbors: (id: string, limit?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:neighbors', id, limit, ignoredTerms, options),
     refreshEmbeddings: (ids?: string[], ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:embeddings-refresh', ids, ignoredTerms, options),
-    clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, onProgress?: (progress: IdeaAnalysisProgress) => void) => {
+    clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void) => {
       const requestId = `${Date.now()}-${++clusterRequestSequence}-${Math.random().toString(36).slice(2)}`
       const listener = (_event: Electron.IpcRendererEvent, update: IdeaAnalysisProgress & { requestId: string }) => {
         if (update.requestId === requestId) onProgress?.(update)
       }
       ipcRenderer.on('ideas:clusters:progress', listener)
       try {
-        return await ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options, requestId)
+        return await ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options, ideaIds, requestId)
       } finally {
         ipcRenderer.removeListener('ideas:clusters:progress', listener)
       }

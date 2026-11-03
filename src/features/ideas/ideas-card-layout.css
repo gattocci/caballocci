@@ -37,6 +37,34 @@
   .idea-card:hover { transform: none; }
 }
 
+/* Los controles son contextuales; la prioridad sigue visible como señal principal. */
+.ideas-grid .idea-card-signals { min-width: 0; }
+.ideas-grid .idea-card .idea-select,
+.ideas-grid .idea-card .idea-card-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s ease;
+}
+.ideas-grid .idea-card:hover .idea-select,
+.ideas-grid .idea-card:focus-within .idea-select,
+.ideas-grid .idea-card.selected .idea-select,
+.ideas-grid .idea-card:hover .idea-card-actions,
+.ideas-grid .idea-card:focus-within .idea-card-actions,
+.ideas-grid .idea-card.selected .idea-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ideas-grid .idea-card .idea-priority { display: inline-flex; align-items: center; min-height: 18px; }
+.ideas-grid .idea-card .idea-select input:focus-visible,
+.ideas-grid .idea-card header button:focus-visible {
+  outline: 2px solid #d0a64b;
+  outline-offset: 2px;
+}
+@media (hover: none) {
+  .ideas-grid .idea-card .idea-select,
+  .ideas-grid .idea-card .idea-card-actions { opacity: 1; pointer-events: auto; }
+}
+
 .ideas-workspace > .view-heading {
   align-items: center;
   min-height: 0;

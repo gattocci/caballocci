@@ -34,6 +34,7 @@ export function IdeasView() {
   const [importMessage, setImportMessage] = useState('')
   const [importDuplicates, setImportDuplicates] = useState<Array<{ title: string; existingTitle: string; existingSourceName: string }>>([])
   const [statusFilter, setStatusFilter] = useState<'active' | IdeaStatus>('active')
+  const [clusterScope, setClusterScope] = useState<'current' | 'all'>(activeSpace ? 'current' : 'all')
   const [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
@@ -66,6 +67,7 @@ export function IdeasView() {
   const [automaticTerms, setAutomaticTerms] = useState<string[]>([])
   const ignoredTerms = useMemo(() => Array.from(new Set(ignoredTermsText.split(/[\n,;]+/).map(term => term.trim().toLocaleLowerCase()).filter(Boolean))), [ignoredTermsText])
   const scopedIdeas = useMemo(() => activeSpace ? ideas.filter(idea => idea.space === activeSpace) : ideas, [activeSpace, ideas])
+  const clusterSourceIdeas = useMemo(() => clusterScope === 'current' && activeSpace ? scopedIdeas : ideas, [activeSpace, clusterScope, ideas, scopedIdeas])
   const familyCounts = useMemo(() => { const counts = new Map<string, number>(); scopedIdeas.forEach(idea => { const family = ideaFamily(idea.title, idea.sourceName).family || 'Otras'; counts.set(family, (counts.get(family) || 0) + 1) }); return [...counts.entries()].sort((a, b) => b[1] - a[1]) }, [scopedIdeas])
   const ideasInSpace = useMemo(() => selectedOnly
     ? ideas.filter(idea => selectedIds.includes(idea.id))
@@ -113,22 +115,22 @@ export function IdeasView() {
     if (!reportGeneratedAt) return null
     const clusteredIds = new Set(clusters.flatMap(cluster => cluster.ideaIds))
     const duplicateMap = new Map<string, Idea[]>()
-    for (const idea of ideas) {
+    for (const idea of clusterSourceIdeas) {
       const key = exploratoryDuplicateKey(idea)
       if (key) duplicateMap.set(key, [...(duplicateMap.get(key) || []), idea])
     }
     return {
-      total: ideas.length,
-      grouped: ideas.filter(idea => clusteredIds.has(idea.id)).length,
+      total: clusterSourceIdeas.length,
+      grouped: clusterSourceIdeas.filter(idea => clusteredIds.has(idea.id)).length,
       distribution: (['inbox', 'developing', 'ready', 'converted', 'archived'] as const).map(status => ({
         status,
-        count: ideas.filter(idea => idea.status === status).length,
+        count: clusterSourceIdeas.filter(idea => idea.status === status).length,
       })),
-      isolated: ideas.filter(idea => !clusteredIds.has(idea.id)),
+      isolated: clusterSourceIdeas.filter(idea => !clusteredIds.has(idea.id)),
       duplicates: [...duplicateMap.values()].filter(group => group.length > 1).sort((a, b) => b.length - a.length),
       developmentGroups: [...clusters],
     }
-  }, [clusters, ideas, reportGeneratedAt])
+  }, [clusterSourceIdeas, clusters, reportGeneratedAt])
   const suggestedGroups = useMemo(() => {
     const sorted = [...(reportSummary?.developmentGroups || [])].sort((a, b) => {
       if (suggestionSort === 'name') return a.name.localeCompare(b.name)
@@ -148,6 +150,7 @@ export function IdeasView() {
     setReportGeneratedAt(null)
   }, [analysisCorpusSignature])
   useEffect(() => { setPage(1); setSelectedIds([]); setSelectedOnly(false) }, [query, statusFilter, activeSpace, familyFilter])
+  useEffect(() => { setClusterScope(activeSpace ? 'current' : 'all') }, [activeSpace])
   useEffect(() => { if (page > pageCount) setPage(pageCount) }, [page, pageCount])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-ignored-terms', ignoredTermsText) } catch { /* Optional local preference. */ } }, [ignoredTermsText])
   useEffect(() => { try { localStorage.setItem('caballocci.ideas.analysis-options', JSON.stringify(analysisOptions)) } catch { /* Optional local preference. */ } }, [analysisOptions])
@@ -319,14 +322,14 @@ export function IdeasView() {
     setSuggestedVisibleCount(3)
     setSuggestionOrder([])
     try {
-      if (!ideas.length) {
+      if (!clusterSourceIdeas.length) {
         setClusters([])
         setReportGeneratedAt(new Date().toISOString())
         setAnalysisProgress({ stage: 'done', completed: 1, total: 1 })
         setAnalysisMessage('')
         return
       }
-      const proposed = await proposeClusters(0.65, ignoredTerms, analysisOptions, setAnalysisProgress)
+      const proposed = await proposeClusters(0.65, ignoredTerms, analysisOptions, clusterSourceIdeas.map(idea => idea.id), setAnalysisProgress)
       if (startingRevision !== corpusRevision.current) {
         setAnalysisMessage('El corpus cambió durante el análisis. Vuelve a generar el informe para incluir los cambios.')
         return
@@ -348,6 +351,7 @@ export function IdeasView() {
   return <section className={`workspace ideas-workspace ${ideasTab === 'imports' ? 'show-import-history' : ''}`}>
     <ViewHeading title="Ideas" subtitle="Captura, desarrolla y convierte tus ideas en contenido.">
       <button type="button" className="settings-button" disabled={importing} onClick={() => runSafely(importFile, 'No se pudo importar el archivo')}>{importing ? 'Importando...' : 'Importar .md / .txt'}</button><button type="button" className="settings-button" disabled={importing || analysisRunning} onClick={() => runSafely(generateExploratoryReport, 'No se pudo generar el análisis')}><Layers3 size={14} /> {analysisRunning ? 'Generando clústers...' : 'Generar clústers'}</button><button type="button" className="new-button" onClick={() => setDraft(blankIdea(activeSpace || 'Mi contenido'))}><Plus size={17} /> Nueva idea</button>
+      <label className="cluster-scope"><span>Clústers desde</span><select value={clusterScope} disabled={analysisRunning} onChange={event => setClusterScope(event.target.value as 'current' | 'all')}>{activeSpace && <option value="current">Espacio actual: {activeSpace}</option>}<option value="all">Todos los espacios</option></select></label>
     </ViewHeading>
     <div className="ideas-tabs" role="tablist"><button type="button" role="tab" aria-selected={ideasTab === 'ideas'} className={ideasTab === 'ideas' ? 'active' : ''} onClick={() => setIdeasTab('ideas')}>Ideas</button><button type="button" role="tab" aria-selected={ideasTab === 'imports'} className={ideasTab === 'imports' ? 'active' : ''} onClick={() => setIdeasTab('imports')}>Historial de importaciones <span>{importHistory.length}</span></button></div>
     <IdeaImportPanels

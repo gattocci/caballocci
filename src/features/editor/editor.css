@@ -2,39 +2,82 @@
 @import './editor-writing.css';
 @import './editor-fields.css';
 @import './editor-preview.css';
-.editor-session-tabs { position:relative; display:flex; align-items:center; gap:7px; min-width:0; padding:0 24px 9px; border-bottom:1px solid var(--line); }
-.editor-session-tablist { display:flex; flex:1; align-items:center; gap:4px; min-width:0; overflow-x:auto; scrollbar-width:thin; }
+
+/* ───────── Estructura: las barras no se encogen, solo el cuerpo scrollea ───────── */
+.editor-session-tabs,.editor .editor-main-tabs,.editor .post-title-toolbar { flex:none; }
+.editor-header-actions { display:flex; align-items:center; gap:2px; }
+
+/* ───────── Pestañas de sesión (publicaciones abiertas) ───────── */
+.editor-session-tabs { position:relative; display:flex; align-items:center; gap:8px; min-width:0; padding:8px 18px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:#101411; }
 .editor-session-count { display:grid; flex:none; width:22px; height:22px; place-items:center; border:1px solid #3b463e; border-radius:6px; background:#1b211d; color:#aab7ad; font:9px 'DM Mono',monospace; }
-.editor-session-tab { display:flex; align-items:center; flex:none; max-width:190px; height:32px; border:1px solid transparent; border-radius:5px; background:transparent; }
-.editor-session-tab > button:first-child { display:flex; align-items:center; gap:7px; min-width:0; height:30px; flex:1; padding:0 3px 0 9px; border:0; background:transparent; color:#8f9992; text-align:left; font-size:9px; cursor:pointer; }
-.editor-session-tab > button:first-child small { flex:none; color:#758078; font:8px 'DM Mono',monospace; }
+.editor-session-tablist { display:flex; flex:1; align-items:center; gap:4px; min-width:0; overflow-x:auto; scrollbar-width:none; scroll-behavior:smooth; }
+.editor-session-tablist::-webkit-scrollbar { display:none; }
+.editor-session-tab { display:flex; align-items:center; flex:none; max-width:176px; height:30px; border:1px solid #232b26; border-radius:6px; background:#161b18; transition:background .15s ease, border-color .15s ease; }
+.editor-session-tab:hover { background:#1d2420; border-color:#33403a; }
+.editor-session-tab.active { border-color:#6a5c37; background:#2a261d; }
+.editor-session-tab > button:first-child { display:flex; align-items:center; gap:7px; min-width:0; height:28px; flex:1; padding:0 2px 0 9px; border:0; background:transparent; color:#8f9992; text-align:left; font-size:10px; cursor:pointer; }
+.editor-session-tab > button:first-child small { flex:none; color:#6f7a73; font:8px 'DM Mono',monospace; }
 .editor-session-tab > button:first-child span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.editor-session-tab:hover { background:#1b211d; }
-.editor-session-tab.active { border-color:#625638; background:#28251d; }
 .editor-session-tab.active > button:first-child { color:#f1e5c5; }
 .editor-session-tab.active > button:first-child small { color:#d0a64b; }
 .editor-session-tab button:disabled { opacity:.55; cursor:wait; }
-.editor-session-close { display:grid; flex:none; width:25px; height:28px; place-items:center; padding:0; border:0; border-radius:4px; background:transparent; color:#7e8981; cursor:pointer; }
+.editor-session-close { display:grid; flex:none; width:24px; height:26px; place-items:center; padding:0; border:0; border-radius:4px; background:transparent; color:#7e8981; opacity:0; cursor:pointer; transition:opacity .16s ease, background .16s ease, color .16s ease; }
+.editor-session-tab.active .editor-session-close,.editor-session-tab:hover .editor-session-close,.editor-session-tab:focus-within .editor-session-close { opacity:1; }
 .editor-session-close:hover:not(:disabled) { background:#49302b; color:#f2a08e; }
+.editor-session-feedback { flex:none; color:#9ec9a9; font-size:9px; white-space:nowrap; }
+
+/* ───────── Botón "+" y menú para añadir ───────── */
 .editor-session-add { position:relative; flex:none; }
-.editor-session-add-trigger { display:grid; width:29px; height:29px; place-items:center; border:1px dashed #465148; border-radius:5px; background:#191f1b; color:#b4c0b7; cursor:pointer; }
+.editor-session-add-trigger { display:grid; width:30px; height:30px; place-items:center; border:1px dashed #4a564d; border-radius:6px; background:#161b18; color:#b4c0b7; cursor:pointer; }
 .editor-session-add-trigger:hover:not(:disabled),.editor-session-add-trigger[aria-expanded="true"] { border-color:#927b48; background:#29251c; color:#efd68f; }
 .editor-session-add-trigger:disabled { opacity:.5; cursor:wait; }
-.editor-session-add-menu { position:absolute; top:calc(100% + 8px); right:-8px; z-index:20; display:grid; gap:7px; width:min(310px, calc(100vw - 32px)); padding:10px; border:1px solid #46534a; border-radius:6px; background:#171c19; box-shadow:0 12px 30px #000a; }
-.editor-session-add-modes { display:flex; gap:4px; padding-bottom:7px; border-bottom:1px solid #303a33; }
-.editor-session-add-modes button { flex:1; min-height:28px; padding:0 8px; border:1px solid transparent; border-radius:4px; background:transparent; color:#8c9890; font-size:9px; cursor:pointer; }
-.editor-session-add-modes button:hover { background:#202722; color:#dbe3dd; }
-.editor-session-add-modes button.active { border-color:#4a594d; background:#273129; color:#d7ead8; }
+.editor-session-add-menu { position:absolute; top:calc(100% + 8px); right:-6px; z-index:20; display:grid; gap:9px; width:min(360px, calc(100vw - 32px)); padding:12px; border:1px solid #46534a; border-radius:8px; background:linear-gradient(155deg,#1b211d,#121714 75%); box-shadow:0 14px 34px #000b; }
+.editor-session-add-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.editor-session-add-heading strong { color:#e4ebe5; font-size:11px; }
+.editor-session-add-heading span,.editor-session-add-hint { color:#87938a; font-size:9px; }
 .editor-session-add-menu label { display:grid; gap:6px; color:#9da69f; font-size:9px; font-weight:700; text-transform:uppercase; }
-.editor-session-add-menu input { height:33px; padding:0 9px; border:1px solid #353f38; border-radius:4px; background:#101512; color:#e6ebe8; font-size:10px; text-transform:none; }
-.editor-session-add-menu [role="listbox"] { display:grid; gap:2px; max-height:240px; overflow:auto; }
-.editor-session-add-menu [role="option"] { display:grid; gap:3px; min-width:0; padding:7px 8px; border:0; border-radius:4px; background:transparent; color:#dbe2dd; text-align:left; cursor:pointer; }
-.editor-session-add-menu [role="option"]:hover { background:#28332b; }
-.editor-session-add-menu [role="option"] span { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
-.editor-session-add-menu [role="option"] small { color:#8a968e; font-size:8px; }
-.editor-session-project-group { display:grid; gap:2px; padding-top:5px; }
-.editor-session-project-group + .editor-session-project-group { margin-top:5px; border-top:1px solid #303a33; }
-.editor-session-project-group > strong { padding:4px 8px; color:#91a18f; font-size:8px; font-weight:750; letter-spacing:.6px; text-transform:uppercase; }
-.editor-session-add-menu p { margin:0; padding:8px; color:#89958d; font-size:9px; }
-.editor-session-feedback { flex:none; color:#9ec9a9; font-size:8px; white-space:nowrap; }
-.editor-save-status { align-self:center; padding:0 8px; color:var(--muted,#8b938c); font-size:11px; white-space:nowrap; }.editor-save-pending,.editor-save-saving { color:#d6b967; }.editor-save-error { color:#e58b7d; }.notes-tab-hidden { display:none !important; }
+.editor-session-add-menu label input { height:34px; padding:0 9px; border:1px solid #353f38; border-radius:4px; background:#101512; color:#e6ebe8; font-size:11px; text-transform:none; }
+.editor-session-board-pick { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:9px 11px; border:1px solid #6a5c37; border-radius:6px; background:#2a261d; color:#f1e5c5; text-align:left; cursor:pointer; }
+.editor-session-board-pick:hover:not(:disabled) { background:#342f22; }
+.editor-session-board-pick span { display:grid; gap:2px; }
+.editor-session-board-pick strong { font-size:11px; }
+.editor-session-board-pick small { color:#c9b78a; font-size:9px; }
+.editor-session-add-results { display:grid; gap:3px; max-height:min(320px,50vh); overflow:auto; padding-right:3px; scrollbar-width:thin; scrollbar-color:#46534a transparent; }
+.editor-session-add-results button { display:grid; grid-template-columns:minmax(0,1fr) auto 15px; align-items:center; gap:10px; min-height:40px; padding:7px 9px; border:1px solid transparent; border-radius:5px; background:transparent; text-align:left; cursor:pointer; }
+.editor-session-add-results button:hover,.editor-session-add-results button:focus-visible { border-color:#3d4d40; background:#263129; outline:none; }
+.editor-session-add-results button span { overflow:hidden; color:#e0e6e1; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.editor-session-add-results button small { color:#9eaa9f; font-size:9px; }
+.editor-session-add-results button svg { color:#9ac6a2; }
+.editor-session-add-results p { margin:0; padding:12px 8px; color:#95a097; font-size:10px; line-height:1.5; }
+.editor-session-add-hint { padding-top:7px; border-top:1px solid #303a33; line-height:1.4; }
+
+/* ───────── Secciones principales: pestañas subrayadas, una sola fila con scroll ───────── */
+.editor .editor-main-tabs { display:flex; align-items:stretch; gap:2px; padding:0 14px; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; border-bottom:1px solid var(--line); }
+.editor .editor-main-tabs::-webkit-scrollbar { display:none; }
+.editor .editor-main-tabs button { display:inline-flex; flex:none; align-items:center; gap:6px; height:40px; margin-bottom:-1px; padding:0 12px; border:0; border-bottom:2px solid transparent; border-radius:0; background:transparent; color:#86918a; font-size:11px; font-weight:600; white-space:nowrap; cursor:pointer; transition:color .15s ease, border-color .15s ease, background .15s ease; }
+.editor .editor-main-tabs button:hover { background:#1a201c; color:#d5dcd7; }
+.editor .editor-main-tabs button.active { border-bottom-color:var(--accent); background:transparent; color:#fff; }
+.editor .editor-main-tabs button:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; border-radius:4px; }
+.editor-tab-count { padding:1px 6px; border-radius:9px; background:#262e29; color:#aab7ad; font:normal 9px 'DM Mono',monospace; }
+.editor .editor-main-tabs button.active .editor-tab-count { background:var(--accent); color:#111; }
+.notes-tab-hidden { display:none !important; }
+
+/* ───────── Estado de guardado ───────── */
+.editor-save-status { align-self:center; padding:0 8px; color:var(--muted,#8b938c); font-size:11px; white-space:nowrap; }
+.editor-save-pending,.editor-save-saving { color:#d6b967; }
+.editor-save-error { color:#e58b7d; }
+
+/* ───────── Editor minimizado: el tablero queda visible y clickeable ───────── */
+.editor-backdrop { transition:background .2s ease; }
+.editor { transition:transform .26s cubic-bezier(.2,.8,.2,1), visibility 0s linear 0s; }
+.editor-backdrop.minimized { background:transparent; pointer-events:none; }
+.editor-backdrop.minimized .editor { transform:translateX(calc(100% + 40px)); visibility:hidden; box-shadow:none; transition:transform .26s cubic-bezier(.2,.8,.2,1), visibility 0s linear .26s; }
+.editor-dock { position:fixed; right:20px; bottom:20px; z-index:60; display:flex; align-items:center; gap:10px; max-width:min(460px, calc(100vw - 40px)); padding:8px 8px 8px 10px; border:1px solid #6a5c37; border-radius:12px; background:#1c1a14f2; box-shadow:0 16px 44px #000b; pointer-events:auto; animation:editor-dock-in .22s cubic-bezier(.2,.8,.2,1); }
+.editor-dock-main { display:flex; align-items:center; gap:10px; min-width:0; flex:1; padding:2px 6px 2px 2px; border:0; background:transparent; color:#f1e5c5; text-align:left; cursor:pointer; }
+.editor-dock-main > svg { flex:none; color:#d0a64b; }
+.editor-dock-main > span { display:grid; gap:2px; min-width:0; }
+.editor-dock-main strong { overflow:hidden; font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.editor-dock-main small { color:#c9b78a; font-size:9px; line-height:1.3; }
+.editor-dock-done { flex:none; }
+@keyframes editor-dock-in { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion:reduce) { .editor,.editor-backdrop,.editor-dock { transition:none; animation:none; } }

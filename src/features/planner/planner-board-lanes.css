@@ -9,7 +9,7 @@
 .board-lanes { display: grid; grid-template-columns: repeat(6, minmax(180px, 1fr)); gap: 0 8px; min-width: 1120px; align-items: start; }
 /* Cabeceras de estado (sticky) */
 .board-status-heading { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-top: 0; border-radius: 6px 6px 0 0; background: var(--status-color); }
-.board-status-heading.status-published label, .board-status-heading.status-published em { color: #f2f7f3; }
+.board-status-heading.status-published label, .board-status-heading.status-published em { color: #111713; }
 .board-status-heading label { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; color: #111713; font-size: 11px; font-weight: 700; cursor: pointer; }
 .board-status-heading input { flex: none; width: 13px; height: 13px; margin: 0; appearance: none; border: 1px solid #68736b; border-radius: 3px; background: #171d19; opacity: 0; cursor: pointer; transition: opacity .12s ease, background .12s ease, border-color .12s ease; }
 .board-status-heading:hover input, .board-status-heading:focus-within input { opacity: 1; }
@@ -45,6 +45,8 @@
 .board-card-slot { position: relative; height: 124px; min-width: 0; }
 .board-lane-cell article { position: absolute; top: 0; right: 0; left: 0; z-index: 0; display: flex; flex-direction: column; min-width: 0; height: 124px; box-sizing: border-box; padding: 9px 10px; border: 1px solid #2d3730; border-radius: 6px; background: #171d19; container-type: inline-size; cursor: grab; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
 .board-lane-cell article.selected { border-color: #d0a64b; box-shadow: inset 0 0 0 1px #d0a64b; }
+.board-lane-cell article.session-picked { border-color: #d0a64b; background: #342d1a; box-shadow: inset 0 0 0 1px #d0a64b, 0 0 0 2px #d0a64b24; }
+.board-lane-cell article.session-picked:hover, .board-lane-cell article.session-picked:focus-within { background: #40361d; }
 .board-lane-cell article.just-duplicated { animation: board-duplicate-feedback 2.5s ease-out forwards; }
 @keyframes board-duplicate-feedback {
   0%, 78% { outline: 2px solid #d0a64b; outline-offset: 2px; box-shadow: 0 0 0 3px #d0a64b35; }
