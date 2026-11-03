@@ -212,6 +212,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
     <button type="button" role="menuitem" onClick={() => { onSelect(context.post.id); setContext(null) }}>{selected.size > 1 && selected.has(context.post.id) ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
     {selected.size > 1 && selected.has(context.post.id) && <button type="button" role="menuitem" onClick={() => { onEditSelection(); setContext(null) }}>Editar selección en pestañas</button>}
     <button type="button" role="menuitem" onClick={() => { void duplicatePost(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
+    <button type="button" role="menuitem" onClick={() => { void runWithErrorReporting(() => window.planner.media.openFolder(context.post.id, context.post.project), 'No se pudo abrir la carpeta de media'); setContext(null) }}><FolderOpen size={14} />Abrir en el Explorador Windows</button>
     <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
     <button type="button" role="menuitem" disabled={!context.post.caption.trim()} onClick={() => { void runWithErrorReporting(() => window.planner.clipboard.write(context.post.caption), 'No se pudo copiar el texto'); setContext(null) }}><ClipboardCopy size={14} />Copiar texto</button>
     <button type="button" role="menuitem" aria-expanded={showStatuses} onClick={() => setShowStatuses(value => !value)}><MoreHorizontal size={14} />Cambiar etapa…</button>

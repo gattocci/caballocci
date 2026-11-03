@@ -1,11 +1,12 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, Trash2 } from 'lucide-react'
+import { Copy, FolderOpen, Trash2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { contentLabels, statusMeta } from '../../shared/constants'
 import type { Post, WorkGroup } from '../../shared/types'
 import { AreaSelectionSurface } from './AreaSelectionSurface'
+import { runWithErrorReporting } from '../../app/errors'
 
 export type BoardListSort = 'title' | 'status' | 'format' | 'collection' | 'date'
 type BoardListSortDirection = 'asc' | 'desc'
@@ -95,6 +96,7 @@ export function BoardListView({
       <button type="button" role="menuitem" onClick={() => { select(context.post.id); setContext(null) }}>{selected.size > 1 && selected.has(context.post.id) ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
       {selected.size > 1 && selected.has(context.post.id) && <button type="button" role="menuitem" onClick={() => { onEditSelection(); setContext(null) }}>Editar selección en pestañas</button>}
       <button type="button" role="menuitem" onClick={() => { void onDuplicate(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
+      <button type="button" role="menuitem" onClick={() => { void runWithErrorReporting(() => window.planner.media.openFolder(context.post.id, context.post.project), 'No se pudo abrir la carpeta de media'); setContext(null) }}><FolderOpen size={14} />Abrir en el Explorador Windows</button>
       <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
     </div>, document.body) : null}
   </AreaSelectionSurface>
