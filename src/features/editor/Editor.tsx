@@ -12,6 +12,7 @@ import { EditorIdeaBlocks } from './EditorIdeaBlocks'
 import { EditorNotes } from './EditorNotes'
 import { EditorAssistantPanel } from './EditorAssistantPanel'
 import { EditorCatalogPanel } from './EditorCatalogPanel'
+import { EditorSchedule, recordScheduleHistory } from './EditorSchedule'
 import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
 import { Preview } from './EditorMediaPreview'
 import './editor.css'
@@ -32,6 +33,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
   const draftRef = useRef(draft)
   draftRef.current = draft
   const [saveState, setSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved')
+  const [scheduleHistoryVersion, setScheduleHistoryVersion] = useState(0)
   const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'assistant' | 'external' | 'catalog'>('content')
   const [assistantIdea, setAssistantIdea] = useState('')
   const [assistantTitles, setAssistantTitles] = useState('')
@@ -56,13 +58,15 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
   const availableSessionPosts = posts.filter(post => !sessionPostIds.has(post.id) && `${post.title} ${post.project}`.toLocaleLowerCase().includes(sessionAddQuery.trim().toLocaleLowerCase()))
   const sessionBrowsePosts = [...availableSessionPosts].sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')).slice(0, 30)
   const saveSessionDraft = async () => {
-    if (!initial || JSON.stringify(draft) === lastSavedDraft.current) return true
+    if (!initial) return true
+    if (JSON.stringify(draft) === lastSavedDraft.current) { recordPersistedSchedule(draft); return true }
     setSaving(true)
     setSaveState('saving')
     try {
       await save(draft, { recordHistory: false })
       lastSavedDraft.current = JSON.stringify(draft)
       setSaveState('saved')
+      recordPersistedSchedule(draft)
       return true
     } catch (error) {
       setSaveState('error')
@@ -193,13 +197,35 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
   const [newPlatformName, setNewPlatformName] = useState('')
   const [addingPlatform, setAddingPlatform] = useState(false)
   const [scheduleWarning, setScheduleWarning] = useState('')
+  // El historial solo guarda horarios ya persistidos y confirmados (guardar, salir o cambiar de pestaña),
+  // nunca por tiempo transcurrido. `lastRecordedSchedule` evita registrar lo que ya estaba al abrir.
+  const lastRecordedSchedule = useRef<string | null>(initial?.scheduledAt ?? null)
+  useEffect(() => { lastRecordedSchedule.current = initial?.scheduledAt ?? null }, [initial?.id])
+  const recordPersistedSchedule = (post: Pick<PostInput, 'id' | 'scheduledAt'>) => {
+    if (!post.scheduledAt || post.scheduledAt === lastRecordedSchedule.current) return
+    lastRecordedSchedule.current = post.scheduledAt
+    if (recordScheduleHistory(post.id || initialDraft.id || 'new', post.scheduledAt)) setScheduleHistoryVersion(version => version + 1)
+  }
+  const localScheduleValue = toLocalDateTimeInput(draft.scheduledAt)
+  const scheduleDate = localScheduleValue.slice(0, 10)
+  const scheduleTime = localScheduleValue.slice(11, 16) || '10:00'
+  const scheduleSummary = draft.scheduledAt && !Number.isNaN(new Date(draft.scheduledAt).getTime())
+    ? new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(draft.scheduledAt))
+    : 'Todavía no está programada'
+  const setSchedule = (date: string, time: string, label = 'Cambiar fecha') => {
+    const scheduledAt = date ? fromLocalDateTimeInput(`${date}T${time || '10:00'}`) : null
+    const returnsToApproved = !scheduledAt && draft.status === 'scheduled'
+    setDraft(current => ({ ...current, scheduledAt, ...(returnsToApproved ? { status: 'approved' as const } : {}) }), { label: returnsToApproved ? 'Quitar fecha y volver a Aprobado' : label, groupKey: 'post:scheduledAt' })
+    setScheduleWarning(returnsToApproved ? 'Al quitar la fecha, el estado volvió a Aprobado.' : '')
+  }
   const addPlatform = () => { const name = newPlatformName.trim(); const id = name.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); if (!name || !id || platformOptions.includes(id)) return; const next = [...platformOptions, id]; setPlatformOptions(next); localStorage.setItem('caballocci.platforms', JSON.stringify(next)); setDraft(d => ({ ...d, platforms: d.platforms.includes(id) ? d.platforms : [...d.platforms, id], distribution: [...(d.distribution || []), { id, name, status: 'pending' as const }] }), { label: 'Añadir destino' }); setNewPlatformName(''); setAddingPlatform(false) }
   const submit = async () => {
     setSaving(true)
     try {
-      await save(draft)
+      const savedPost = await save(draft)
       lastSavedDraft.current = JSON.stringify(draft)
       setSaveState('saved')
+      recordPersistedSchedule({ id: savedPost?.id ?? draft.id, scheduledAt: draft.scheduledAt })
       onClose()
       return true
     } catch (error) {
@@ -245,6 +271,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
       const exportDraft = { ...draft, media: [...draft.media || [], ...scanned.filter(asset => !linkedIds.has(asset.id))] }
       setDraft(exportDraft, { label: 'Añadir medios detectados' })
       const savedPost = await save(exportDraft)
+      recordPersistedSchedule({ id: savedPost.id, scheduledAt: exportDraft.scheduledAt })
       if (chooseFolder) {
         const folder = await window.planner.mobileSync.chooseFolder()
         if (!folder) {
@@ -294,6 +321,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
         return
       } finally { setSaving(false) }
     }
+    if (initial) recordPersistedSchedule(draft)
     onClose()
   }
   const submitAndClear = async () => {
@@ -400,7 +428,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
         <section className="distribution-panel"><header><strong>Estado por destino</strong><small>Marca dónde está publicada cada versión.</small></header>{(draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const }))).map((target, index) => <div className="distribution-row" key={target.id}><span>{target.name}</span><select value={target.status} onChange={event => { const current = draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const })); update('distribution', current.map((item, i) => i === index ? { ...item, status: event.target.value as any } : item)) }}><option value="pending">Pendiente</option><option value="preparing">En preparación</option><option value="scheduled">Programado</option><option value="published">Publicado</option><option value="not_applicable">No aplica</option><option value="failed">Requiere atención</option></select></div>)}</section>
         <label>Texto de la publicación<div className="caption-box"><textarea data-undo-control value={draft.caption} onChange={e => update('caption', e.target.value, { label: 'Editar texto', groupKey: 'post:caption' })} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input data-undo-control value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean), { label: 'Editar hashtags', groupKey: 'post:hashtags' })} placeholder="#contenido #campaña" /></label>
-        <div className="field-row"><label>Fecha y hora<input data-undo-control type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); setDraft(current => ({ ...current, scheduledAt, ...(!scheduledAt && current.status === 'scheduled' ? { status: 'approved' as const } : {}) }), { label: !scheduledAt && draft.status === 'scheduled' ? 'Quitar fecha y volver a Aprobado' : 'Cambiar fecha', groupKey: 'post:scheduledAt' }); if (!scheduledAt && draft.status === 'scheduled') setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.'); else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input data-undo-control list="editor-project-options" value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /><datalist id="editor-project-options">{projectOptions.map(project => <option key={project} value={project} />)}</datalist></label></div>
+        <div className="field-row"><EditorSchedule historyKey={draft.id || 'new'} historyVersion={scheduleHistoryVersion} scheduledAt={draft.scheduledAt} onChange={(date, time, label) => setSchedule(date, time, label)} /><label>Proyecto<input data-undo-control list="editor-project-options" value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /><datalist id="editor-project-options">{projectOptions.map(project => <option key={project} value={project} />)}</datalist></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         <details className="media-export-section" open>
           <summary><Smartphone size={15} /> Enviar álbumes al celular</summary>
@@ -461,7 +489,7 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
       {tab === 'external' && externalRecord && <EditorExternalRecordPanel record={externalRecord} />}
       {tab === 'catalog' && <EditorCatalogPanel categoryId={catalogCategoryId} onCategoryIdChange={setCatalogCategoryId} summary={catalogSummary} onSummaryChange={setCatalogSummary} content={catalogContent} onContentChange={setCatalogContent} useHashtags={catalogUseHashtags} onUseHashtagsChange={setCatalogUseHashtags} sync={catalogSync} endpoint={catalogEndpoint} onEndpointChange={setCatalogEndpoint} createdBy={catalogCreatedBy} onCreatedByChange={setCatalogCreatedBy} token={catalogToken} onTokenChange={setCatalogToken} configured={catalogConfig.configured} kind={catalogKind} onKindChange={setCatalogKind} busy={catalogBusy} message={catalogMessage} onSaveConfig={() => void saveCatalog()} onSync={dryRun => void syncCatalog(dryRun)} preview={catalogPreview} />}
     </div>
-    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button type="button" className="ghost-button" title="Duplicar publicación" aria-label="Duplicar publicación" disabled={saving} onClick={() => void duplicatePost()}><Copy size={15} /></button><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}{initial && <span className={'editor-save-status editor-save-' + saveState} role="status">{saveState === 'saved' ? 'Guardado' : saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? 'Error al guardar' : 'Cambios pendientes'}</span>}</div><div><button className="ghost-button" onClick={() => void close()}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
+    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button type="button" className="ghost-button" title="Duplicar publicación" aria-label="Duplicar publicación" disabled={saving} onClick={() => void duplicatePost()}><Copy size={15} /></button><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button editor-footer-uncombine" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}{initial && <span className={'editor-save-status editor-save-' + saveState} role="status">{saveState === 'saved' ? 'Guardado' : saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? 'Error al guardar' : 'Cambios pendientes'}</span>}</div><div className="editor-footer-main"><button className="ghost-button" onClick={() => void close()}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
   </aside>
   {minimized && <div className="editor-dock" role="region" aria-label="Editor minimizado">
     <button type="button" className="editor-dock-main" onClick={restore} title="Expandir el editor (Esc)"><ChevronLeft size={16} aria-hidden="true" /><span><strong>{draft.title || 'Sin título todavía'}</strong><small aria-live="polite">{sessionFeedback || (boardPick ? 'Haz clic en una publicación del tablero para añadirla' : 'Editor minimizado')}</small></span></button>
