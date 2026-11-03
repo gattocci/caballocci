@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Archive, ChevronLeft, ChevronRight, Copy, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
@@ -12,20 +12,29 @@ import { EditorIdeaBlocks } from './EditorIdeaBlocks'
 import { EditorNotes } from './EditorNotes'
 import { EditorAssistantPanel } from './EditorAssistantPanel'
 import { EditorCatalogPanel } from './EditorCatalogPanel'
+import { EditorSchedule, recordScheduleHistory } from './EditorSchedule'
 import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
 import { Preview } from './EditorMediaPreview'
 import './editor.css'
 
-export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial: Post | null; scheduledAtForNew?: string | null; onClose(): void }) {
-  const { save, remove, uncombinePost, activeSpace, ideas, selectIdea, setView } = usePlanner()
+export function Editor({ initial, scheduledAtForNew = null, spaceForNew, sessionPosts = [], onSessionNavigate, onSessionAdd, onSessionClose, onClose, minimized: minimizedProp, onMinimizedChange, boardPick = false }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; sessionPosts?: Post[]; onSessionNavigate?(id: string): void; onSessionAdd?(id: string): void; onSessionClose?(id: string, nextId: string | null): void; onClose(): void; minimized?: boolean; onMinimizedChange?(minimized: boolean): void; boardPick?: boolean }) {
+  const { save, remove, uncombinePost, activeSpace, customSpaces, posts, ideas, selectIdea, setView } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
   const initialDraft = useState<PostInput>(() => {
     if (initial) return { ...initial }
     try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return scheduledAtForNew ? { ...saved, scheduledAt: scheduledAtForNew, status: 'scheduled' } : saved } catch { /* Ignore invalid drafts. */ }
-    return { ...blankPost(activeSpace || 'Mi contenido'), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
+    const project = spaceForNew === undefined ? activeSpace || 'Mi contenido' : spaceForNew || 'Mi contenido'
+    return { ...blankPost(project), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
   })[0]
   const { value: draft, setValue: setDraft, undo, redo, canUndo, canRedo } = useUndoableState<PostInput>(initialDraft)
-  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'notes' | 'assistant' | 'external' | 'catalog'>('content')
+  const projectOptions = Array.from(new Set([...customSpaces, ...posts.map(post => post.project), draft.project].filter(Boolean)))
+  const sessionIndex = sessionPosts.findIndex(post => post.id === initial?.id)
+  const lastSavedDraft = useRef(JSON.stringify(initialDraft))
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  const [saveState, setSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved')
+  const [scheduleHistoryVersion, setScheduleHistoryVersion] = useState(0)
+  const [tab, setTab] = useState<'content' | 'ideas' | 'preview' | 'assistant' | 'external' | 'catalog'>('content')
   const [assistantIdea, setAssistantIdea] = useState('')
   const [assistantTitles, setAssistantTitles] = useState('')
   const [assistantMaster, setAssistantMaster] = useState('')
@@ -41,6 +50,95 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     return () => window.clearTimeout(timeout)
   }, [historyNotice])
   const [saving, setSaving] = useState(false)
+  const [sessionBusy, setSessionBusy] = useState(false)
+  const [sessionFeedback, setSessionFeedback] = useState('')
+  const [sessionAddOpen, setSessionAddOpen] = useState(false)
+  const [sessionAddQuery, setSessionAddQuery] = useState('')
+  const sessionPostIds = new Set(sessionPosts.map(post => post.id))
+  const availableSessionPosts = posts.filter(post => !sessionPostIds.has(post.id) && `${post.title} ${post.project}`.toLocaleLowerCase().includes(sessionAddQuery.trim().toLocaleLowerCase()))
+  const sessionBrowsePosts = [...availableSessionPosts].sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || '')).slice(0, 30)
+  const saveSessionDraft = async () => {
+    if (!initial) return true
+    if (JSON.stringify(draft) === lastSavedDraft.current) { recordPersistedSchedule(draft); return true }
+    setSaving(true)
+    setSaveState('saving')
+    try {
+      await save(draft, { recordHistory: false })
+      lastSavedDraft.current = JSON.stringify(draft)
+      setSaveState('saved')
+      recordPersistedSchedule(draft)
+      return true
+    } catch (error) {
+      setSaveState('error')
+      reportAppError(error, 'No se pudo guardar antes de cambiar la selección')
+      return false
+    } finally { setSaving(false) }
+  }
+  const navigateSession = async (post: Post) => {
+    if (!onSessionNavigate || !initial || saving || sessionBusy) return
+    if (!await saveSessionDraft()) return
+    setSessionAddOpen(false)
+    setSessionFeedback('')
+    onSessionNavigate(post.id)
+  }
+  const closeSessionPost = async (post: Post) => {
+    if (!onSessionClose || !initial || saving || sessionBusy) return
+    if (!await saveSessionDraft()) return
+    if (sessionPosts.length === 1) { onClose(); return }
+    const closingIndex = sessionPosts.findIndex(item => item.id === post.id)
+    const fallback = post.id === initial.id ? sessionPosts[(closingIndex + 1) % sessionPosts.length]?.id || null : initial.id
+    setSessionBusy(true)
+    setSessionFeedback('Guardado · cerrando pestaña')
+    window.setTimeout(() => {
+      onSessionClose(post.id, fallback)
+      setSessionBusy(false)
+      setSessionFeedback('Pestaña cerrada · cambios guardados')
+      window.setTimeout(() => setSessionFeedback(''), 1800)
+    }, 450)
+  }
+  const addSessionPost = async (post: Post) => {
+    if (!onSessionAdd || saving || sessionBusy) return
+    if (!await saveSessionDraft()) return
+    setSessionAddOpen(false)
+    setSessionAddQuery('')
+    setSessionFeedback('Publicación añadida a la sesión')
+    onSessionAdd(post.id)
+  }
+  const [minimizedState, setMinimizedState] = useState(false)
+  const minimized = minimizedProp ?? minimizedState
+  const setMinimized = (value: boolean) => { setMinimizedState(value); onMinimizedChange?.(value) }
+  const minimize = async () => {
+    if (saving || sessionBusy) return
+    if (initial && !await saveSessionDraft()) return
+    setSessionAddOpen(false)
+    setMinimized(true)
+  }
+  const restore = () => setMinimized(false)
+  const addMenuRef = useRef<HTMLDivElement>(null)
+  const mainTabsRef = useRef<HTMLDivElement>(null)
+  const sessionListRef = useRef<HTMLDivElement>(null)
+  const previousSessionCount = useRef(sessionPosts.length)
+  useEffect(() => {
+    if (!minimized) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setMinimized(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [minimized, onMinimizedChange])
+  useEffect(() => {
+    if (minimized && sessionPosts.length > previousSessionCount.current) {
+      setSessionFeedback(`Añadida · ${sessionPosts.length} pestañas abiertas`)
+      window.setTimeout(() => setSessionFeedback(''), 2200)
+    }
+    previousSessionCount.current = sessionPosts.length
+  }, [sessionPosts.length, minimized])
+  useEffect(() => {
+    if (!sessionAddOpen) return
+    const onDown = (event: MouseEvent) => { if (!addMenuRef.current?.contains(event.target as Node)) setSessionAddOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [sessionAddOpen])
+  useEffect(() => { mainTabsRef.current?.querySelector<HTMLElement>('button.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }) }, [tab])
+  useEffect(() => { sessionListRef.current?.querySelector<HTMLElement>('.editor-session-tab.active')?.scrollIntoView({ inline: 'center', block: 'nearest' }) }, [initial?.id, sessionPosts.length])
   const [phoneExportBusy, setPhoneExportBusy] = useState(false)
   const [phoneExportFolder, setPhoneExportFolder] = useState<string | null>(null)
   const [phoneExportMessage, setPhoneExportMessage] = useState('')
@@ -99,11 +197,35 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
   const [newPlatformName, setNewPlatformName] = useState('')
   const [addingPlatform, setAddingPlatform] = useState(false)
   const [scheduleWarning, setScheduleWarning] = useState('')
+  // El historial solo guarda horarios ya persistidos y confirmados (guardar, salir o cambiar de pestaña),
+  // nunca por tiempo transcurrido. `lastRecordedSchedule` evita registrar lo que ya estaba al abrir.
+  const lastRecordedSchedule = useRef<string | null>(initial?.scheduledAt ?? null)
+  useEffect(() => { lastRecordedSchedule.current = initial?.scheduledAt ?? null }, [initial?.id])
+  const recordPersistedSchedule = (post: Pick<PostInput, 'id' | 'scheduledAt'>) => {
+    if (!post.scheduledAt || post.scheduledAt === lastRecordedSchedule.current) return
+    lastRecordedSchedule.current = post.scheduledAt
+    if (recordScheduleHistory(post.id || initialDraft.id || 'new', post.scheduledAt)) setScheduleHistoryVersion(version => version + 1)
+  }
+  const localScheduleValue = toLocalDateTimeInput(draft.scheduledAt)
+  const scheduleDate = localScheduleValue.slice(0, 10)
+  const scheduleTime = localScheduleValue.slice(11, 16) || '10:00'
+  const scheduleSummary = draft.scheduledAt && !Number.isNaN(new Date(draft.scheduledAt).getTime())
+    ? new Intl.DateTimeFormat('es', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(new Date(draft.scheduledAt))
+    : 'Todavía no está programada'
+  const setSchedule = (date: string, time: string, label = 'Cambiar fecha') => {
+    const scheduledAt = date ? fromLocalDateTimeInput(`${date}T${time || '10:00'}`) : null
+    const returnsToApproved = !scheduledAt && draft.status === 'scheduled'
+    setDraft(current => ({ ...current, scheduledAt, ...(returnsToApproved ? { status: 'approved' as const } : {}) }), { label: returnsToApproved ? 'Quitar fecha y volver a Aprobado' : label, groupKey: 'post:scheduledAt' })
+    setScheduleWarning(returnsToApproved ? 'Al quitar la fecha, el estado volvió a Aprobado.' : '')
+  }
   const addPlatform = () => { const name = newPlatformName.trim(); const id = name.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); if (!name || !id || platformOptions.includes(id)) return; const next = [...platformOptions, id]; setPlatformOptions(next); localStorage.setItem('caballocci.platforms', JSON.stringify(next)); setDraft(d => ({ ...d, platforms: d.platforms.includes(id) ? d.platforms : [...d.platforms, id], distribution: [...(d.distribution || []), { id, name, status: 'pending' as const }] }), { label: 'Añadir destino' }); setNewPlatformName(''); setAddingPlatform(false) }
   const submit = async () => {
     setSaving(true)
     try {
-      await save(draft)
+      const savedPost = await save(draft)
+      lastSavedDraft.current = JSON.stringify(draft)
+      setSaveState('saved')
+      recordPersistedSchedule({ id: savedPost?.id ?? draft.id, scheduledAt: draft.scheduledAt })
       onClose()
       return true
     } catch (error) {
@@ -113,6 +235,24 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       setSaving(false)
     }
   }
+  useEffect(() => {
+    if (!initial) return
+    const serialized = JSON.stringify(draft)
+    if (serialized === lastSavedDraft.current) return
+    setSaveState('pending')
+    const timer = window.setTimeout(async () => {
+      setSaveState('saving')
+      try {
+        await save(draft, { recordHistory: false })
+        lastSavedDraft.current = JSON.stringify(draft)
+        setSaveState(JSON.stringify(draftRef.current) === lastSavedDraft.current ? 'saved' : 'pending')
+      } catch (error) {
+        setSaveState('error')
+        reportAppError(error, 'No se pudieron guardar automáticamente los cambios')
+      }
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [draft, initial, save])
   const exportToPhone = async (chooseFolder = false) => {
     if (!initial || !draft.id) return
     setPhoneExportBusy(true)
@@ -131,6 +271,7 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
       const exportDraft = { ...draft, media: [...draft.media || [], ...scanned.filter(asset => !linkedIds.has(asset.id))] }
       setDraft(exportDraft, { label: 'Añadir medios detectados' })
       const savedPost = await save(exportDraft)
+      recordPersistedSchedule({ id: savedPost.id, scheduledAt: exportDraft.scheduledAt })
       if (chooseFolder) {
         const folder = await window.planner.mobileSync.chooseFolder()
         if (!folder) {
@@ -168,9 +309,19 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     }
   }
   useEffect(() => { if (!initial) localStorage.setItem(draftKey, JSON.stringify(draft)) }, [draft, draftKey, initial])
-  const close = () => {
-    const changed = !initial && Boolean(draft.title || draft.caption || draft.notes || draft.media?.length || draft.ideaBlocks?.length)
-    if (changed && !window.confirm('Hay cambios sin guardar. ¿Quieres salir y conservar el borrador?')) return
+  const close = async () => {
+    if (initial && JSON.stringify(draft) !== lastSavedDraft.current) {
+      setSaving(true)
+      try {
+        await save(draft, { recordHistory: false })
+        lastSavedDraft.current = JSON.stringify(draft)
+        setSaveState('saved')
+      } catch (error) {
+        reportAppError(error, 'No se pudieron guardar los cambios antes de salir')
+        return
+      } finally { setSaving(false) }
+    }
+    if (initial) recordPersistedSchedule(draft)
     onClose()
   }
   const submitAndClear = async () => {
@@ -181,6 +332,22 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     } catch (error) {
       reportAppError(error, 'No se pudo limpiar el borrador guardado')
     }
+  }
+  const duplicatePost = async () => {
+    setSaving(true)
+    try {
+      await save({
+        ...draft,
+        id: undefined,
+        title: `${draft.title.trim() || 'Publicación'} (copia)`,
+        status: 'draft',
+        scheduledAt: null,
+        distribution: (draft.distribution || []).map(target => ({ ...target, status: target.status === 'not_applicable' ? 'not_applicable' as const : 'pending' as const })),
+      })
+      onClose()
+    } catch (error) {
+      reportAppError(error, 'No se pudo duplicar la publicación')
+    } finally { setSaving(false) }
   }
   const attach = async () => {
     try { update('media', [...(draft.media || []), ...await window.planner.media.choose('copy', draft.id, draft.project)], { label: 'Adjuntar medios' }) }
@@ -203,7 +370,7 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
   const catalogPreview = { source: 'caballocci', dry_run: true, publish: false, items: [{ kind: catalogKind, external_id: `post-${initial?.id || ''}`, title: draft.title, ...(catalogKind === 'resource' && catalogCategorySlug ? { category_slug: catalogCategorySlug } : catalogKind === 'resource' && catalogCategoryId ? { category_id: Number(catalogCategoryId) } : {}), summary: catalogSummary, content: catalogContent }] }
   const sourceIdea = initial?.sourceIdeaId ? ideas.find(idea => idea.id === initial.sourceIdeaId) : undefined
 
-  return <div className="editor-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close() }}><aside className="editor" role="dialog" aria-modal="true" aria-label={initial ? 'Editar publicación' : 'Nueva publicación'} onKeyDownCapture={event => {
+  return <div className={'editor-backdrop' + (minimized ? ' minimized' : '')} onMouseDown={e => { if (!minimized && e.target === e.currentTarget) close() }}><aside className="editor" role="dialog" aria-modal={!minimized} aria-hidden={minimized} aria-label={initial ? 'Editar publicación' : 'Nueva publicación'} onKeyDownCapture={event => {
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return
     const key = event.key.toLocaleLowerCase()
     if (key !== 'z' && key !== 'y') return
@@ -218,8 +385,39 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
     else undoDraft()
   }}>
     {historyNotice && <div key={historyNotice.id} className={`undo-notice ${historyNotice.direction}`} role="status" aria-live="polite">{historyNotice.direction === 'undo' ? <Undo2 size={13} aria-hidden="true" /> : <Redo2 size={13} aria-hidden="true" />}<span>{historyNotice.text}</span></div>}
-    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><button className="icon-button" onClick={close}><X size={19} /></button></header>
-    <div className="editor-tabs editor-main-tabs" role="group" aria-label="Secciones de edición"><button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button><button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? ` ${draft.ideaBlocks.length}` : ''}</button><button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button><button type="button" aria-pressed={tab === 'notes'} className={tab === 'notes' ? 'active' : ''} onClick={() => setTab('notes')}>Notas</button><button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>{externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}{initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}</div>
+    <header><div><span>{initial ? 'EDITAR PUBLICACIÓN' : 'NUEVA PUBLICACIÓN'}</span><h2>{draft.title || 'Sin título todavía'}</h2>{sourceIdea && <button type="button" className="source-idea-link" onClick={() => { selectIdea(sourceIdea.id); setView('ideas') }}><Lightbulb size={13} /> Desde idea · {sourceIdea.title || 'Ver idea'}</button>}</div><div className="editor-header-actions"><button type="button" className="icon-button" title="Minimizar y ver el tablero (Esc para volver)" aria-label="Minimizar editor" disabled={saving || sessionBusy} onClick={() => void minimize()}><ChevronRight size={19} /></button><button type="button" className="icon-button" title="Cerrar" aria-label="Cerrar editor" onClick={close}><X size={19} /></button></div></header>
+    {sessionPosts.length > 0 && <div className="editor-session-tabs">
+      {sessionPosts.length > 1 && <span className="editor-session-count" title={`${sessionPosts.length} publicaciones en esta sesión`} aria-label={`${sessionPosts.length} publicaciones en esta sesión`}>{sessionPosts.length}</span>}
+      <div className="editor-session-tablist" ref={sessionListRef} role="tablist" aria-label="Publicaciones seleccionadas" onWheel={event => { if (event.deltaY && !event.shiftKey) event.currentTarget.scrollLeft += event.deltaY }} onKeyDown={event => { if (event.target instanceof HTMLInputElement || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return; event.preventDefault(); const direction = event.key === 'ArrowRight' ? 1 : -1; const nextIndex = (sessionIndex + direction + sessionPosts.length) % sessionPosts.length; void navigateSession(sessionPosts[nextIndex]) }}>
+        {sessionPosts.map((post, index) => <div className={`editor-session-tab${post.id === initial?.id ? ' active' : ''}`} role="group" aria-label={`Pestaña ${index + 1}: ${post.title || 'sin título'}`} key={post.id}>
+          <button type="button" role="tab" aria-selected={post.id === initial?.id} title={post.title || 'Publicación sin título'} disabled={saving || sessionBusy} onClick={() => void navigateSession(post)}><small>{String(index + 1).padStart(2, '0')}</small><span>{post.title || 'Sin título'}</span></button>
+          <button type="button" className="editor-session-close" aria-label={`Cerrar pestaña ${post.title || 'sin título'}`} title="Cerrar pestaña" disabled={saving || sessionBusy} onClick={() => void closeSessionPost(post)}><X size={12} /></button>
+        </div>)}
+      </div>
+      {onSessionAdd && <div className="editor-session-add" ref={addMenuRef}>
+        <button type="button" className="editor-session-add-trigger" aria-label="Añadir publicación a la sesión" title="Añadir publicación" aria-expanded={sessionAddOpen} disabled={saving || sessionBusy} onClick={() => { setSessionAddOpen(open => !open); setSessionAddQuery('') }}><Plus size={15} /></button>
+        {sessionAddOpen && <div className="editor-session-add-menu">
+          <div className="editor-session-add-heading"><strong>Abrir en esta sesión</strong><span>{sessionPosts.length} {sessionPosts.length === 1 ? 'pestaña abierta' : 'pestañas abiertas'}</span></div>
+          {boardPick && <button type="button" className="editor-session-board-pick" disabled={saving || sessionBusy} onClick={() => void minimize()}><span><strong>Elegir en el tablero</strong><small>Minimiza el editor y haz clic en las publicaciones que quieras sumar</small></span><ChevronRight size={16} aria-hidden="true" /></button>}
+          <label>Buscar por nombre<input autoFocus value={sessionAddQuery} onChange={event => setSessionAddQuery(event.target.value)} placeholder="Título o proyecto…" onKeyDown={event => { if (event.key === 'Escape') setSessionAddOpen(false); if (event.key === 'Enter' && sessionBrowsePosts[0]) { event.preventDefault(); void addSessionPost(sessionBrowsePosts[0]) } }} /></label>
+          <div className="editor-session-add-results" role="listbox" aria-label="Publicaciones disponibles">
+            {sessionBrowsePosts.length ? sessionBrowsePosts.map(post => <button type="button" role="option" aria-selected="false" key={post.id} disabled={sessionBusy} onClick={() => void addSessionPost(post)}><span>{post.title || 'Sin título'}</span><small>{post.project || 'Mi contenido'}</small><Plus size={13} aria-hidden="true" /></button>) : <p>{sessionAddQuery.trim() ? 'No hay coincidencias. Prueba con otro título o proyecto.' : 'Todas las publicaciones ya están abiertas.'}</p>}
+            {availableSessionPosts.length > sessionBrowsePosts.length && <p>Escribe para acotar los resultados.</p>}
+          </div>
+          <small className="editor-session-add-hint">Enter agrega el primer resultado. Tus cambios se guardan antes de cambiar.</small>
+        </div>}
+      </div>}
+      {sessionFeedback && !minimized && <span className="editor-session-feedback" role="status" aria-live="polite">{sessionFeedback}</span>}
+    </div>}
+    <div className="editor-tabs editor-main-tabs" ref={mainTabsRef} role="group" aria-label="Secciones de edición">
+      <button type="button" aria-pressed={tab === 'content'} className={tab === 'content' ? 'active' : ''} onClick={() => setTab('content')}>Contenido</button>
+      <button type="button" aria-pressed={tab === 'ideas'} className={tab === 'ideas' ? 'active' : ''} onClick={() => setTab('ideas')}>Diapositivas{draft.ideaBlocks?.length ? <em className="editor-tab-count">{draft.ideaBlocks.length}</em> : null}</button>
+      <button type="button" aria-pressed={tab === 'preview'} className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>Vista previa</button>
+      <button type="button" aria-pressed={false} className="notes-tab-hidden">Notas</button>
+      <button type="button" aria-pressed={tab === 'assistant'} className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><Sparkles size={13} /> Asistente IA</button>
+      {externalRecord && <button type="button" aria-pressed={tab === 'external'} className={tab === 'external' ? 'active' : ''} onClick={() => setTab('external')}><Database size={13} /> Datos externos</button>}
+      {initial && <button type="button" aria-pressed={tab === 'catalog'} className={tab === 'catalog' ? 'active' : ''} onClick={() => setTab('catalog')}><Database size={13} /> Catálogo</button>}
+    </div>
     <div className="post-title-toolbar"><span>Título rápido</span><button type="button" onClick={() => formatPostTitle('upper')}>MAYÚS</button><button type="button" onClick={() => formatPostTitle('lower')}>minús</button><button type="button" onClick={() => formatPostTitle('title')}>Título</button><button type="button" onClick={() => formatPostTitle('sentence')}>Oración</button></div>
     <div className="editor-body">
       {tab === 'content' && <>
@@ -230,7 +428,7 @@ export function Editor({ initial, scheduledAtForNew = null, onClose }: { initial
         <section className="distribution-panel"><header><strong>Estado por destino</strong><small>Marca dónde está publicada cada versión.</small></header>{(draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const }))).map((target, index) => <div className="distribution-row" key={target.id}><span>{target.name}</span><select value={target.status} onChange={event => { const current = draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const })); update('distribution', current.map((item, i) => i === index ? { ...item, status: event.target.value as any } : item)) }}><option value="pending">Pendiente</option><option value="preparing">En preparación</option><option value="scheduled">Programado</option><option value="published">Publicado</option><option value="not_applicable">No aplica</option><option value="failed">Requiere atención</option></select></div>)}</section>
         <label>Texto de la publicación<div className="caption-box"><textarea data-undo-control value={draft.caption} onChange={e => update('caption', e.target.value, { label: 'Editar texto', groupKey: 'post:caption' })} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input data-undo-control value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean), { label: 'Editar hashtags', groupKey: 'post:hashtags' })} placeholder="#contenido #campaña" /></label>
-        <div className="field-row"><label>Fecha y hora<input data-undo-control type="datetime-local" value={toLocalDateTimeInput(draft.scheduledAt)} onChange={e => { const scheduledAt = fromLocalDateTimeInput(e.target.value); setDraft(current => ({ ...current, scheduledAt, ...(!scheduledAt && current.status === 'scheduled' ? { status: 'approved' as const } : {}) }), { label: !scheduledAt && draft.status === 'scheduled' ? 'Quitar fecha y volver a Aprobado' : 'Cambiar fecha', groupKey: 'post:scheduledAt' }); if (!scheduledAt && draft.status === 'scheduled') setScheduleWarning('Al quitar la fecha, el estado volvió a Aprobado.'); else setScheduleWarning('') }} /><small className="field-hint">La hora se muestra en tu zona horaria. Sin fecha, no se añade al calendario.</small></label><label>Proyecto<input data-undo-control value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /></label></div>
+        <div className="field-row"><EditorSchedule historyKey={draft.id || 'new'} historyVersion={scheduleHistoryVersion} scheduledAt={draft.scheduledAt} onChange={(date, time, label) => setSchedule(date, time, label)} /><label>Proyecto<input data-undo-control list="editor-project-options" value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /><datalist id="editor-project-options">{projectOptions.map(project => <option key={project} value={project} />)}</datalist></label></div>
         <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         <details className="media-export-section" open>
           <summary><Smartphone size={15} /> Enviar álbumes al celular</summary>
@@ -284,15 +482,19 @@ Android: Pictures/Caballocci/     ← ubicación local de esa raíz
         </details>
         {draft.media?.map(media => <div className="media-row" key={media.id}><FileImage size={18} /><span>{media.name}</span><small>{(media.size / 1024 / 1024).toFixed(1)} MB</small></div>)}
       </>}
-      {tab === 'content' && <section className="notes-quick"><header><span>NOTAS</span><button type="button" onClick={() => setTab('notes')}>{noteItems.length} {noteItems.length === 1 ? 'nota' : 'notas'} <ChevronDown size={13} /></button></header>{noteItems.filter(note => note.title.trim() || note.text.trim()).slice(0, 2).map(note => <p key={note.id}><strong>{note.title || 'Sin título'}</strong>{note.text || 'Nota vacía'}</p>)}{!noteItems.some(note => note.title.trim() || note.text.trim()) && <small>Añade datos sueltos, referencias o pendientes en la pestaña Notas.</small>}</section>}
+      {tab === 'content' && <EditorNotes compact items={noteItems} onChange={updateNotes} />}
       {tab === 'ideas' && <EditorIdeaBlocks blocks={draft.ideaBlocks || []} onChange={(blocks, change) => update('ideaBlocks', blocks, change)} />}
-      {tab === 'notes' && <EditorNotes items={noteItems} onChange={updateNotes} />}
       {tab === 'assistant' && <EditorAssistantPanel idea={assistantIdea} onIdeaChange={setAssistantIdea} titles={assistantTitles} onTitlesChange={setAssistantTitles} onSelectTitle={title => update('title', title)} master={assistantMaster} onMasterChange={setAssistantMaster} message={assistantMessage} onApply={applyAssistant} onCopyMark={() => void copyObsidianMark()} />}
       {tab === 'preview' && <Preview draft={draft} onMediaChange={media => update('media', media)} onError={message => reportAppError(message, 'Error en medios')} />}
-      {tab === 'notes' && <label>Notas internas<textarea data-undo-control className="notes-area" value={draft.notes} onChange={e => update('notes', e.target.value, { label: 'Editar notas', groupKey: 'post:notes' })} placeholder="Instrucciones, observaciones, comentarios del cliente..." /></label>}
       {tab === 'external' && externalRecord && <EditorExternalRecordPanel record={externalRecord} />}
       {tab === 'catalog' && <EditorCatalogPanel categoryId={catalogCategoryId} onCategoryIdChange={setCatalogCategoryId} summary={catalogSummary} onSummaryChange={setCatalogSummary} content={catalogContent} onContentChange={setCatalogContent} useHashtags={catalogUseHashtags} onUseHashtagsChange={setCatalogUseHashtags} sync={catalogSync} endpoint={catalogEndpoint} onEndpointChange={setCatalogEndpoint} createdBy={catalogCreatedBy} onCreatedByChange={setCatalogCreatedBy} token={catalogToken} onTokenChange={setCatalogToken} configured={catalogConfig.configured} kind={catalogKind} onKindChange={setCatalogKind} busy={catalogBusy} message={catalogMessage} onSaveConfig={() => void saveCatalog()} onSync={dryRun => void syncCatalog(dryRun)} preview={catalogPreview} />}
     </div>
-    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}</div><div><button className="ghost-button" onClick={close}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
-  </aside></div>
+    <footer><div className="editor-footer-actions"><button type="button" className="ghost-button" title="Deshacer (Ctrl+Z)" aria-label="Deshacer" disabled={!canUndo} onClick={undoDraft}><Undo2 size={15} /></button><button type="button" className="ghost-button" title="Rehacer (Ctrl+Shift+Z o Ctrl+Y)" aria-label="Rehacer" disabled={!canRedo} onClick={redoDraft}><Redo2 size={15} /></button>{initial && <><button type="button" className="ghost-button" title="Duplicar publicación" aria-label="Duplicar publicación" disabled={saving} onClick={() => void duplicatePost()}><Copy size={15} /></button><button className="danger-button" title="Eliminar" onClick={() => void runWithErrorReporting(async () => { await remove(initial.id); onClose() }, 'No se pudo eliminar la publicación')}><Trash2 size={16} /></button>{initial.isCombined && <button className="ghost-button editor-footer-uncombine" onClick={async () => { if (!window.confirm('¿Deshacer esta combinación? La publicación se conserva y las ideas recuperan su estado anterior.')) return; try { await uncombinePost(initial.id); onClose() } catch (error) { reportAppError(error, 'No se pudo deshacer la combinación') } }}>Deshacer combinación</button>}</>}{initial && <span className={'editor-save-status editor-save-' + saveState} role="status">{saveState === 'saved' ? 'Guardado' : saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? 'Error al guardar' : 'Cambios pendientes'}</span>}</div><div className="editor-footer-main"><button className="ghost-button" onClick={() => void close()}>Salir</button><button className="save-button" disabled={!draft.title.trim() || saving} onClick={() => void submitAndClear()}>{saving ? 'Guardando...' : 'Guardar publicación'}</button></div></footer>
+  </aside>
+  {minimized && <div className="editor-dock" role="region" aria-label="Editor minimizado">
+    <button type="button" className="editor-dock-main" onClick={restore} title="Expandir el editor (Esc)"><ChevronLeft size={16} aria-hidden="true" /><span><strong>{draft.title || 'Sin título todavía'}</strong><small aria-live="polite">{sessionFeedback || (boardPick ? 'Haz clic en una publicación del tablero para añadirla' : 'Editor minimizado')}</small></span></button>
+    {sessionPosts.length > 1 && <span className="editor-session-count" title={`${sessionPosts.length} publicaciones en esta sesión`}>{sessionPosts.length}</span>}
+    <button type="button" className="ghost-button editor-dock-done" onClick={restore}>{boardPick ? 'Listo' : 'Expandir'}</button>
+  </div>}
+  </div>
 }

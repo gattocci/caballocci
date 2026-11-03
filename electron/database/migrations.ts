@@ -361,4 +361,39 @@ export const migrations: Migration[] = [
         ON mobile_album_cleanup_events(occurred_at);
     `,
   },
+  {
+    version: 30,
+    name: 'work_groups_belong_to_spaces',
+    up: `
+      ALTER TABLE work_groups ADD COLUMN space TEXT NOT NULL DEFAULT '';
+      UPDATE work_groups
+        SET space = (
+          SELECT MIN(p.project)
+          FROM work_group_posts gp JOIN posts p ON p.id = gp.post_id
+          WHERE gp.group_id = work_groups.id
+        )
+        WHERE (
+          SELECT COUNT(DISTINCT p.project)
+          FROM work_group_posts gp JOIN posts p ON p.id = gp.post_id
+          WHERE gp.group_id = work_groups.id
+        ) = 1;
+      CREATE INDEX IF NOT EXISTS work_groups_space_idx ON work_groups(space, archived_at);
+    `,
+  },
+  {
+    version: 31,
+    name: 'optional_concept_link_relations',
+    up: `
+      ALTER TABLE concept_map_links RENAME TO concept_map_links_v1;
+      CREATE TABLE concept_map_links (
+        id TEXT PRIMARY KEY, from_node_id TEXT NOT NULL, to_node_id TEXT NOT NULL,
+        relation TEXT, created_at TEXT NOT NULL
+      );
+      INSERT INTO concept_map_links (id,from_node_id,to_node_id,relation,created_at)
+        SELECT id,from_node_id,to_node_id,relation,created_at FROM concept_map_links_v1;
+      DROP TABLE concept_map_links_v1;
+      CREATE INDEX concept_map_links_from_idx ON concept_map_links(from_node_id);
+      CREATE INDEX concept_map_links_to_idx ON concept_map_links(to_node_id);
+    `,
+  },
 ]

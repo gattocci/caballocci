@@ -1,0 +1,43 @@
+.concept-workspace > .view-heading { align-items: center; margin-bottom: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.concept-workspace > .view-heading p { max-width: 560px; font-size: 12px; line-height: 1.5; }
+.concept-toolbar { min-height: 48px; margin: 10px 0; padding: 7px; border: 1px solid #2d3730; border-radius: 7px; background: #131815; }
+.relation-control, .map-zoom { border-radius: 5px; }
+.relation-control button { font-size: 10px; }
+.relation-control button.active { background: #313a33; color: #fff; box-shadow: inset 0 -2px var(--accent); }
+.map-action { min-height: 36px; height: 36px; border-radius: 5px; font-size: 10px; }
+.map-action.active { border-color: #74613c; background: #30291c; color: #f0d6a8; }
+.map-action.danger { border-color: #654039; background: #241a18; }
+.map-icon-button { border-radius: 5px; }
+.map-breadcrumb button { height: 36px; font-size: 11px; }
+.map-folder-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.map-folder-card { min-height: 68px; border-radius: 6px; font-size: 11px; }
+.map-folder-card strong { font-size: 11px; }
+.map-folder-card small { font-size: 9px; }
+.concept-map-viewport { min-height: 460px; height: calc(100vh - 270px); border-radius: 8px; background-color: #111713; }
+.concept-node { border-radius: 7px; }
+.concept-node strong { font-size: 12px; line-height: 1.45; }
+.concept-node p { font-size: 10px; line-height: 1.5; }
+.concept-empty { color: #96a198; font-size: 11px; text-align: center; }
+.concept-empty strong { color: #e2e9e4; font-size: 15px; }
+.concept-empty span { max-width: 300px; line-height: 1.5; }
+.map-source-row { flex-wrap: wrap; gap: 9px; }
+.map-source-select { min-width: 220px; max-width: min(340px, 100%); height: 38px; border-radius: 5px; font-size: 11px; }
+
+/* Keep the map's visual language in step with the rest of the app. */
+.concept-workspace > .view-heading { border-bottom-color: var(--line); }
+.concept-toolbar { border-color: var(--line); background: #151a17; }
+.map-action:hover:not(:disabled), .map-icon-button:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+.map-action.active { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 14%, #171c19); color: #f3ded7; }
+.map-breadcrumb button.active { border-bottom-color: var(--accent); color: var(--accent); }
+.concept-map-viewport { border-color: #343c37; background-color: #111512; background-image: radial-gradient(#333b35 1px, transparent 1px); }
+.concept-node { border-color: #343c37; background: #171c19; box-shadow: 0 8px 20px #05070688; touch-action: none; }
+.concept-node.selected { outline-color: var(--accent); }
+.concept-node.idea { border-left-color: #d0a64b; }
+.concept-node.post { border-left-color: #61b692; }
+.concept-node.resource { border-left-color: #f0775b; }
+.concept-node.selected header { color: #d7a395; }
+.concept-link.selected path { stroke: var(--accent); }
+.concept-link.selected button { border-color: var(--accent); color: #f0b09f; }
+.map-selection-hint { align-self: center; color: #818b84; font-size: 9px; }
+.concept-selection-box { position: absolute; z-index: 5; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); pointer-events: none; }
+.concept-node:focus-visible, .map-action:focus-visible, .map-icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

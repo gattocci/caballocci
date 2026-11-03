@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { CalendarDays, Clock3, Columns3, Database, Download, FolderOpen, Library, Lightbulb, Menu, MoreHorizontal, Network, Pencil, Plus, Redo2, Search, Settings, Trash2, Undo2, X } from 'lucide-react'
 import { usePlanner } from '../../app/store'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
@@ -12,13 +12,51 @@ export function PlatformMark({ platform, small = false }: { platform: Platform; 
 }
 
 export function Sidebar() {
-  const { view, setView, posts, ideas, activeSpace, customSpaces, hiddenSpaces, spaceNotes, spaceKey, saveSpaceNotes, setActiveSpace, addSpace, renameSpace, removeSpace } = usePlanner()
+  const { view, setView, posts, ideas, workGroups, activeWorkGroupId, setActiveWorkGroup, activeSpace, customSpaces, hiddenSpaces, spaceNotes, spaceKey, saveSpaceNotes, setActiveSpace, addSpace, renameSpace, removeSpace, movePostsToSpace } = usePlanner()
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   const [creatingSpace, setCreatingSpace] = useState(false)
   const [editingSpace, setEditingSpace] = useState<string | null>(null)
   const [removingSpace, setRemovingSpace] = useState<string | null>(null)
   const [spaceName, setSpaceName] = useState('')
+  const [draggingOverSpace, setDraggingOverSpace] = useState<string | null>(null)
+  const [showCollectionDate, setShowCollectionDate] = useState(() => { try { return localStorage.getItem('caballocci.collection-label-date') === 'true' } catch { return false } })
+  useEffect(() => {
+    const update = () => { try { setShowCollectionDate(localStorage.getItem('caballocci.collection-label-date') === 'true') } catch { setShowCollectionDate(false) } }
+    window.addEventListener('caballocci-collection-label-change', update)
+    return () => window.removeEventListener('caballocci-collection-label-change', update)
+  }, [])
   const spaces = useMemo(() => Array.from(new Set(['Campaña Aurora', ...customSpaces, ...posts.map(post => post.project), ...ideas.map(idea => idea.space)].filter(space => space && space !== 'Mi contenido'))).filter(space => !hiddenSpaces.includes(space)), [customSpaces, hiddenSpaces, ideas, posts])
+  const visibleWorkGroups = activeSpace ? workGroups.filter(group => group.space === activeSpace) : workGroups
+  const spaceDropProps = (space: string) => ({
+    onDragOver: (event: DragEvent<HTMLDivElement>) => {
+      if (!Array.from(event.dataTransfer.types).includes('application/x-caballocci-post-ids')) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setDraggingOverSpace(space)
+    },
+    onDragLeave: (event: DragEvent<HTMLDivElement>) => {
+      if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDraggingOverSpace(null)
+    },
+    onDrop: (event: DragEvent<HTMLDivElement>) => {
+      if (!Array.from(event.dataTransfer.types).includes('application/x-caballocci-post-ids')) return
+      event.preventDefault()
+      event.stopPropagation()
+      setDraggingOverSpace(null)
+      let ids: string[] = []
+      try { ids = JSON.parse(event.dataTransfer.getData('application/x-caballocci-post-ids')) as string[] } catch {
+        const id = event.dataTransfer.getData('text/plain')
+        if (id) ids = [id]
+      }
+      if (ids.length) void runWithErrorReporting(async () => {
+        const moved = await movePostsToSpace(ids, space)
+        if (moved) {
+          setActiveWorkGroup(null)
+          setActiveSpace(space)
+          setView('board')
+        }
+      }, 'No se pudieron mover las publicaciones al espacio')
+    },
+  })
   const nav = [
     { id: 'timeline', label: 'Línea de tiempo', icon: Clock3 },
     { id: 'calendar', label: 'Calendario', icon: CalendarDays },
@@ -30,8 +68,8 @@ export function Sidebar() {
   ] as const
   return <aside className="sidebar">
     <div className="brand"><div className="brand-symbol"><span /><span /><span /></div><div><strong>caballo</strong><b>cci</b></div></div>
-    <nav>{nav.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}><Icon size={18} /><span>{label}</span>{id === 'timeline' && <em>{posts.filter(p => p.status === 'scheduled').length}</em>}{id === 'ideas' && <em>{ideas.filter(idea => idea.status !== 'archived' && (!activeSpace || idea.space === activeSpace)).length}</em>}</button>)}</nav>
-    <div className="side-section"><p>ESPACIOS</p><button className={'space ' + (activeSpace === null ? 'active' : '')} onClick={() => setActiveSpace(null)}><span className="space-dot coral">C</span><span>Todos los contenidos</span></button>{spaces.map((space, index) => <div className="space-row" key={space}><button className={'space ' + (activeSpace === space ? 'active' : '')} onClick={() => setActiveSpace(space)}><span className={'space-dot ' + (index % 2 ? 'coral' : 'mint')}>{space.slice(0, 1).toUpperCase()}</span><span>{space}</span></button><button className="space-menu-button" aria-label={'Opciones de ' + space} aria-expanded={menuOpen === space} onClick={() => setMenuOpen(menuOpen === space ? null : space)}><MoreHorizontal size={16} /></button>{menuOpen === space && <div className="space-menu"><button onClick={() => { setEditingSpace(space); setSpaceName(space); setMenuOpen(null) }}><Pencil size={14} /> Renombrar</button><button className="danger-menu-item" onClick={() => { setRemovingSpace(space); setMenuOpen(null) }}><Trash2 size={14} /> Quitar espacio</button></div>}</div>)}<button className="add-space" onClick={() => { setCreatingSpace(true); setSpaceName('') }}><Plus size={15} /> Nuevo espacio</button>{activeSpace && <div className="space-context"><div className="space-context-heading"><strong>{activeSpace}</strong><button className="icon-button" title="Abrir carpeta del espacio" onClick={() => void runWithErrorReporting(() => window.planner.system.openSpaceFolder(activeSpace), 'No se pudo abrir la carpeta del espacio')}><FolderOpen size={15} /></button></div><div className="space-context-stats"><span><b>{posts.filter(post => post.project === activeSpace).length}</b> publicaciones</span><span><b>{ideas.filter(idea => idea.space === activeSpace).length}</b> ideas</span></div><label><span>NOTAS DEL ESPACIO</span><textarea value={spaceNotes[spaceKey(activeSpace)] || ''} onChange={event => saveSpaceNotes(activeSpace, event.target.value)} placeholder="Objetivo, tono, enlaces, decisiones y contexto..." /></label><small className="space-folder-hint">La carpeta del espacio contiene las carpetas de sus publicaciones.</small></div>}</div>
+    <nav>{nav.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}><Icon size={18} /><span>{label}</span>{id === 'timeline' && <em>{posts.filter(p => p.status === 'scheduled' && (!activeSpace || p.project === activeSpace)).length}</em>}{id === 'ideas' && <em>{ideas.filter(idea => idea.status !== 'archived' && (!activeSpace || idea.space === activeSpace)).length}</em>}</button>)}</nav>
+    <div className="side-section"><p>ESPACIOS</p><button className={'space ' + (activeSpace === null ? 'active' : '')} onClick={() => { setActiveSpace(null); setActiveWorkGroup(null) }}><span className="space-dot coral">C</span><span>Todos los contenidos</span></button>{spaces.map((space, index) => <div className={'space-row' + (draggingOverSpace === space ? ' space-drop-target' : '')} key={space} {...spaceDropProps(space)}><button className={'space ' + (activeSpace === space ? 'active' : '')} onClick={() => { setActiveWorkGroup(null); setActiveSpace(space) }}><span className={'space-dot ' + (index % 2 ? 'coral' : 'mint')}>{space.slice(0, 1).toUpperCase()}</span><span>{space}</span></button><button className="space-menu-button" aria-label={'Opciones de ' + space} aria-expanded={menuOpen === space} onClick={() => setMenuOpen(menuOpen === space ? null : space)}><MoreHorizontal size={16} /></button>{menuOpen === space && <div className="space-menu"><button onClick={() => { setEditingSpace(space); setSpaceName(space); setMenuOpen(null) }}><Pencil size={14} /> Renombrar</button><button className="danger-menu-item" onClick={() => { setRemovingSpace(space); setMenuOpen(null) }}><Trash2 size={14} /> Quitar espacio</button></div>}</div>)}<button className="add-space" onClick={() => { setCreatingSpace(true); setSpaceName('') }}><Plus size={15} /> Nuevo espacio</button>{activeSpace && <div className="space-context"><div className="space-context-heading"><strong>{activeSpace}</strong><button className="icon-button" title="Abrir carpeta del espacio" onClick={() => void runWithErrorReporting(() => window.planner.system.openSpaceFolder(activeSpace), 'No se pudo abrir la carpeta del espacio')}><FolderOpen size={15} /></button></div><div className="space-context-stats"><span><b>{posts.filter(post => post.project === activeSpace).length}</b> publicaciones</span><span><b>{ideas.filter(idea => idea.space === activeSpace).length}</b> ideas</span></div><label><span>NOTAS DEL ESPACIO</span><textarea value={spaceNotes[spaceKey(activeSpace)] || ''} onChange={event => saveSpaceNotes(activeSpace, event.target.value)} placeholder="Objetivo, tono, enlaces, decisiones y contexto..." /></label><small className="space-folder-hint">La carpeta del espacio contiene las carpetas de sus publicaciones.</small></div>}<div className="side-collections"><p>COLECCIONES</p>{visibleWorkGroups.map(group => { const count = posts.filter(post => group.postIds.includes(post.id)).length; const label = `${showCollectionDate ? `${group.name} · ${new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(group.createdAt))}` : group.name}${group.archivedAt ? ' · Archivada' : ''}`; return <button type="button" key={group.id} className={'space side-collection ' + (activeWorkGroupId === group.id ? 'active' : '')} onClick={() => { setActiveSpace(null); setActiveWorkGroup(group.id); setView('board') }} title={label}><FolderOpen size={15} /><span>{label}</span><em>{count}</em></button> })}</div></div>
     <div className="sidebar-bottom"><div className="offline"><div><strong>Datos locales</strong><small>Se guardan en este equipo</small></div></div><button className={view === 'about' ? 'active' : ''} title="Acerca de y actualizaciones" onClick={() => setView('about')}><Settings size={18} /></button></div>
     {(creatingSpace || editingSpace) && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) { setCreatingSpace(false); setEditingSpace(null) } }}><form className="space-dialog" onSubmit={event => { event.preventDefault(); void runWithErrorReporting(async () => { if (!spaceName.trim()) return; if (editingSpace) await renameSpace(editingSpace, spaceName); else addSpace(spaceName); setSpaceName(''); setCreatingSpace(false); setEditingSpace(null) }, 'No se pudo guardar el espacio') }}><header><div><span>{editingSpace ? 'EDITAR ESPACIO' : 'NUEVO ESPACIO'}</span><h2>{editingSpace ? 'Renombra este proyecto' : 'Organiza una campaña'}</h2></div><button type="button" className="icon-button" onClick={() => { setCreatingSpace(false); setEditingSpace(null) }}><X size={18} /></button></header><label>Nombre<input autoFocus value={spaceName} onChange={event => setSpaceName(event.target.value)} placeholder="Ej. Lanzamiento de verano" /></label><footer><button type="button" className="ghost-button" onClick={() => { setCreatingSpace(false); setEditingSpace(null) }}>Cancelar</button><button className="save-button" disabled={!spaceName.trim()}>{editingSpace ? 'Guardar nombre' : 'Crear espacio'}</button></footer></form></div>}
     {removingSpace && <div className="space-dialog-backdrop"><section className="space-dialog remove-space-dialog"><header><div><span>QUITAR ESPACIO</span><h2>{removingSpace}</h2></div><button type="button" className="icon-button" onClick={() => setRemovingSpace(null)}><X size={18} /></button></header><p>Este espacio contiene {posts.filter(post => post.project === removingSpace).length} publicaciones y {ideas.filter(idea => idea.space === removingSpace).length} ideas. Los archivos multimedia nunca se eliminan.</p><div className="remove-space-options"><button className="ghost-button" onClick={() => void runWithErrorReporting(async () => { await removeSpace(removingSpace, false); setRemovingSpace(null) }, 'No se pudo quitar el espacio')}>Ocultar y conservar</button><button className="danger-action" onClick={() => void runWithErrorReporting(async () => { await removeSpace(removingSpace, true); setRemovingSpace(null) }, 'No se pudo mover el contenido del espacio')}>Mover a contenido general</button></div></section></div>}

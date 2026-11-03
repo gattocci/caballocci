@@ -1,0 +1,12 @@
+/* Shared selection surface styles. Loaded by AreaSelectionSurface. */
+.area-selection-surface { position: relative; }
+.area-selection-box { position: fixed; z-index: 10000; box-sizing: border-box; border: 1px solid #d0a64b; border-radius: 3px; background: #d0a64b22; pointer-events: none; }
+body.area-selecting { user-select: none; -webkit-user-select: none; }
+body.area-selecting, body.area-selecting * { cursor: crosshair !important; }
+/* Freeze card hover effects and layout while the selection rectangle is active. */
+body.area-selecting [data-area-select-id] { pointer-events: none; }
+
+/* Ideas cards use a separate slot so their visual card can keep its own layout. */
+.ideas-grid-surface { min-height: 40vh; }
+.idea-select-slot { display: grid; min-width: 0; }
+.idea-select-slot > * { min-width: 0; }

@@ -91,11 +91,12 @@ export class AnalysisRepository {
       .slice(0, Math.max(1, Math.min(30, limit))).map(item => ({ ...item.idea, similarity: Number(item.score.toFixed(4)) }))
   }
 
-  async proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<Array<{ id: string; name: string; ideaIds: string[]; memberScores: number[]; memberComparisons: IdeaClusterComparison[][]; threshold: number; neighborLimit: number; model: string }>> {
+  async proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<Array<{ id: string; name: string; ideaIds: string[]; memberScores: number[]; memberComparisons: IdeaClusterComparison[][]; threshold: number; neighborLimit: number; model: string }>> {
     const ignored = this.normalizeTerms(ignoredTerms)
+    const selectedIds = ideaIds?.length ? new Set(ideaIds) : null
     onProgress?.({ stage: 'loading-model', completed: 0, total: 0 })
-    await this.refreshIdeaEmbeddings(undefined, [...ignored], options, onProgress)
-    const ideas = this.listIdeas()
+    await this.refreshIdeaEmbeddings(ideaIds, [...ignored], options, onProgress)
+    const ideas = this.listIdeas().filter(idea => !selectedIds || selectedIds.has(String(idea.id)))
     const namingIgnored = new Set([...ignored, ...this.semanticGenericTerms(ideas, ignored, options)])
     const documentFrequency = new Map<string, number>()
     for (const idea of ideas) for (const token of new Set(this.ideaTokens(idea, ignored, options.ignoreTitleNumbersInClusterNames))) documentFrequency.set(token, (documentFrequency.get(token) || 0) + 1)

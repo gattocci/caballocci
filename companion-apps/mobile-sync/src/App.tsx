@@ -164,6 +164,8 @@ export default function App() {
   const [releaseCheckError, setReleaseCheckError] = useState(false)
   const [releaseCheckMessage, setReleaseCheckMessage] = useState('')
   const [releaseChecking, setReleaseChecking] = useState(true)
+  const [updateInstallBusy, setUpdateInstallBusy] = useState(false)
+  const [updateInstallMessage, setUpdateInstallMessage] = useState('')
   const [screen, setScreen] = useState<'home' | 'settings'>('home')
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [events, setEvents] = useState<UsageEvent[]>([])
@@ -206,6 +208,22 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), error ? 9000 : 3500)
   }, [])
   const errorText = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback
+
+  const installMobileUpdate = async () => {
+    if (!mobileRelease || updateInstallBusy) return
+    setUpdateInstallBusy(true)
+    setUpdateInstallMessage('Descargando actualización…')
+    try {
+      const result = await SyncFolder.installUpdate({ url: mobileRelease.apkUrl })
+      setUpdateInstallMessage(result.permissionRequired
+        ? 'Permite a caballocci instalar aplicaciones en la pantalla de Android. Al volver, toca «Instalar actualización» otra vez.'
+        : 'Descarga lista. Confirma la instalación en el diálogo de Android.')
+    } catch (error) {
+      setUpdateInstallMessage(errorText(error, 'No se pudo preparar la actualización.'))
+    } finally {
+      setUpdateInstallBusy(false)
+    }
+  }
 
   const markDelivered = (eventId: string) => {
     deliveredRef.current.add(eventId)
@@ -549,7 +567,7 @@ export default function App() {
       <h2>Aplicación</h2><small>Versión instalada: {__MOBILE_APP_VERSION__}</small>
       {releaseChecking ? <p role="status">Comprobando la versión publicada en GitHub…</p>
         : releaseCheckError ? <><p role="alert">No se pudo comprobar la compatibilidad: {releaseCheckMessage}</p><button onClick={() => void checkForMobileUpdate()}>Reintentar comprobación</button></>
-          : <><p>{updateRequired ? 'Actualización necesaria. Esta versión ya no es compatible; instala la nueva para seguir sincronizando.' : updateAvailable ? 'Hay una actualización disponible.' : 'La aplicación está actualizada.'}</p><small>Última versión: {mobileRelease?.version}</small>{mobileRelease && updateAvailable && <button onClick={() => { window.location.href = mobileRelease.apkUrl }}>Actualizar app</button>}</>}
+          : <><p>{updateRequired ? 'Actualización necesaria. Esta versión ya no es compatible; instala la nueva para seguir sincronizando.' : updateAvailable ? 'Hay una actualización disponible.' : 'La aplicación está actualizada.'}</p><small>Última versión: {mobileRelease?.version}</small>{mobileRelease && updateAvailable && <><p className="app-update-signature-help">La instalación conserva tus datos si esta app se instaló desde una Release oficial. Android Studio instala normalmente una versión de depuración con otra firma, que no se puede actualizar con este APK.</p><button disabled={updateInstallBusy} onClick={() => void installMobileUpdate()}>{updateInstallBusy ? 'Descargando…' : 'Instalar actualización'}</button>{updateInstallMessage && <p role="status">{updateInstallMessage}</p>}<small>La primera vez, Android puede pedir permiso para instalar desde caballocci. Después solo tendrás que confirmar cada actualización en Android.</small><small>Si instalaste una compilación de Android Studio, para cambiar a la oficial tendrás que desinstalarla primero; eso borra los datos locales y el permiso de la carpeta. Vuelve a configurar la carpeta Syncthing después.</small></>}</>}
       {!releaseChecking && mobileRelease && releaseCheckError && <small>Última versión que se pudo consultar: {mobileRelease.version}</small>}
     </section> : <>
     <details className="sync-help"><summary>Cómo funciona</summary><p>“Marcar como usada” solo guarda una confirmación; no publica ni cambia el estado editorial. “Borrar álbum” elimina la carpeta compartida del teléfono y envía una señal a la PC. Syncthing sincroniza ambas cosas; al importar señales, la PC registra el historial, y al conciliar archiva el catálogo antes de actualizarlo y limpiar carpetas. Android no modifica <code>catalog.json</code>.</p></details>
@@ -592,6 +610,7 @@ export default function App() {
     })}</section> : <section className="empty"><h2>No hay publicaciones</h2><p>Genera un snapshot nuevo desde caballocci después de agregar publicaciones.</p></section>)}
     {current && <article className="publication">
       <div className="detail-bar"><button onClick={() => setOpenKey(null)}>← Volver</button><span>{currentIndex >= 0 ? `${currentIndex + 1} / ${shown.length}` : ''}</span></div>
+      {currentCaption && <section className="publication-caption"><div><strong>Texto para publicar</strong><button type="button" className="copy-caption" onClick={async () => { try { await navigator.clipboard.writeText(currentCaption); notify('Texto copiado. Ya puedes pegarlo en la red social.') } catch { notify('No se pudo copiar el texto. Mantén pulsado el texto para seleccionarlo.', true) } }}>Copiar texto</button></div><pre>{currentCaption}</pre></section>}
       <div className="target">{current.targetName}</div>
       {(folderAvailability[current.manifestPath]?.folder === false || folderAvailability[current.manifestPath]?.manifest === false) && <p className="missing-note">Esta publicación sigue referenciada en el catálogo, pero falta su carpeta o manifest.json en este teléfono. Espera la sincronización o bórrala para avisar a la PC.</p>}
       {currentUsed
@@ -599,7 +618,7 @@ export default function App() {
         : <button className="used" disabled={busy || !loadedPublications[currentKey]} onClick={() => void markUsed()}>{loadedPublications[currentKey] ? 'Marcar como usada' : 'Preparando publicación…'}</button>}
       <button className="remove-album" disabled={busy} onClick={() => deleteAlbum(current)}>Borrar álbum y carpeta del teléfono</button>
       <details key={currentKey} className="publication-details">
-        <summary>Ver contenido de la publicación</summary>
+        <summary>Ver título y medios</summary>
         <h2>{currentDisplay?.title || 'Publicación sin título'}</h2>
         {current.scheduledAt && <small>Programada: {new Date(current.scheduledAt).toLocaleString()}</small>}
         <div className="gallery">{(currentDisplay?.media || []).filter(media => media.kind === 'image').map(media => {
@@ -607,7 +626,6 @@ export default function App() {
           return src ? <img key={media.path} src={src} alt={`${currentDisplay?.title || current.postId} · imagen ${media.order + 1}`} /> : <div className="image-placeholder" key={media.path}>Cargando imagen {media.order + 1}…</div>
         })}</div>
         {currentDisplay && !currentDisplay.media.some(media => media.kind === 'image') && <p>No hay imágenes en esta publicación. Los videos no se muestran en esta versión.</p>}
-        {currentCaption && <pre>{currentCaption}</pre>}
       </details>
       <div className="pagination"><button disabled={currentIndex <= 0} onClick={() => setOpenKey(shown[currentIndex - 1]!.key)}>Anterior</button><span>{pendingCount} pendientes</span><button disabled={currentIndex < 0 || currentIndex >= shown.length - 1} onClick={() => setOpenKey(shown[currentIndex + 1]!.key)}>Siguiente</button></div>
     </article>}

@@ -1,0 +1,12 @@
+.timeline-legend { color: #aeb8b1; }
+.timeline-legend > span { font-size: 10px; letter-spacing: .8px; }
+.timeline-footer > div:first-child { grid-template-columns: 1fr; row-gap: 4px; }
+.timeline-footer strong { color: #e1e8e3; font-size: 12px; }
+.timeline-footer small { font-size: 10px; }
+.mini-stats { display: flex; gap: 8px; }
+.mini-stats > span { min-width: 92px; padding: 8px 10px; border: 1px solid #303a33; border-radius: 6px; background: #151a17; color: #9aa59e; font-size: 9px; }
+.mini-stats b { display: block; margin-bottom: 3px; color: #e1e8e3; font: 600 14px 'DM Mono', monospace; }
+.planner-empty-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 12px; padding: 12px 14px; border: 1px solid #343e37; border-radius: 7px; background: #151a17; }
+.planner-empty-inline strong { color: #e1e8e3; font-size: 11px; }
+.planner-empty-inline > span { color: #98a39c; font-size: 10px; line-height: 1.5; }
+.planner-empty-inline .settings-button { min-height: 30px; height: 30px; margin-left: auto; font-size: 10px; }

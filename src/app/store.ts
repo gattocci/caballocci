@@ -29,6 +29,7 @@ interface PlannerState {
   posts: Post[]
   ideas: Idea[]
   workGroups: WorkGroup[]
+  activeWorkGroupId: string | null
   undoHistory: WorkspaceUndoAction[]
   redoHistory: WorkspaceUndoAction[]
   undoNotice: string | null
@@ -49,6 +50,7 @@ interface PlannerState {
   removeWorkGroup(id: string, options?: { recordHistory?: boolean }): Promise<void>
   remove(id: string, options?: { recordHistory?: boolean }): Promise<void>
   move(id: string, status: PostStatus): Promise<void>
+  movePostsToSpace(postIds: string[], space: string): Promise<number>
   saveIdea(idea: IdeaInput, options?: { recordHistory?: boolean }): Promise<Idea>
   saveIdeasMany(ideas: IdeaInput[]): Promise<{ created: Idea[]; skipped: number; duplicates: Array<{ title: string; sourceName: string; existingId: string; existingTitle: string; existingSourceName: string }> }>
   removeIdea(id: string, options?: { recordHistory?: boolean }): Promise<void>
@@ -61,7 +63,7 @@ interface PlannerState {
   clearUndoNotice(): void
   ideaNeighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
   refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
+  proposeClusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
   previewIdeaAnalysis(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
   listIdeaClusters(): Promise<IdeaCluster[]>
   setView(view: PlannerView): void
@@ -69,6 +71,7 @@ interface PlannerState {
   selectIdea(id: string | null): void
   setQuery(query: string): void
   setActiveSpace(space: string | null): void
+  setActiveWorkGroup(id: string | null): void
   addSpace(space: string): void
   renameSpace(space: string, nextName: string): Promise<void>
   removeSpace(space: string, movePosts: boolean): Promise<void>
@@ -132,6 +135,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   posts: [],
   ideas: [],
   workGroups: [],
+  activeWorkGroupId: null,
   undoHistory: [],
   redoHistory: [],
   undoNotice: null,
@@ -158,6 +162,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         posts,
         ideas,
         workGroups,
+        activeWorkGroupId: state.activeWorkGroupId && workGroups.some(group => group.id === state.activeWorkGroupId && !group.archivedAt) ? state.activeWorkGroupId : null,
         loading: false,
         loadError: null,
         selectedId: state.selectedId && posts.some(post => post.id === state.selectedId) ? state.selectedId : null,
@@ -169,6 +174,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   },
   save: async (post, options) => {
     const before = get().posts.find(item => item.id === post.id) || null
+    const historyStart = get().undoHistory.length
     const saved = await window.planner.posts.save(post)
     set(state => {
       const changed = JSON.stringify(before) !== JSON.stringify(saved)
@@ -179,7 +185,28 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         undoNotice: null,
       }
     })
+    if (before && before.project !== saved.project) {
+      const groups = get().workGroups.filter(group => group.space && group.space !== saved.project && group.postIds.includes(saved.id))
+      for (const group of groups) {
+        await get().setWorkGroupPosts(group.id, group.postIds.filter(id => id !== saved.id), { recordHistory: options?.recordHistory === false ? false : undefined })
+      }
+      const actionCount = get().undoHistory.length - historyStart
+      if (options?.recordHistory !== false && actionCount > 1) get().groupRecentUndoActions(actionCount, 'Mover publicación a otro espacio')
+    }
     return saved
+  },
+  movePostsToSpace: async (postIds, space) => {
+    const start = get().undoHistory.length
+    let moved = 0
+    for (const id of [...new Set(postIds)]) {
+      const post = get().posts.find(item => item.id === id)
+      if (!post || post.project === space) continue
+      await get().save({ ...post, project: space })
+      moved += 1
+    }
+    const actionCount = get().undoHistory.length - start
+    if (actionCount > 1) get().groupRecentUndoActions(actionCount, `Mover ${moved} ${moved === 1 ? 'publicación' : 'publicaciones'} de espacio`)
+    return moved
   },
   saveWorkGroup: async (group, options) => {
     const before = get().workGroups.find(item => item.id === group.id) || null
@@ -219,7 +246,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const before = get().workGroups.find(item => item.id === id) || null
     const saved = await window.planner.workGroups.setArchived(id, archived)
     set(state => ({
-      workGroups: [...state.workGroups.filter(item => item.id !== saved.id), saved],
+      workGroups: [...state.workGroups.filter(item => item.id !== saved.id), saved], activeWorkGroupId: archived && state.activeWorkGroupId === id ? null : state.activeWorkGroupId,
       undoHistory: options?.recordHistory === false || JSON.stringify(before) === JSON.stringify(saved) ? state.undoHistory : pushUndo(state.undoHistory, { kind: 'group', id: saved.id, before, after: saved, label: archived ? 'Archivar colección' : 'Restaurar colección' }),
       redoHistory: options?.recordHistory === false || JSON.stringify(before) === JSON.stringify(saved) ? state.redoHistory : [],
       undoNotice: null,
@@ -230,7 +257,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const before = get().workGroups.find(item => item.id === id) || null
     await window.planner.workGroups.remove(id)
     set(state => ({
-      workGroups: state.workGroups.filter(group => group.id !== id),
+      workGroups: state.workGroups.filter(group => group.id !== id), activeWorkGroupId: state.activeWorkGroupId === id ? null : state.activeWorkGroupId,
       undoHistory: options?.recordHistory === false || !before ? state.undoHistory : pushUndo(state.undoHistory, { kind: 'group', id, before, after: null, label: 'Eliminar colección' }),
       redoHistory: options?.recordHistory === false || !before ? state.redoHistory : [],
       undoNotice: null,
@@ -378,9 +405,9 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     if (count < 1) return
     set(state => {
       const recent = state.undoHistory.slice(-count)
-      if (!recent.length || recent.some(action => action.kind === 'batch')) return state
+      if (!recent.length) return state
       const start = state.undoHistory.length - recent.length
-      const actions = recent as WorkspaceUndoLeaf[]
+      const actions = recent.flatMap(action => action.kind === 'batch' ? action.actions : [action])
       const grouped: WorkspaceUndoAction = actions.length === 1 ? { ...actions[0], label } : { kind: 'batch', actions, label }
       return { undoHistory: [...state.undoHistory.slice(0, start), grouped] }
     })
@@ -388,14 +415,24 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   clearUndoNotice: () => set({ undoNotice: null }),
   ideaNeighbors: (id, limit, ignoredTerms, options) => window.planner.ideas.neighbors(id, limit, ignoredTerms, options),
   refreshEmbeddings: (ids, ignoredTerms, options) => window.planner.ideas.refreshEmbeddings(ids, ignoredTerms, options),
-  proposeClusters: async (threshold, ignoredTerms, options, onProgress) => window.planner.ideas.clusters(threshold, ignoredTerms, options, onProgress),
+  proposeClusters: async (threshold, ignoredTerms, options, ideaIds, onProgress) => window.planner.ideas.clusters(threshold, ignoredTerms, options, ideaIds, onProgress),
   previewIdeaAnalysis: (ignoredTerms, options) => window.planner.ideas.analysisPreview(ignoredTerms, options),
   listIdeaClusters: () => window.planner.ideas.clustersList(),
   setView: (view) => set({ view }),
   select: (selectedId) => set({ selectedId }),
   selectIdea: (selectedIdeaId) => set({ selectedIdeaId }),
   setQuery: (query) => set({ query }),
-  setActiveSpace: (activeSpace) => set({ activeSpace }),
+  setActiveSpace: (activeSpace) => set({ activeSpace, activeWorkGroupId: null, selectedId: null, selectedIdeaId: null }),
+  setActiveWorkGroup: (activeWorkGroupId) => {
+    const group = get().workGroups.find(item => item.id === activeWorkGroupId)
+    if (group?.space && get().hiddenSpaces.includes(group.space)) {
+      const hiddenSpaces = get().hiddenSpaces.filter(space => space !== group.space)
+      localStorage.setItem('caballocci.hidden-spaces', JSON.stringify(hiddenSpaces))
+      set({ activeWorkGroupId, activeSpace: group.space, hiddenSpaces, selectedId: null, selectedIdeaId: null })
+      return
+    }
+    set({ activeWorkGroupId, ...(group ? { activeSpace: group.space || null } : {}), selectedId: null, selectedIdeaId: null })
+  },
   addSpace: (space) => {
     const name = space.trim()
     if (!name) return
@@ -409,6 +446,9 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const name = nextName.trim()
     if (!name || name === space) return
     await window.planner.posts.reassignProject(space, name)
+    for (const group of get().workGroups.filter(item => item.space === space)) {
+      await get().saveWorkGroup({ id: group.id, name: group.name, description: group.description, space: name }, { recordHistory: false })
+    }
     const customSpaces = Array.from(new Set([...get().customSpaces.filter(item => item !== space), name]))
     const oldKey = get().spaceKey(space)
     const newKey = get().spaceKeys[space] || crypto.randomUUID()
@@ -431,6 +471,9 @@ export const usePlanner = create<PlannerState>((set, get) => ({
   removeSpace: async (space, movePosts) => {
     if (movePosts) {
       await window.planner.posts.reassignProject(space, 'Mi contenido')
+      for (const group of get().workGroups.filter(item => item.space === space)) {
+        await get().saveWorkGroup({ id: group.id, name: group.name, description: group.description, space: '' }, { recordHistory: false })
+      }
       set({
         posts: get().posts.map(post => post.project === space ? { ...post, project: 'Mi contenido' } : post),
         ideas: get().ideas.map(idea => idea.space === space ? { ...idea, space: 'Mi contenido' } : idea),

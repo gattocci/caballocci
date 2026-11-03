@@ -1,0 +1,63 @@
+/* Compact neutral notes controls that inherit the editor theme. */
+.notes-editor { display: block; }
+.notes-compact { border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 4px; }
+.notes-compact > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+.notes-compact > summary::-webkit-details-marker { display: none; }
+.notes-compact > summary em {
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+.notes-compact .notes-chevron { margin-left: auto; opacity: .6; transition: transform .15s; }
+.notes-compact[open] .notes-chevron { transform: rotate(180deg); }
+.notes-compact > .notes-list { max-height: min(42vh, 320px); padding: 0 12px 12px; overflow-y: auto; overscroll-behavior: contain; }
+
+.notes-list { display: grid; gap: 8px; }
+.note-row { position: relative; display: grid; gap: 6px; }
+.note-title { padding: 7px 10px; font-size: 12px; }
+.note-text { min-height: 52px; resize: vertical; font-size: 13px; line-height: 1.45; }
+.note-row:has(.note-remove) .note-text { padding-right: 32px; }
+.note-remove {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: .4;
+  cursor: pointer;
+}
+.note-remove:hover { background: color-mix(in srgb, currentColor 10%, transparent); opacity: 1; }
+.note-add {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: .6;
+  font-size: 12px;
+  cursor: pointer;
+}
+.note-add:hover { opacity: 1; }

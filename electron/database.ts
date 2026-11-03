@@ -254,8 +254,8 @@ export class PlannerDatabase {
   listIdeaNeighbors(id: string, limit = 8, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
     return this.analysis.listIdeaNeighbors(id, limit, ignoredTerms, options)
   }
-  proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void) {
-    return this.analysis.proposeIdeaClusters(threshold, ignoredTerms, options, onProgress)
+  proposeIdeaClusters(threshold = 0.65, ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void) {
+    return this.analysis.proposeIdeaClusters(threshold, ignoredTerms, options, ideaIds, onProgress)
   }
   previewIdeaAnalysis(ignoredTerms: string[] = [], options: IdeaAnalysisOptions = defaultIdeaAnalysisOptions) {
     return this.analysis.previewIdeaAnalysis(ignoredTerms, options)
@@ -319,6 +319,19 @@ export class PlannerDatabase {
 
   saveMedia(assets: Row[]) {
     this.media.save(assets)
+  }
+
+  saveMediaBatchToPosts(assets: Row[], posts: Row[]) {
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      this.media.save(assets)
+      for (const post of posts) this.posts.save(post, id => this.ideas.get(id))
+      this.db.run('COMMIT')
+      this.persist()
+    } catch (error) {
+      this.db.run('ROLLBACK')
+      throw error
+    }
   }
 
   private count() { return Number(this.db.exec('SELECT COUNT(*) AS n FROM posts')[0]?.values[0]?.[0] || 0) }

@@ -60,13 +60,13 @@ export function registerIdeaIpcHandlers({ database, handle, withoutArguments, ma
     return database.refreshIdeaEmbeddings(validateOptionalIdeaIds(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2]))
   })
   handle('ideas:clusters', (args, event) => {
-    if (args.length !== 4) throw new TypeError('Numero de argumentos no valido')
-    if (typeof args[3] !== 'string' || !args[3] || args[3].length > 100) throw new TypeError('Identificador de analisis no valido')
-    const requestId = args[3]
+    if (args.length !== 5) throw new TypeError('Numero de argumentos no valido')
+    if (typeof args[4] !== 'string' || !args[4] || args[4].length > 100) throw new TypeError('Identificador de analisis no valido')
+    const requestId = args[4]
     const progress = (update: { stage: string; completed: number; total: number }) => {
       if (!event.sender.isDestroyed()) event.sender.send('ideas:clusters:progress', { requestId, ...update })
     }
-    return database.proposeIdeaClusters(validateThreshold(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2]), progress).then(clusters => clusters)
+    return database.proposeIdeaClusters(validateThreshold(args[0]), validateAnalysisTerms(args[1]), validateIdeaAnalysisOptions(args[2]), validateOptionalIdeaIds(args[3]), progress).then(clusters => clusters)
   })
   handle('ideas:analysis-preview', args => {
     if (args.length > 2) throw new TypeError('Numero de argumentos no valido')

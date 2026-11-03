@@ -1,0 +1,24 @@
+.mobile-history{display:grid;gap:0;margin-top:22px;border:1px solid #303a33;border-radius:7px;background:#141a16;overflow:hidden}
+.mobile-history-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border-bottom:1px solid #303a33}
+.mobile-history-heading>div{display:grid;gap:4px}
+.mobile-history-heading strong{font-size:11px}
+.mobile-history-heading small{font-size:9px;color:var(--muted)}
+.mobile-history-refresh{height:30px;padding:0 9px;font-size:9px;flex:none}
+.mobile-history-spinning{animation:mobile-history-spin .8s linear infinite}
+@keyframes mobile-history-spin{to{transform:rotate(360deg)}}
+.mobile-history-empty{margin:0;padding:16px;color:var(--muted);font-size:10px;line-height:15px}
+.mobile-history-list{display:grid;max-height:340px;overflow:auto;margin:0;padding:0;list-style:none}
+.mobile-history-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:12px 14px;border-bottom:1px solid #28312b}
+.mobile-history-row:last-child{border-bottom:0}
+.mobile-history-event{display:grid;gap:5px;min-width:0}
+.mobile-history-event-top{display:grid;justify-items:start;gap:4px}
+.mobile-history-event b{font-size:10px;overflow-wrap:anywhere}
+.mobile-history-action{padding:2px 6px;border:1px solid #34503c;border-radius:20px;background:#19251c;color:#a9d5b4;font-size:8px;font-weight:700}
+.mobile-history-action.removed{border-color:#57462e;background:#241f17;color:#e0ba79}
+.mobile-history-action.folder_missing{border-color:#573a35;background:#241917;color:#e89585}
+.mobile-history-event small,.mobile-history-row time{font-size:9px;color:var(--muted);overflow-wrap:anywhere}
+.mobile-history-event code{color:#c3d5c8;font:9px 'DM Mono',monospace}
+.mobile-history-row time{text-align:right;white-space:nowrap;padding-top:2px}
+.mobile-history-device{display:flex;align-items:center;gap:4px}
+.mobile-history-reason{color:#e0ba79!important}
+@media(max-width:560px){.mobile-history-row{grid-template-columns:minmax(0,1fr);gap:8px}.mobile-history-row time{text-align:left;white-space:normal;padding:0}}

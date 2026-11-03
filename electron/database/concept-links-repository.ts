@@ -50,7 +50,9 @@ export class ConceptLinksRepository {
   save(input: Row): Row {
     const now = new Date().toISOString()
     const id = String(input.id || crypto.randomUUID())
-    this.db.run('INSERT OR REPLACE INTO concept_map_links (id,from_node_id,to_node_id,relation,created_at) VALUES (?,?,?,?,?)', [id, String(input.fromNodeId), String(input.toNodeId), String(input.relation), now])
+    // Editing a link (type or direction) keeps its original creation date.
+    const current = this.link(id)
+    this.db.run('INSERT OR REPLACE INTO concept_map_links (id,from_node_id,to_node_id,relation,created_at) VALUES (?,?,?,?,?)', [id, String(input.fromNodeId), String(input.toNodeId), input.relation == null ? null : String(input.relation), current?.created_at ? String(current.created_at) : now])
     this.persist()
     return this.link(id)!
   }

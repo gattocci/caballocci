@@ -86,14 +86,14 @@ contextBridge.exposeInMainWorld('planner', {
     combine: (ids: string[]) => ipcRenderer.invoke('ideas:combine', ids),
     neighbors: (id: string, limit?: number, ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:neighbors', id, limit, ignoredTerms, options),
     refreshEmbeddings: (ids?: string[], ignoredTerms?: string[], options?: unknown) => ipcRenderer.invoke('ideas:embeddings-refresh', ids, ignoredTerms, options),
-    clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, onProgress?: (progress: IdeaAnalysisProgress) => void) => {
+    clusters: async (threshold?: number, ignoredTerms?: string[], options?: unknown, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void) => {
       const requestId = `${Date.now()}-${++clusterRequestSequence}-${Math.random().toString(36).slice(2)}`
       const listener = (_event: Electron.IpcRendererEvent, update: IdeaAnalysisProgress & { requestId: string }) => {
         if (update.requestId === requestId) onProgress?.(update)
       }
       ipcRenderer.on('ideas:clusters:progress', listener)
       try {
-        return await ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options, requestId)
+        return await ipcRenderer.invoke('ideas:clusters', threshold, ignoredTerms, options, ideaIds, requestId)
       } finally {
         ipcRenderer.removeListener('ideas:clusters:progress', listener)
       }
@@ -111,6 +111,9 @@ contextBridge.exposeInMainWorld('planner', {
     removeFolder: (id: string) => ipcRenderer.invoke('concept-map:remove-folder', id),
   },
   media: {
+    previewCsvBatch: () => ipcRenderer.invoke('media:preview-csv-batch'),
+    applyCsvBatch: (token: string) => ipcRenderer.invoke('media:apply-csv-batch', token),
+    cancelCsvBatch: (token: string) => ipcRenderer.invoke('media:cancel-csv-batch', token),
     list: () => ipcRenderer.invoke('media:list'),
     choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
     scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),
@@ -144,6 +147,13 @@ contextBridge.exposeInMainWorld('planner', {
       const handler = (_event: Electron.IpcRendererEvent, state: unknown) => listener(state)
       ipcRenderer.on('updates:state', handler)
       return () => ipcRenderer.removeListener('updates:state', handler)
+    },
+  },
+  lifecycle: {
+    onCloseWarning: (listener: () => void) => {
+      const handler = () => listener()
+      ipcRenderer.on('app:close-warning', handler)
+      return () => ipcRenderer.removeListener('app:close-warning', handler)
     },
   },
 })

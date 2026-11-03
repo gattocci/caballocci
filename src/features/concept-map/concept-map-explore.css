@@ -1,0 +1,46 @@
+/* Exploration tools, link editing and fixes for the concept map. */
+.concept-toolbar-secondary { margin-top: 0; flex-wrap: wrap; }
+.map-filter { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; background: #181d1a; }
+.map-filter button { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border: 0; border-right: 1px solid var(--line); background: transparent; color: #9ba59f; font-size: 10px; cursor: pointer; white-space: nowrap; }
+.map-filter button:last-child { border-right: 0; }
+.map-filter button small { color: #6f7b74; font-size: 9px; }
+.map-filter button.active { background: #313a33; color: #fff; box-shadow: inset 0 -2px var(--accent); }
+.map-filter button.active small { color: #c9d3cc; }
+.map-filter button:disabled { opacity: .4; cursor: not-allowed; }
+.map-layout-select { min-width: 150px; max-width: 170px; }
+.map-opportunities > strong { align-self: center; margin-right: 4px; color: #cbd5ce; font-size: 10px; }
+.map-opportunities button { flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.map-shortcuts { margin-left: auto; color: #6f7b74; font-size: 9px; }
+
+/* Arrowheads live in <defs>, outside .concept-link, so they need their own selectors (they were rendering black). */
+.concept-links marker path { fill: #77847c; }
+.concept-links marker.arrow-emphasized path { fill: #e2b85f; }
+.concept-links marker.arrow-selected path { fill: #e76042; }
+.concept-link.emphasized path { stroke: #e2b85f; stroke-width: 2.5; }
+.concept-link.selected path { stroke: #e76042; stroke-width: 2.5; }
+.concept-link.selected button { border-color: #e76042; color: #ffab97; }
+.concept-map-viewport.linking { cursor: crosshair; }
+
+.concept-link-panel { border-color: #5b3f38; }
+.concept-link-sentence { font-weight: 500; line-height: 1.5; }
+.concept-link-sentence em { color: #e2b85f; font-style: normal; font-weight: 700; }
+.concept-link-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.concept-link-controls .relation-control { height: 36px; }
+
+.concept-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; }
+.concept-detail-meta div { display: grid; gap: 2px; }
+.concept-detail-meta dt { color: #7f8c84; font-size: 8px; text-transform: uppercase; letter-spacing: .5px; }
+.concept-detail-meta dd { margin: 0; color: #d4ddd7; font-size: 11px; }
+.concept-detail-notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px dashed #5d5236; border-radius: 4px; background: #211d14; color: #d9c595; font-size: 10px; }
+.concept-edit-check { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 8px; color: #aab6ad; font-size: 10px; }
+.concept-edit-check small { color: #7f8c84; font-size: 9px; }
+.concept-similar-row { display: flex; gap: 6px; align-items: stretch; }
+.concept-similar-row > button:first-child { flex: 1; min-width: 0; }
+.concept-similar-row .map-action { height: auto; flex: none; }
+
+@media (max-width: 820px) {
+  .map-filter { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .map-layout-select { max-width: 100%; flex: 1; }
+  .map-shortcuts { display: none; }
+  .concept-link-controls .relation-control { width: 100%; }
+}

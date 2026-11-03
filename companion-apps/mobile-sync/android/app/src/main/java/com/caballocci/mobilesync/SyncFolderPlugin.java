@@ -3,6 +3,8 @@ package com.caballocci.mobilesync;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.DocumentsContract;
@@ -21,15 +23,88 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.ArrayList;
+import androidx.core.content.FileProvider;
 
 @CapacitorPlugin(name = "SyncFolder")
 public class SyncFolderPlugin extends Plugin {
     private static final String PREFS = "caballocci-mobile-sync";
     private static final String TREE_URI = "tree-uri";
+
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        try {
+            String url = call.getString("url");
+            if (url == null || !url.startsWith("https://github.com/")) {
+                call.reject("El enlace de actualización no es válido.");
+                return;
+            }
+            File apk = new File(getContext().getCacheDir(), "caballocci-update-" + Integer.toHexString(url.hashCode()) + ".apk");
+            if (!apk.isFile() || apk.length() == 0) downloadApk(url, apk);
+            JSObject result = new JSObject();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getContext().getPackageManager().canRequestPackageInstalls()) {
+                result.put("permissionRequired", true);
+                call.resolve(result);
+                Intent settings = new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getContext().getPackageName()));
+                getActivity().startActivity(settings);
+                return;
+            }
+            Uri apkUri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+            Intent install = new Intent(Intent.ACTION_VIEW);
+            install.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(install);
+            result.put("permissionRequired", false);
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("No se pudo descargar o abrir el instalador de Android. Comprueba tu conexión e inténtalo de nuevo.", error);
+        }
+    }
+
+    private void downloadApk(String address, File destination) throws Exception {
+        File temporary = new File(getContext().getCacheDir(), "caballocci-update.apk.part");
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(address);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("Accept", "application/vnd.android.package-archive, application/octet-stream");
+            connection.connect();
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK || !"https".equalsIgnoreCase(connection.getURL().getProtocol())) {
+                throw new IllegalStateException("GitHub no devolvió un APK descargable.");
+            }
+            long length = connection.getContentLengthLong();
+            if (length > 250L * 1024L * 1024L) throw new IllegalStateException("El APK supera el tamaño permitido.");
+            try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(temporary)) {
+                byte[] buffer = new byte[32768];
+                int read;
+                long total = 0;
+                while ((read = input.read(buffer)) != -1) {
+                    total += read;
+                    if (total > 250L * 1024L * 1024L) throw new IllegalStateException("El APK supera el tamaño permitido.");
+                    output.write(buffer, 0, read);
+                }
+                output.getFD().sync();
+                if (length > 0 && total != length) throw new IllegalStateException("La descarga del APK quedó incompleta.");
+            }
+            try (FileInputStream input = new FileInputStream(temporary)) {
+                if (input.read() != 'P' || input.read() != 'K') throw new IllegalStateException("El archivo descargado no parece ser un APK válido.");
+            }
+            if (destination.exists() && !destination.delete()) throw new IllegalStateException("No se pudo preparar la actualización descargada.");
+            if (!temporary.renameTo(destination)) throw new IllegalStateException("No se pudo guardar el APK descargado.");
+        } finally {
+            if (connection != null) connection.disconnect();
+            if (temporary.exists()) temporary.delete();
+        }
+    }
 
     @PluginMethod
     public void chooseFolder(PluginCall call) {

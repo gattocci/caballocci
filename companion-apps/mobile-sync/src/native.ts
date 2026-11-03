@@ -11,6 +11,7 @@ export interface SyncFolderPlugin {
   listLocalEvents(): Promise<{ events: string[] }>
   writeEvent(options: { deviceId: string; eventId: string; content: string }): Promise<{ path: string; alreadyExists: boolean }>
   deleteAlbum(options: { path: string }): Promise<{ deleted: boolean }>
+  installUpdate(options: { url: string }): Promise<{ permissionRequired: boolean }>
 }
 
 export const SyncFolder = registerPlugin<SyncFolderPlugin>('SyncFolder')

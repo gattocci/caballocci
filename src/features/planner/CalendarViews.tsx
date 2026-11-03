@@ -14,7 +14,7 @@ import { postMatchesQuery, usePlanner } from '../../app/store'
 import { useSelection } from '../../app/useSelection'
 import type { MediaAsset, Post, WorkGroup } from '../../shared/types'
 
-export function CalendarView() {
+export function CalendarView({ onPickPost, pickMode = false, pickedPostIds = new Set<string>() }: { onPickPost?(id: string): boolean; pickMode?: boolean; pickedPostIds?: Set<string> }) {
   const { posts: allPosts, select, save, activeSpace, query, setQuery, selectedId } = usePlanner()
   const posts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
   const [month, setMonth] = useState(new Date())
@@ -81,7 +81,7 @@ export function CalendarView() {
   const openPost = (postId: string) => {
     setDayPopover(null)
     setDayPopoverPosition(null)
-    select(postId)
+    if (!onPickPost?.(postId)) select(postId)
   }
   const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
   const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
@@ -94,8 +94,9 @@ export function CalendarView() {
     next.setHours(post.scheduledAt ? parseISO(post.scheduledAt).getHours() : 10)
     void runWithErrorReporting(() => save({ ...post, scheduledAt: next.toISOString() }), 'No se pudo reprogramar la publicación')
   }
-  return <section className="workspace">
+  return <section className={`workspace${pickMode ? ' editor-session-pick-mode' : ''}`}>
     <ViewHeading title="Calendario" subtitle="Una vista clara de tu ritmo de publicación."><div className="period-controls"><button aria-label="Mes anterior" onClick={() => changeMonth(subMonths(month, 1))}><ChevronLeft size={17} /></button><button onClick={() => changeMonth(new Date())}>Hoy</button><button aria-label="Mes siguiente" onClick={() => changeMonth(addMonths(month, 1))}><ChevronRight size={17} /></button><span>{format(month, 'MMMM yyyy', { locale: es })}</span></div></ViewHeading>
+    {pickMode && <div className="editor-session-pick-notice" role="status"><strong>Modo añadir pestañas</strong><span>Haz clic en más publicaciones para sumarlas al editor.</span></div>}
     {!monthScheduledPosts.length && <div className="planner-empty-inline calendar-empty" role="status"><strong>{query.trim() && !posts.length ? 'No hay publicaciones que coincidan con la búsqueda' : `No hay publicaciones programadas en ${format(month, 'MMMM', { locale: es })}`}</strong><span>{query.trim() && !posts.length ? 'Borra la búsqueda para volver a ver el calendario completo.' : 'Las publicaciones con fecha aparecerán aquí.'}</span>{query.trim() && !posts.length && <button type="button" className="settings-button" onClick={() => setQuery('')}>Limpiar búsqueda</button>}</div>}
     <div className="calendar"><div className="weekdays">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <span key={d}>{d}</span>)}</div><div className="month-grid">{days.map(day => {
       const dayKey = format(day, 'yyyy-MM-dd')
@@ -118,7 +119,7 @@ export function CalendarView() {
           }
         }}>{format(day, 'd')}</button>
         <div className="month-day-posts">
-          {visibleDayPosts.map(post => <button draggable onDragStart={event => event.dataTransfer.setData('post', post.id)} key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} onClick={() => openPost(post.id)} title={post.title}><span>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span>{post.title}</button>)}
+          {visibleDayPosts.map(post => <button draggable className={pickedPostIds.has(post.id) ? 'session-picked' : ''} onDragStart={event => event.dataTransfer.setData('post', post.id)} key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} onClick={() => openPost(post.id)} title={post.title}><span>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</span>{post.title}</button>)}
           {hiddenCount > 0 && <button type="button" className="month-day-more" aria-haspopup="dialog" aria-expanded={dayPopover?.dayKey === dayKey} onClick={event => {
             setDayPopover({ dayKey, anchor: event.currentTarget })
             setDayPopoverPosition(null)
@@ -132,7 +133,7 @@ export function CalendarView() {
         .sort((first, second) => new Date(first.scheduledAt || '').getTime() - new Date(second.scheduledAt || '').getTime())
       return <div ref={dayPopoverRef} className="calendar-day-popover" role="dialog" aria-label={`Publicaciones del ${format(selectedDay, 'd MMMM yyyy', { locale: es })}`} style={{ top: dayPopoverPosition?.top ?? 0, left: dayPopoverPosition?.left ?? 0, visibility: dayPopoverPosition ? 'visible' : 'hidden' }}>
         <header><strong>{format(selectedDay, 'EEEE d MMMM', { locale: es })}</strong><button type="button" aria-label="Cerrar publicaciones del día" onClick={() => { setDayPopover(null); setDayPopoverPosition(null) }}>×</button></header>
-        <div className="calendar-day-popover-list">{dayPosts.length ? dayPosts.map(post => <button type="button" key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => openPost(post.id)} title={post.title}>
+        <div className="calendar-day-popover-list">{dayPosts.length ? dayPosts.map(post => <button type="button" className={pickedPostIds.has(post.id) ? 'session-picked' : ''} key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => openPost(post.id)} title={post.title}>
           <time>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</time><span>{post.title || 'Publicación sin título'}</span>
         </button>) : <p>No hay publicaciones programadas este día.</p>}</div>
       </div>
@@ -140,7 +141,7 @@ export function CalendarView() {
   </section>
 }
 
-export function BoardDaySwitcher() {
+export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>() }: { onPickPost?(id: string): boolean; pickedPostIds?: Set<string> }) {
   const { posts: allPosts, selectedId, select, activeSpace, query } = usePlanner()
   const selectedPost = allPosts.find(post => post.id === selectedId)
   const [expanded, setExpanded] = useState(false)
@@ -207,7 +208,7 @@ export function BoardDaySwitcher() {
   return createPortal(<div ref={panelRef} className={`calendar-day-popover board-day-switcher${expanded ? ' expanded' : ' minimized'}`} role={expanded ? 'dialog' : undefined} aria-label={expanded ? `Publicaciones del ${format(scheduledDay, 'd MMMM yyyy', { locale: es })}` : undefined} style={{ top: position.top, left: position.left, width: position.width }}>
     {expanded ? <>
       <header><strong>{format(scheduledDay, 'EEEE d MMMM', { locale: es })}</strong><button type="button" aria-label="Minimizar publicaciones del día" onClick={() => setExpanded(false)}><Minimize2 size={13} /></button></header>
-      <div className="calendar-day-popover-list">{dayPosts.map(post => <button type="button" key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => select(post.id)} title={post.title}>
+      <div className="calendar-day-popover-list">{dayPosts.map(post => <button type="button" className={pickedPostIds.has(post.id) ? 'session-picked' : ''} key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => { if (!onPickPost?.(post.id)) select(post.id) }} title={post.title}>
         <time>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</time><span>{post.title || 'Publicación sin título'}</span>
       </button>)}</div>
     </> : <button type="button" className="board-day-switcher-trigger" aria-label={`Ver publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} title={`Publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} onClick={() => setExpanded(true)}>

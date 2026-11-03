@@ -6,7 +6,7 @@ export type ContentType = 'reel' | 'carousel' | 'story' | 'post' | 'thread'
 export type IdeaStatus = 'inbox' | 'developing' | 'ready' | 'converted' | 'archived'
 export type IdeaPriority = 'low' | 'normal' | 'high'
 export type ConceptNodeKind = 'idea' | 'post' | 'resource'
-export type ConceptRelation = 'references' | 'depends_on' | 'related'
+export type ConceptRelation = 'references' | 'depends_on' | 'related' | 'develops' | 'example_of' | 'requires' | 'contradicts'
 
 export interface Post {
   id: string
@@ -36,6 +36,8 @@ export interface WorkGroup {
   id: string
   name: string
   description: string
+  /** Espacio propietario; cadena vacía indica una colección general. */
+  space: string
   archivedAt: string | null
   postIds: string[]
   compressedMediaCount: number
@@ -43,7 +45,7 @@ export interface WorkGroup {
   updatedAt: string
 }
 
-export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description'> & { id?: string }
+export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> & { id?: string }
 
 export interface MediaAsset {
   id: string
@@ -188,7 +190,7 @@ export interface ConceptMapLink {
   id: string
   fromNodeId: string
   toNodeId: string
-  relation: ConceptRelation
+  relation: ConceptRelation | null
   createdAt: string
 }
 
@@ -372,7 +374,7 @@ export interface ElectronAPI {
     combine(ids: string[]): Promise<{ ideas: Idea[]; post: Post }>
     neighbors(id: string, limit?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<IdeaNeighbor[]>
     refreshEmbeddings(ids?: string[], ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ updated: number; model: string; modelVersion: string }>
-    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
+    clusters(threshold?: number, ignoredTerms?: string[], options?: IdeaAnalysisOptions, ideaIds?: string[], onProgress?: (progress: IdeaAnalysisProgress) => void): Promise<IdeaCluster[]>
     analysisPreview(ignoredTerms?: string[], options?: IdeaAnalysisOptions): Promise<{ automaticTerms: string[] }>
     clustersList(): Promise<IdeaCluster[]>
   }
@@ -385,7 +387,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
+  media: { previewCsvBatch(): Promise<{ token: string; csvName: string; folderName: string; matches: Array<{ postId: string; project: string; code: string; name: string; title: string; columnHeader: string; referenceText: string }>; unmatched: string[] } | null>; applyCsvBatch(token: string): Promise<{ files: number; posts: number }>; cancelCsvBatch(token: string): Promise<void>; list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
@@ -406,6 +408,9 @@ export interface ElectronAPI {
     install(): Promise<boolean>
     openReleaseNotes(): Promise<void>
     onStateChange(listener: (state: UpdateState) => void): () => void
+  }
+  lifecycle: {
+    onCloseWarning(listener: () => void): () => void
   }
 }
 

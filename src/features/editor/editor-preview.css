@@ -1,0 +1,68 @@
+.preview-media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+}
+
+.preview-media > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.preview-placeholder {
+  width: 100%;
+  height: 100%;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #737e77;
+}
+
+.preview-placeholder strong {
+  max-width: 85%;
+  margin: 13px 0 5px;
+  color: #e1e6e2;
+  font-size: 17px;
+  line-height: 22px;
+}
+
+.preview-placeholder p {
+  max-width: 85%;
+  margin: 0;
+  color: #9ba59f;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: pre-wrap;
+}
+
+.preview-dimensions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 6px;
+  border: 1px solid #ffffff24;
+  background: #0c0f0dcc;
+  color: #d7ddd9;
+  font: 8px 'DM Mono', monospace !important;
+  letter-spacing: 0;
+  text-transform: none !important;
+}
+
+.external-data { display: grid; gap: 10px; }
+.external-data > header { display: flex; align-items: end; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.external-data > header > div { display: grid; gap: 4px; }
+.external-data > header span { color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: 1px; }
+.external-data > header strong { font: 11px 'DM Mono', monospace; color: #d7ded9; overflow-wrap: anywhere; }
+.external-data > header small { color: #7d8881; font-size: 8px; text-align: right; }
+.external-data details { border: 1px solid #323a35; background: #101411; }
+.external-data summary { padding: 10px; cursor: pointer; color: #d7ded9; font-size: 10px; }
+.external-data pre { max-height: 310px; overflow: auto; margin: 0; padding: 10px; border-top: 1px solid #323a35; color: #b9c8bd; font: 10px/15px 'DM Mono', monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.undo-notice { position: absolute; z-index: 2; right: 20px; bottom: 78px; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 40px); padding: 7px 10px; border: 1px solid #3b4940; border-radius: 999px; background: #202923f2; color: #d5e3d9; box-shadow: 0 5px 18px #0005; font-size: 10px; line-height: 14px; pointer-events: none; animation: undo-notice-life 1.7s ease both; }
+.undo-notice.redo { border-color: #414b55; background: #22272df2; color: #d8e0e8; }
+@keyframes undo-notice-life { 0% { opacity: 0; transform: translateY(7px) scale(.97); } 12% { opacity: 1; transform: translateY(0) scale(1); } 88% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-3px) scale(.99); } }
+@media (prefers-reduced-motion: reduce) { .undo-notice { animation: none; } }
