@@ -1,6 +1,8 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, net, protocol, shell, type IpcMainInvokeEvent } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import os from 'node:os'
 import AdmZip from 'adm-zip'
 import { pathToFileURL } from 'node:url'
 import { PlannerDatabase } from './database'
@@ -50,6 +52,151 @@ const defaultSyncthingUiUrl = 'http://127.0.0.1:8384'
 const syncthingDownloadsUrl = 'https://syncthing.net/downloads/'
 const mobileAppReleaseApiUrl = 'https://api.github.com/repos/gattocci/caballocci/releases/latest'
 const mobileSync = createMobileSyncService({ getDatabase: () => database, getMainWindow: () => mainWindow, mapPost, restoreTargetMedia, isPhonePresentationRole })
+
+type TrackedOptionalIntegration = {
+  integrationId: string
+  child: ChildProcess
+  startedAt: number
+  cpuTimeSeconds: number | null
+  sampledAt: number
+  cpuPercent: number | null
+  memoryBytes: number | null
+  metricsAvailable: boolean
+}
+
+type OptionalIntegrationLastRun = { startedAt: number; endedAt: number }
+
+const trackedOptionalIntegrations = new Map<number, TrackedOptionalIntegration>()
+const optionalIntegrationLastRuns = new Map<string, OptionalIntegrationLastRun>()
+let optionalIntegrationMonitor: NodeJS.Timeout | undefined
+let optionalIntegrationPollActive = false
+let optionalIntegrationMetricsErrorLogged = false
+
+function optionalIntegrationStatuses() {
+  const integrationIds = new Set([...optionalIntegrationLastRuns.keys(), ...[...trackedOptionalIntegrations.values()].map(item => item.integrationId)])
+  return [...integrationIds].map(integrationId => {
+    const instances = [...trackedOptionalIntegrations.values()].filter(item => item.integrationId === integrationId)
+    if (instances.length) {
+      const startedAt = Math.min(...instances.map(item => item.startedAt))
+      return {
+        integrationId,
+        state: 'running' as const,
+        startedAt,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        instanceCount: instances.length,
+        cpuPercent: instances.every(item => item.cpuPercent !== null) ? instances.reduce((total, item) => total + (item.cpuPercent || 0), 0) : null,
+        memoryBytes: instances.every(item => item.memoryBytes !== null) ? instances.reduce((total, item) => total + (item.memoryBytes || 0), 0) : null,
+        metricsAvailable: instances.every(item => item.metricsAvailable),
+      }
+    }
+    const lastRun = optionalIntegrationLastRuns.get(integrationId)
+    return {
+      integrationId,
+      state: lastRun ? 'stopped' as const : 'not-started' as const,
+      startedAt: lastRun?.startedAt ?? null,
+      durationMs: lastRun ? Math.max(0, lastRun.endedAt - lastRun.startedAt) : 0,
+      instanceCount: 0,
+      cpuPercent: null,
+      memoryBytes: null,
+      metricsAvailable: false,
+    }
+  })
+}
+
+function notifyOptionalIntegrationStatus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('system:optional-integration-status', optionalIntegrationStatuses())
+  }
+}
+
+function stopOptionalIntegrationMonitorWhenIdle() {
+  if (trackedOptionalIntegrations.size === 0 && optionalIntegrationMonitor) {
+    clearInterval(optionalIntegrationMonitor)
+    optionalIntegrationMonitor = undefined
+  }
+}
+
+function pollOptionalIntegrationMetrics() {
+  if (optionalIntegrationPollActive || trackedOptionalIntegrations.size === 0) return
+  if (process.platform !== 'win32') {
+    for (const item of trackedOptionalIntegrations.values()) item.metricsAvailable = false
+    notifyOptionalIntegrationStatus()
+    return
+  }
+
+  optionalIntegrationPollActive = true
+  const ids = [...trackedOptionalIntegrations.keys()].filter(Number.isSafeInteger)
+  const command = `$ids=@(${ids.join(',')}); Get-Process -Id $ids -ErrorAction SilentlyContinue | Select-Object Id,CPU,WorkingSet64 | ConvertTo-Json -Compress`
+  execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: 5_000, maxBuffer: 64 * 1024 }, (error, stdout) => {
+    optionalIntegrationPollActive = false
+    if (error) {
+      for (const item of trackedOptionalIntegrations.values()) item.metricsAvailable = false
+      if (!optionalIntegrationMetricsErrorLogged) {
+        console.error('No se pudo consultar el uso de recursos de las integraciones opcionales:', error.message)
+        optionalIntegrationMetricsErrorLogged = true
+      }
+      notifyOptionalIntegrationStatus()
+      return
+    }
+    try {
+      const parsed: unknown = stdout.trim() ? JSON.parse(stdout) as unknown : []
+      const rows = Array.isArray(parsed) ? parsed : [parsed]
+      const samples = new Map<number, { cpuTimeSeconds: number; memoryBytes: number }>()
+      for (const row of rows) {
+        if (!row || typeof row !== 'object') continue
+        const values = row as Record<string, unknown>
+        const pid = Number(values.Id)
+        const cpuTimeSeconds = values.CPU == null ? Number.NaN : Number(values.CPU)
+        const memoryBytes = values.WorkingSet64 == null ? Number.NaN : Number(values.WorkingSet64)
+        if (Number.isSafeInteger(pid) && Number.isFinite(cpuTimeSeconds) && Number.isFinite(memoryBytes)) {
+          samples.set(pid, { cpuTimeSeconds, memoryBytes })
+        }
+      }
+      const sampledAt = Date.now()
+      for (const [pid, item] of trackedOptionalIntegrations) {
+        const sample = samples.get(pid)
+        if (!sample) {
+          item.metricsAvailable = false
+          item.cpuPercent = null
+          item.memoryBytes = null
+          continue
+        }
+        const elapsedSeconds = (sampledAt - item.sampledAt) / 1_000
+        item.cpuPercent = item.cpuTimeSeconds === null || elapsedSeconds <= 0
+          ? null
+          : Math.min(100, Math.max(0, ((sample.cpuTimeSeconds - item.cpuTimeSeconds) / elapsedSeconds / Math.max(1, os.cpus().length)) * 100))
+        item.cpuTimeSeconds = sample.cpuTimeSeconds
+        item.sampledAt = sampledAt
+        item.memoryBytes = sample.memoryBytes
+        item.metricsAvailable = true
+      }
+      optionalIntegrationMetricsErrorLogged = false
+      notifyOptionalIntegrationStatus()
+    } catch (parseError) {
+      if (!optionalIntegrationMetricsErrorLogged) {
+        console.error('La consulta de recursos de las integraciones opcionales devolvió datos no válidos:', parseError)
+        optionalIntegrationMetricsErrorLogged = true
+      }
+      for (const item of trackedOptionalIntegrations.values()) item.metricsAvailable = false
+      notifyOptionalIntegrationStatus()
+    }
+  })
+}
+
+function startOptionalIntegrationMonitor() {
+  if (!optionalIntegrationMonitor) {
+    optionalIntegrationMonitor = setInterval(pollOptionalIntegrationMetrics, 3_000)
+    optionalIntegrationMonitor.unref()
+  }
+  pollOptionalIntegrationMetrics()
+}
+
+function getOptionalIntegrationIcon(filePath: string) {
+  return app.getFileIcon(filePath, { size: 'large' }).then(icon => icon.isEmpty() ? null : icon.resize({ width: 64, height: 64 }).toDataURL()).catch(error => {
+    console.warn('No se pudo leer el icono del ejecutable; se usará el icono genérico:', error)
+    return null
+  })
+}
 
 async function findMobileAppReleaseAsset() {
   const controller = new AbortController()
@@ -351,7 +498,7 @@ async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1500, height: 940, minWidth: 1120, minHeight: 720, show: false,
     icon: windowIcon,
-    backgroundColor: '#101311', titleBarStyle: 'hidden', titleBarOverlay: { color: '#101311', symbolColor: '#c9d0ca', height: 64 },
+    backgroundColor: '#101311', title: 'caballocci', titleBarStyle: 'hidden', titleBarOverlay: { color: '#101311', symbolColor: '#c9d0ca', height: 64 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -400,6 +547,7 @@ async function createWindow() {
 }
 
 app.setAppUserModelId('com.caballocci.desktop')
+app.setName('caballocci')
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 
@@ -495,7 +643,103 @@ app.whenReady().then(async () => {
     workspacePath: dataDirectory,
     backupsPath: backupsDirectory,
     packaged: app.isPackaged,
+    platform: process.platform,
+    platformVersion: os.release(),
+    electronVersion: process.versions.electron,
+    chromiumVersion: process.versions.chrome,
+    databaseSizeBytes: fs.statSync(databasePath).size,
+    statistics: database.getStatistics(),
   })))
+  handle('system:get-resource-usage', withoutArguments(() => {
+    const metrics = app.getAppMetrics()
+    return {
+      cpuPercent: Math.min(100, metrics.reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0)),
+      memoryBytes: metrics.reduce((total, metric) => total + metric.memory.workingSetSize, 0) * 1024,
+      processCount: metrics.length,
+      sampledAt: Date.now(),
+    }
+  }))
+  handle('system:choose-optional-integration', async args => {
+    validateArgumentCount(args, 0)
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Aplicaciones y scripts ejecutables', extensions: ['exe', 'bat', 'cmd'] }],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    return { path: result.filePaths[0], iconDataUrl: await getOptionalIntegrationIcon(result.filePaths[0]) }
+  })
+  handle('system:choose-optional-integration-icon', async args => {
+    validateArgumentCount(args, 0)
+    if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Ventana principal no disponible')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'ico'] }],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    const iconPath = result.filePaths[0]
+    if (fs.statSync(iconPath).size > 10 * 1024 * 1024) throw new Error('El archivo de icono supera el límite de 10 MB.')
+    const icon = nativeImage.createFromPath(iconPath)
+    if (icon.isEmpty()) throw new Error('No se pudo leer el archivo de imagen seleccionado.')
+    return icon.resize({ width: 64, height: 64 }).toDataURL()
+  })
+  handle('system:get-optional-integration-statuses', args => {
+    validateArgumentCount(args, 0)
+    return optionalIntegrationStatuses()
+  })
+  handle('system:launch-optional-integration', async args => {
+    validateArgumentCount(args, 2)
+    if (typeof args[0] !== 'string' || !args[0].trim() || args[0].length > 200) throw new TypeError('El identificador de integración no es válido.')
+    if (typeof args[1] !== 'string' || !args[1].trim() || args[1].length > 32_000) throw new TypeError('La ruta del ejecutable no es válida.')
+    const integrationId = args[0]
+    const filePath = path.resolve(args[1].trim())
+    if (!['.exe', '.bat', '.cmd'].includes(path.extname(filePath).toLowerCase())) throw new TypeError('Solo se pueden abrir archivos .exe, .bat o .cmd.')
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error('El archivo seleccionado ya no existe o no es un archivo.')
+    if (process.platform !== 'win32') throw new Error('El monitoreo de integraciones opcionales está disponible en Windows.')
+    const extension = path.extname(filePath).toLowerCase()
+    const child = extension === '.exe'
+      ? spawn(filePath, [], { stdio: 'ignore', windowsHide: true })
+      : spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${filePath}""`], { stdio: 'ignore', windowsHide: true })
+    let trackedRun: TrackedOptionalIntegration | undefined
+    await new Promise<void>((resolve, reject) => {
+      let launched = false
+      child.once('spawn', () => {
+        if (!child.pid) {
+          reject(new Error('Windows no devolvió un identificador de proceso para la integración.'))
+          return
+        }
+        launched = true
+        const startedAt = Date.now()
+        trackedRun = {
+          integrationId,
+          child,
+          startedAt,
+          cpuTimeSeconds: null,
+          sampledAt: startedAt,
+          cpuPercent: null,
+          memoryBytes: null,
+          metricsAvailable: process.platform === 'win32',
+        }
+        trackedOptionalIntegrations.set(child.pid, trackedRun)
+        optionalIntegrationLastRuns.set(integrationId, { startedAt, endedAt: startedAt })
+        startOptionalIntegrationMonitor()
+        notifyOptionalIntegrationStatus()
+        resolve()
+      })
+      child.once('error', error => {
+        if (!launched) reject(error)
+        else console.error('Falló una integración opcional después de iniciarse:', error)
+      })
+      child.once('close', code => {
+        if (!launched || !trackedRun) return
+        const pid = child.pid
+        if (pid) trackedOptionalIntegrations.delete(pid)
+        optionalIntegrationLastRuns.set(integrationId, { startedAt: trackedRun.startedAt, endedAt: Date.now() })
+        stopOptionalIntegrationMonitorWhenIdle()
+        notifyOptionalIntegrationStatus()
+      })
+    })
+  })
   handle('system:open-workspace', withoutArguments(() => shell.openPath(dataDirectory)))
   handle('system:open-space-folder', args => {
     if (args.length !== 1 || typeof args[0] !== 'string' || !args[0].trim()) throw new TypeError('Argumento IPC no valido: system.openSpaceFolder')

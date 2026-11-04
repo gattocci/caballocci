@@ -227,6 +227,46 @@ export interface SystemInfo {
   workspacePath: string
   backupsPath: string
   packaged: boolean
+  platform: string
+  platformVersion: string
+  electronVersion: string
+  chromiumVersion: string
+  databaseSizeBytes: number
+  statistics: {
+    posts: number
+    ideas: number
+    mediaFiles: number
+    mediaBytes: number
+    workGroups: number
+    sources: number
+  }
+}
+
+export interface AppResourceUsage {
+  cpuPercent: number
+  memoryBytes: number
+  processCount: number
+  sampledAt: number
+}
+
+export interface OptionalIntegration {
+  id: string
+  name: string
+  path: string
+  note: string
+  iconDataUrl?: string
+  customIconDataUrl?: string
+}
+
+export interface OptionalIntegrationStatus {
+  integrationId: string
+  state: 'running' | 'stopped' | 'not-started'
+  startedAt: number | null
+  durationMs: number
+  instanceCount: number
+  cpuPercent: number | null
+  memoryBytes: number | null
+  metricsAvailable: boolean
 }
 
 export interface Source {
@@ -393,6 +433,12 @@ export interface ElectronAPI {
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
   system: {
     info(): Promise<SystemInfo>
+    getResourceUsage(): Promise<AppResourceUsage>
+    chooseOptionalIntegration(): Promise<{ path: string; iconDataUrl: string | null } | null>
+    chooseOptionalIntegrationIcon(): Promise<string | null>
+    launchOptionalIntegration(integrationId: string, filePath: string): Promise<void>
+    getOptionalIntegrationStatuses(): Promise<OptionalIntegrationStatus[]>
+    onOptionalIntegrationStatusChange(listener: (statuses: OptionalIntegrationStatus[]) => void): () => void
     openWorkspace(): Promise<string>
     openSpaceFolder(space: string): Promise<string>
     openBackups(): Promise<string>

@@ -1,12 +1,12 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import { createPortal } from 'react-dom'
 import { Copy, FolderOpen, Trash2 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { contentLabels, statusMeta } from '../../shared/constants'
-import type { Post, WorkGroup } from '../../shared/types'
+import type { ContentType, Post, WorkGroup } from '../../shared/types'
 import { AreaSelectionSurface } from './AreaSelectionSurface'
 import { runWithErrorReporting } from '../../app/errors'
+import { BoardContextMenu, BoardContextSelectionActions } from './BoardContextMenu'
 
 export type BoardListSort = 'title' | 'status' | 'format' | 'collection' | 'date'
 type BoardListSortDirection = 'asc' | 'desc'
@@ -31,6 +31,13 @@ type BoardListViewProps = {
   onDuplicate(post: Post): Promise<Post | undefined>
   onDelete(post: Post): void
   onEditSelection(): void
+  scheduleAt: string
+  scheduleWarning: string
+  onArchive(ids: string[]): void
+  onScheduleAtChange(value: string): void
+  onSchedule(ids: string[]): void
+  onClearSchedule(ids: string[]): void
+  onFormat(ids: string[], contentType: ContentType): void
 }
 
 export function BoardListView({
@@ -53,6 +60,13 @@ export function BoardListView({
   onDuplicate,
   onDelete,
   onEditSelection,
+  scheduleAt,
+  scheduleWarning,
+  onArchive,
+  onScheduleAtChange,
+  onSchedule,
+  onClearSchedule,
+  onFormat,
 }: BoardListViewProps) {
   const [context, setContext] = useState<{ post: Post; x: number; y: number } | null>(null)
   useEffect(() => {
@@ -80,7 +94,7 @@ export function BoardListView({
         <th>Destinos</th>
       </tr></thead><tbody>{visibleListPosts.map(post => {
         const memberships = workGroups.filter(group => group.postIds.includes(post.id))
-        return <tr data-area-select-id={post.id} key={post.id} className={`${selected.has(post.id) ? 'selected' : ''}${pickedPostIds.has(post.id) ? ' session-picked' : ''}`} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setContext({ post, x: Math.min(event.clientX, window.innerWidth - 224), y: Math.min(event.clientY, window.innerHeight - 160) }) }}>
+        return <tr data-area-select-id={post.id} key={post.id} className={`${selected.has(post.id) ? 'selected' : ''}${pickedPostIds.has(post.id) ? ' session-picked' : ''}`} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setContext({ post, x: event.clientX, y: event.clientY }) }}>
           <td><label className="board-list-select"><input type="checkbox" checked={selected.has(post.id)} onChange={event => toggle(post.id, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey, listPosts.map(item => item.id))} aria-label={`Seleccionar ${post.title || 'publicación'}`} /><button type="button" onClick={() => { if (!onPickPost?.(post.id)) select(post.id) }}>{post.title || 'Publicación sin título'}</button></label></td>
           <td><span className="board-list-stage"><i style={{ background: statusMeta[post.status].color }} />{statusMeta[post.status].label}</span></td>
           <td>{contentLabels[post.contentType]}</td>
@@ -91,13 +105,29 @@ export function BoardListView({
       })}</tbody></table></div>
       <div className="board-list-pagination"><span>{listPosts.length} publicaciones · página {listPage + 1} de {listPageCount}</span><div><button type="button" className="settings-button" disabled={listPage === 0} onClick={() => setListPage(current => current - 1)}>Anterior</button><button type="button" className="settings-button" disabled={listPage + 1 >= listPageCount} onClick={() => setListPage(current => current + 1)}>Siguiente</button></div></div>
     </>}
-    {context ? createPortal(<div className="board-context-menu" role="menu" aria-label={`Acciones para ${context.post.title || 'publicación'}`} style={{ left: Math.max(8, context.x), top: Math.max(8, context.y) }} onPointerDown={event => event.stopPropagation()}>
-      {selected.size > 1 && selected.has(context.post.id) && <div className="board-context-selection-note">{selected.size} publicaciones seleccionadas</div>}
-      <button type="button" role="menuitem" onClick={() => { select(context.post.id); setContext(null) }}>{selected.size > 1 && selected.has(context.post.id) ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
-      {selected.size > 1 && selected.has(context.post.id) && <button type="button" role="menuitem" onClick={() => { onEditSelection(); setContext(null) }}>Editar selección en pestañas</button>}
-      <button type="button" role="menuitem" onClick={() => { void onDuplicate(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
-      <button type="button" role="menuitem" onClick={() => { void runWithErrorReporting(() => window.planner.media.openFolder(context.post.id, context.post.project), 'No se pudo abrir la carpeta de media'); setContext(null) }}><FolderOpen size={14} />Abrir en el Explorador Windows</button>
-      <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
-    </div>, document.body) : null}
+    {context && (() => {
+      const actionIds = selected.has(context.post.id) ? [...selected] : [context.post.id]
+      const hasScheduledPosts = actionIds.some(id => listPosts.find(post => post.id === id)?.scheduledAt)
+      const close = () => setContext(null)
+      return <BoardContextMenu x={context.x} y={context.y} label={`Acciones para ${context.post.title || 'publicación'}`}>
+        <BoardContextSelectionActions
+          count={actionIds.length}
+          canArchive={actionIds.some(id => listPosts.find(post => post.id === id)?.status !== 'archived')}
+          hasScheduledPosts={hasScheduledPosts}
+          scheduleAt={scheduleAt}
+          scheduleWarning={scheduleWarning}
+          onArchive={() => { close(); onArchive(actionIds) }}
+          onScheduleAtChange={onScheduleAtChange}
+          onSchedule={() => { close(); onSchedule(actionIds) }}
+          onClearSchedule={() => { close(); onClearSchedule(actionIds) }}
+          onFormat={(contentType: ContentType) => { close(); onFormat(actionIds, contentType) }}
+        />
+        <button type="button" role="menuitem" onClick={() => { select(context.post.id); close() }}>{actionIds.length > 1 ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
+        {actionIds.length > 1 && <button type="button" role="menuitem" onClick={() => { onEditSelection(); close() }}>Editar selección en pestañas</button>}
+        <button type="button" role="menuitem" onClick={() => { void onDuplicate(context.post); close() }}><Copy size={14} />Duplicar publicación</button>
+        <button type="button" role="menuitem" onClick={() => { void runWithErrorReporting(() => window.planner.media.openFolder(context.post.id, context.post.project), 'No se pudo abrir la carpeta de media'); close() }}><FolderOpen size={14} />Abrir en el Explorador Windows</button>
+        <button type="button" role="menuitem" onClick={() => { onDelete(context.post); close() }}><Trash2 size={14} />Eliminar publicación</button>
+      </BoardContextMenu>
+    })()}
   </AreaSelectionSurface>
 }

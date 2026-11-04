@@ -3,8 +3,9 @@ import { Archive, BookOpen, Download, ExternalLink, FolderOpen, Globe2, RefreshC
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { ViewHeading } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
-import type { SystemInfo, UpdateState } from '../../shared/types'
+import type { AppResourceUsage, SystemInfo, UpdateState } from '../../shared/types'
 import { MobileSyncSettings } from './MobileSyncSettings'
+import { OptionalIntegrations } from './OptionalIntegrations'
 import './about-updates.css'
 
 const formatBytes = (bytes: number | null) => {
@@ -13,8 +14,17 @@ const formatBytes = (bytes: number | null) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+const formatCount = (value: number) => new Intl.NumberFormat('es').format(value)
+
+const platformName = (platform: string) => ({
+  win32: 'Windows',
+  darwin: 'macOS',
+  linux: 'Linux',
+}[platform] || platform)
+
 export function AboutUpdates() {
   const [info, setInfo] = useState<SystemInfo | null>(null)
+  const [resourceUsage, setResourceUsage] = useState<AppResourceUsage | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [backupMessage, setBackupMessage] = useState('')
   const [notesOpen, setNotesOpen] = useState(false)
@@ -26,6 +36,25 @@ export function AboutUpdates() {
       setUpdate(state)
     }).catch(error => reportAppError(error, 'No se pudo cargar la información de la aplicación'))
     return window.planner.updates.onStateChange(setUpdate)
+  }, [])
+  useEffect(() => {
+    let active = true
+    let requestPending = false
+    const updateUsage = async () => {
+      if (requestPending) return
+      requestPending = true
+      try {
+        const usage = await window.planner.system.getResourceUsage()
+        if (active) setResourceUsage(usage)
+      } catch (error) {
+        reportAppError(error, 'No se pudo consultar el consumo actual de caballocci')
+      } finally {
+        requestPending = false
+      }
+    }
+    void updateUsage()
+    const interval = window.setInterval(() => { void updateUsage() }, 3_000)
+    return () => { active = false; window.clearInterval(interval) }
   }, [])
   const createBackup = async () => {
     const backupPath = await window.planner.system.createBackup()
@@ -71,6 +100,36 @@ export function AboutUpdates() {
         </div>
         {backupMessage && <p className="settings-note success">{backupMessage}</p>}
       </section>
+      <section className="settings-section app-information">
+        <div className="settings-heading"><div><span>ACERCA DE CABALLOCCI</span><h2>Esta instalación</h2></div><strong>v{info?.version || '...'}</strong></div>
+        <p className="settings-note">Información técnica y resumen de los datos guardados localmente. No se envía a ningún servicio.</p>
+        <dl className="app-information-grid">
+          <div><dt>Entorno</dt><dd>{info ? info.packaged ? 'Aplicación instalada' : 'Desarrollo' : '...'}</dd></div>
+          <div><dt>Sistema operativo</dt><dd>{info ? `${platformName(info.platform)} ${info.platformVersion}` : '...'}</dd></div>
+          <div><dt>Electron</dt><dd>{info?.electronVersion || '...'}</dd></div>
+          <div><dt>Chromium</dt><dd>{info?.chromiumVersion || '...'}</dd></div>
+          <div><dt>Base de datos local</dt><dd>{info ? formatBytes(info.databaseSizeBytes) : '...'}</dd></div>
+          <div><dt>Archivos adjuntos registrados</dt><dd>{info ? `${formatCount(info.statistics.mediaFiles)} · ${formatBytes(info.statistics.mediaBytes)}` : '...'}</dd></div>
+        </dl>
+        <div className="app-resource-usage">
+          <strong>Consumo actual de caballocci</strong>
+          <div>
+            <span><b>{resourceUsage ? `${resourceUsage.cpuPercent.toFixed(1)}%` : '...'}</b><small>CPU · {resourceUsage ? `${formatCount(resourceUsage.processCount)} procesos` : 'midiendo'}</small></span>
+            <span><b>{resourceUsage ? formatBytes(resourceUsage.memoryBytes) : '...'}</b><small>Memoria RAM en uso</small></span>
+          </div>
+          <p>Consumo agregado de la aplicación y sus procesos auxiliares de Electron. Se actualiza cada 3 segundos.</p>
+        </div>
+        {info && <div className="app-content-summary">
+          <strong>Contenido en este espacio</strong>
+          <div>
+            <span>{formatCount(info.statistics.posts)} <small>publicaciones</small></span>
+            <span>{formatCount(info.statistics.ideas)} <small>ideas</small></span>
+            <span>{formatCount(info.statistics.workGroups)} <small>colecciones</small></span>
+            <span>{formatCount(info.statistics.sources)} <small>fuentes</small></span>
+          </div>
+        </div>}
+      </section>
+      <OptionalIntegrations />
       <MobileSyncSettings />
     </div>
 

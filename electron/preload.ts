@@ -2,6 +2,17 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IdeaAnalysisProgress } from './database/types'
 
 let clusterRequestSequence = 0
+type OptionalIntegrationStatus = {
+  integrationId: string
+  state: 'running' | 'stopped' | 'not-started'
+  startedAt: number | null
+  durationMs: number
+  instanceCount: number
+  cpuPercent: number | null
+  memoryBytes: number | null
+  metricsAvailable: boolean
+}
+type AppResourceUsage = { cpuPercent: number; memoryBytes: number; processCount: number; sampledAt: number }
 
 contextBridge.exposeInMainWorld('planner', {
   mobileSync: {
@@ -129,6 +140,16 @@ contextBridge.exposeInMainWorld('planner', {
   preferences: { sync: (entries: Record<string, string>) => ipcRenderer.invoke('preferences:sync', entries), remove: (key: string) => ipcRenderer.invoke('preferences:remove', key) },
   system: {
     info: () => ipcRenderer.invoke('system:info'),
+    getResourceUsage: () => ipcRenderer.invoke('system:get-resource-usage'),
+    chooseOptionalIntegration: () => ipcRenderer.invoke('system:choose-optional-integration'),
+    chooseOptionalIntegrationIcon: () => ipcRenderer.invoke('system:choose-optional-integration-icon'),
+    launchOptionalIntegration: (integrationId: string, filePath: string) => ipcRenderer.invoke('system:launch-optional-integration', integrationId, filePath),
+    getOptionalIntegrationStatuses: () => ipcRenderer.invoke('system:get-optional-integration-statuses'),
+    onOptionalIntegrationStatusChange: (listener: (statuses: OptionalIntegrationStatus[]) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, statuses: OptionalIntegrationStatus[]) => listener(statuses)
+      ipcRenderer.on('system:optional-integration-status', handler)
+      return () => ipcRenderer.removeListener('system:optional-integration-status', handler)
+    },
     openWorkspace: () => ipcRenderer.invoke('system:open-workspace'),
     openSpaceFolder: (space: string) => ipcRenderer.invoke('system:open-space-folder', space),
     openBackups: () => ipcRenderer.invoke('system:open-backups'),

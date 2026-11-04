@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { BoardCardColorPicker, MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
+import { BoardContextMenu, BoardContextSelectionActions } from './BoardContextMenu'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ArrowDown, ArrowUp, CalendarDays, ChevronDown, ChevronRight, ClipboardCopy, Copy, FileText, Film, FolderOpen, FolderPlus, Images, Layers3, MoreHorizontal, Trash2 } from 'lucide-react'
@@ -8,7 +8,7 @@ import { contentLabels, stages, statusMeta } from '../../shared/constants'
 import { postColors } from '../../shared/postColors'
 import { runWithErrorReporting } from '../../app/errors'
 import { PlatformMark } from '../../components/layout/AppShell'
-import type { Post, WorkGroup } from '../../shared/types'
+import type { ContentType, Post, WorkGroup } from '../../shared/types'
 
 const POST_IDS_MIME = 'application/x-caballocci-post-ids'
 
@@ -37,7 +37,7 @@ function setCardDragImage(event: React.DragEvent<HTMLElement>, count: number) {
   setTimeout(() => ghost.remove(), 0)
 }
 
-export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onPickPost, pickedPostIds = new Set<string>(), onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus, onEditSelection }: {
+export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLanes, toggleLane, reorderLane, visiblePerColumn, mobilePublicationState, boardCardDetailLevel, dragIds, onToggle, onSelect, onPickPost, pickedPostIds = new Set<string>(), onColor, onMove, onSelectStatus, onDuplicate, onDelete, onStatus, onEditSelection, onArchive, scheduleAt, scheduleWarning, onScheduleAtChange, onSchedule, onClearSchedule, onFormat }: {
   lanes: BoardLane[]; posts: Post[]; activeGroups: WorkGroup[]; selected: Set<string>; collapsedLanes: Set<string>
   toggleLane(id: string): void; reorderLane(id: string, delta: number): void; visiblePerColumn: number
   mobilePublicationState: MobilePublicationState | null; boardCardDetailLevel: BoardCardDetailLevel
@@ -46,6 +46,8 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
   onColor(post: Post, color: string): void; onMove(status: Post['status']): void; onSelectStatus(ids: string[]): void
   onDuplicate(post: Post): Promise<Post | undefined>; onDelete(post: Post): void; onStatus(post: Post, status: Post['status']): void
   onEditSelection(): void
+  scheduleAt: string; scheduleWarning: string; onScheduleAtChange(value: string): void
+  onArchive(ids: string[]): void; onSchedule(ids: string[]): void; onClearSchedule(ids: string[]): void; onFormat(ids: string[], contentType: ContentType): void
 }) {
   const [context, setContext] = useState<{ post: Post; x: number; y: number } | null>(null)
   const [showStatuses, setShowStatuses] = useState(false)
@@ -97,7 +99,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
     event.preventDefault()
     event.stopPropagation()
     setShowStatuses(false)
-    setContext({ post, x: Math.min(event.clientX, window.innerWidth - 224), y: Math.min(event.clientY, window.innerHeight - 280) })
+    setContext({ post, x: event.clientX, y: event.clientY })
   }
 
   const startDrag = (event: React.DragEvent<HTMLElement>, post: Post) => {
@@ -207,15 +209,31 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
       </div>
     })}
   </div>
-  {context ? createPortal(<div className="board-context-menu" role="menu" aria-label={`Acciones para ${context.post.title || 'publicación'}`} style={{ left: Math.max(8, context.x), top: Math.max(8, context.y) }} onPointerDown={event => event.stopPropagation()}>
-    {selected.size > 1 && selected.has(context.post.id) && <div className="board-context-selection-note">{selected.size} publicaciones seleccionadas</div>}
-    <button type="button" role="menuitem" onClick={() => { onSelect(context.post.id); setContext(null) }}>{selected.size > 1 && selected.has(context.post.id) ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
-    {selected.size > 1 && selected.has(context.post.id) && <button type="button" role="menuitem" onClick={() => { onEditSelection(); setContext(null) }}>Editar selección en pestañas</button>}
-    <button type="button" role="menuitem" onClick={() => { void duplicatePost(context.post); setContext(null) }}><Copy size={14} />Duplicar publicación</button>
-    <button type="button" role="menuitem" onClick={() => { void runWithErrorReporting(() => window.planner.media.openFolder(context.post.id, context.post.project), 'No se pudo abrir la carpeta de media'); setContext(null) }}><FolderOpen size={14} />Abrir en el Explorador Windows</button>
-    <button type="button" role="menuitem" onClick={() => { onDelete(context.post); setContext(null) }}><Trash2 size={14} />Eliminar publicación</button>
-    <button type="button" role="menuitem" disabled={!context.post.caption.trim()} onClick={() => { void runWithErrorReporting(() => window.planner.clipboard.write(context.post.caption), 'No se pudo copiar el texto'); setContext(null) }}><ClipboardCopy size={14} />Copiar texto</button>
-    <button type="button" role="menuitem" aria-expanded={showStatuses} onClick={() => setShowStatuses(value => !value)}><MoreHorizontal size={14} />Cambiar etapa…</button>
-    {showStatuses && <div className="board-context-statuses" role="group" aria-label="Cambiar etapa">{stages.filter(status => status !== context.post.status && (status !== 'scheduled' || Boolean(context.post.scheduledAt))).map(status => <button type="button" key={status} onClick={() => { onStatus(context.post, status); setContext(null); setShowStatuses(false) }}>{statusMeta[status].label}</button>)}</div>}
-  </div>, document.body) : null}</>
+  {context && (() => {
+    const actionIds = selected.has(context.post.id) ? [...selected] : [context.post.id]
+    const hasScheduledPosts = actionIds.some(id => postById.get(id)?.scheduledAt)
+    const close = () => setContext(null)
+    return <BoardContextMenu x={context.x} y={context.y} label={`Acciones para ${context.post.title || 'publicación'}`}>
+      <BoardContextSelectionActions
+        count={actionIds.length}
+        canArchive={actionIds.some(id => postById.get(id)?.status !== 'archived')}
+        hasScheduledPosts={hasScheduledPosts}
+        scheduleAt={scheduleAt}
+        scheduleWarning={scheduleWarning}
+        onArchive={() => { close(); onArchive(actionIds) }}
+        onScheduleAtChange={onScheduleAtChange}
+        onSchedule={() => { close(); onSchedule(actionIds) }}
+        onClearSchedule={() => { close(); onClearSchedule(actionIds) }}
+        onFormat={contentType => { close(); onFormat(actionIds, contentType) }}
+      />
+      <button type="button" role="menuitem" onClick={() => { onSelect(context.post.id); close() }}>{actionIds.length > 1 ? 'Editar esta publicación' : 'Abrir / editar publicación'}</button>
+      {actionIds.length > 1 && <button type="button" role="menuitem" onClick={() => { onEditSelection(); close() }}>Editar selección en pestañas</button>}
+      <button type="button" role="menuitem" onClick={() => { void duplicatePost(context.post); close() }}><Copy size={14} />Duplicar publicación</button>
+      <button type="button" role="menuitem" onClick={() => { void runWithErrorReporting(() => window.planner.media.openFolder(context.post.id, context.post.project), 'No se pudo abrir la carpeta de media'); close() }}><FolderOpen size={14} />Abrir en el Explorador Windows</button>
+      <button type="button" role="menuitem" onClick={() => { onDelete(context.post); close() }}><Trash2 size={14} />Eliminar publicación</button>
+      <button type="button" role="menuitem" disabled={!context.post.caption.trim()} onClick={() => { void runWithErrorReporting(() => window.planner.clipboard.write(context.post.caption), 'No se pudo copiar el texto'); close() }}><ClipboardCopy size={14} />Copiar texto</button>
+      <button type="button" role="menuitem" aria-expanded={showStatuses} onClick={() => setShowStatuses(value => !value)}><MoreHorizontal size={14} />Cambiar etapa…</button>
+      {showStatuses && <div className="board-context-statuses" role="group" aria-label="Cambiar etapa">{stages.filter(status => status !== context.post.status && (status !== 'scheduled' || Boolean(context.post.scheduledAt))).map(status => <button type="button" key={status} onClick={() => { onStatus(context.post, status); close(); setShowStatuses(false) }}>{statusMeta[status].label}</button>)}</div>}
+    </BoardContextMenu>
+  })()}</>
 }

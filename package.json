@@ -46,6 +46,7 @@
   "build": {
     "appId": "com.caballocci.desktop",
     "productName": "caballocci",
+    "executableName": "caballocci",
     "directories": {
       "output": "release"
     },

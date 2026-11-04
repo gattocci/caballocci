@@ -109,6 +109,27 @@ export class PlannerDatabase {
     return this.posts.list()
   }
 
+  getStatistics() {
+    const result = this.db.exec(`
+      SELECT
+        (SELECT COUNT(*) FROM posts) AS posts,
+        (SELECT COUNT(*) FROM ideas) AS ideas,
+        (SELECT COUNT(*) FROM media_assets) AS media_files,
+        (SELECT COALESCE(SUM(size), 0) FROM media_assets) AS media_bytes,
+        (SELECT COUNT(*) FROM work_groups) AS work_groups,
+        (SELECT COUNT(*) FROM sources) AS sources
+    `)
+    const [posts, ideas, mediaFiles, mediaBytes, workGroups, sources] = result[0]?.values[0] || []
+    return {
+      posts: Number(posts || 0),
+      ideas: Number(ideas || 0),
+      mediaFiles: Number(mediaFiles || 0),
+      mediaBytes: Number(mediaBytes || 0),
+      workGroups: Number(workGroups || 0),
+      sources: Number(sources || 0),
+    }
+  }
+
   listWorkGroups(): Row[] { return this.workGroups.list() }
   saveWorkGroup(input: Row): Row { return this.workGroups.save(input) }
   setWorkGroupPosts(id: string, postIds: string[]): Row { return this.workGroups.setPosts(id, postIds) }

@@ -3,7 +3,7 @@ import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { usePlanner } from '../../app/store'
 import { useSelection } from '../../app/useSelection'
 import { statusMeta } from '../../shared/constants'
-import type { Post } from '../../shared/types'
+import type { ContentType, Post } from '../../shared/types'
 import type { MobilePublicationState } from './BoardCardDecorations'
 
 type UseBoardSelectionOptions = {
@@ -49,15 +49,15 @@ export function useBoardSelection({ allPosts, query, activeSpace, selectedWorkGr
     setSelected([...next])
   }
 
-  const bulkMove = (status: Post['status']) => runWithErrorReporting(async () => {
-    const targets = [...selected].filter(id => allPosts.some(item => item.id === id))
+  const bulkMove = (status: Post['status'], postIds: string[] = [...selected]) => runWithErrorReporting(async () => {
+    const targets = postIds.filter(id => allPosts.some(item => item.id === id && item.status !== status))
     for (const id of targets) await move(id, status)
-    usePlanner.getState().groupRecentUndoActions(targets.length, `Mover ${targets.length} publicaciones a ${statusMeta[status].label}`)
+    if (targets.length) usePlanner.getState().groupRecentUndoActions(targets.length, `Mover ${targets.length} publicaciones a ${statusMeta[status].label}`)
     clear()
   }, 'No se pudieron actualizar las publicaciones seleccionadas')
 
-  const bulkSchedule = () => {
-    if (!bulkScheduleAt || !selected.size) {
+  const bulkSchedule = (postIds: string[] = [...selected]) => {
+    if (!bulkScheduleAt || !postIds.length) {
       setBulkScheduleWarning('Elige fecha y hora para programar las publicaciones seleccionadas.')
       return
     }
@@ -68,17 +68,36 @@ export function useBoardSelection({ allPosts, query, activeSpace, selectedWorkGr
     }
     const scheduledAt = date.toISOString()
     void runWithErrorReporting(async () => {
-      const targets = [...selected].filter(id => allPosts.some(post => post.id === id))
-      for (const id of targets) {
-        const post = allPosts.find(item => item.id === id)
-        if (post) await usePlanner.getState().save({ ...post, scheduledAt, status: 'scheduled' })
-      }
-      usePlanner.getState().groupRecentUndoActions(targets.length, `Programar ${targets.length} publicaciones`)
+      const targets = postIds.map(id => allPosts.find(post => post.id === id)).filter((post): post is Post => Boolean(post))
+      const changed = targets.filter(post => post.scheduledAt !== scheduledAt || post.status !== 'scheduled')
+      for (const post of changed) await usePlanner.getState().save({ ...post, scheduledAt, status: 'scheduled' })
+      if (changed.length) usePlanner.getState().groupRecentUndoActions(changed.length, `Programar ${changed.length} publicaciones`)
       setBulkScheduleAt('')
       setBulkScheduleWarning('')
       clear()
     }, 'No se pudieron programar las publicaciones seleccionadas')
   }
+
+  const bulkFormat = (contentType: ContentType, postIds: string[]) => runWithErrorReporting(async () => {
+    const targets = postIds.map(id => allPosts.find(post => post.id === id)).filter((post): post is Post => Boolean(post))
+    const changed = targets.filter(post => post.contentType !== contentType)
+    for (const post of changed) await usePlanner.getState().save({ ...post, contentType })
+    if (changed.length) usePlanner.getState().groupRecentUndoActions(changed.length, `Cambiar formato de ${changed.length} publicaciones`)
+    clear()
+  }, 'No se pudo cambiar el formato de las publicaciones seleccionadas')
+
+  const bulkClearSchedule = (postIds: string[]) => runWithErrorReporting(async () => {
+    const targets = postIds.map(id => allPosts.find(post => post.id === id)).filter((post): post is Post => Boolean(post && post.scheduledAt))
+    for (const post of targets) {
+      await usePlanner.getState().save({
+        ...post,
+        scheduledAt: null,
+        ...(post.status === 'scheduled' ? { status: 'approved' as const } : {}),
+      })
+    }
+    if (targets.length) usePlanner.getState().groupRecentUndoActions(targets.length, `Quitar fecha de ${targets.length} publicaciones`)
+    clear()
+  }, 'No se pudo quitar la fecha de las publicaciones seleccionadas')
 
   const exportSelectedToMobile = () => runWithErrorReporting(async () => {
     const postIds = [...selected].filter(id => allPosts.some(post => post.id === id))
@@ -102,6 +121,6 @@ export function useBoardSelection({ allPosts, query, activeSpace, selectedWorkGr
     selected, toggle, clear, set: setSelected, toggleStatusSelection,
     bulkScheduleAt, setBulkScheduleAt, bulkScheduleWarning, setBulkScheduleWarning,
     mobileExportBusy, mobileExportMessage, mobileExportSkipped, mobilePublicationState,
-    bulkMove, bulkSchedule, exportSelectedToMobile,
+    bulkMove, bulkSchedule, bulkFormat, bulkClearSchedule, exportSelectedToMobile,
   }
 }
