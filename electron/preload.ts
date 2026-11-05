@@ -4,9 +4,10 @@ import type { IdeaAnalysisProgress } from './database/types'
 let clusterRequestSequence = 0
 type OptionalIntegrationStatus = {
   integrationId: string
-  state: 'running' | 'stopped' | 'not-started'
+  state: 'running' | 'stopping' | 'stopped' | 'failed' | 'not-started'
   startedAt: number | null
   durationMs: number
+  exitCode?: number | null
   instanceCount: number
   cpuPercent: number | null
   memoryBytes: number | null
@@ -144,6 +145,7 @@ contextBridge.exposeInMainWorld('planner', {
     chooseOptionalIntegration: () => ipcRenderer.invoke('system:choose-optional-integration'),
     chooseOptionalIntegrationIcon: () => ipcRenderer.invoke('system:choose-optional-integration-icon'),
     launchOptionalIntegration: (integrationId: string, filePath: string) => ipcRenderer.invoke('system:launch-optional-integration', integrationId, filePath),
+    stopOptionalIntegration: (integrationId: string) => ipcRenderer.invoke('system:stop-optional-integration', integrationId),
     getOptionalIntegrationStatuses: () => ipcRenderer.invoke('system:get-optional-integration-statuses'),
     onOptionalIntegrationStatusChange: (listener: (statuses: OptionalIntegrationStatus[]) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, statuses: OptionalIntegrationStatus[]) => listener(statuses)

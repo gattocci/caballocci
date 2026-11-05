@@ -260,9 +260,10 @@ export interface OptionalIntegration {
 
 export interface OptionalIntegrationStatus {
   integrationId: string
-  state: 'running' | 'stopped' | 'not-started'
+  state: 'running' | 'stopping' | 'stopped' | 'failed' | 'not-started'
   startedAt: number | null
   durationMs: number
+  exitCode?: number | null
   instanceCount: number
   cpuPercent: number | null
   memoryBytes: number | null
@@ -437,6 +438,7 @@ export interface ElectronAPI {
     chooseOptionalIntegration(): Promise<{ path: string; iconDataUrl: string | null } | null>
     chooseOptionalIntegrationIcon(): Promise<string | null>
     launchOptionalIntegration(integrationId: string, filePath: string): Promise<void>
+    stopOptionalIntegration(integrationId: string): Promise<void>
     getOptionalIntegrationStatuses(): Promise<OptionalIntegrationStatus[]>
     onOptionalIntegrationStatusChange(listener: (statuses: OptionalIntegrationStatus[]) => void): () => void
     openWorkspace(): Promise<string>

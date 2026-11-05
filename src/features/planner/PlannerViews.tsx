@@ -13,6 +13,7 @@ import { BoardBulkActions } from './BoardBulkActions'
 import { BoardCalendarView } from './BoardCalendarView'
 import { BoardWorkGroupDialogs } from './BoardWorkGroupDialogs'
 import { useBoardWorkGroups } from './useBoardWorkGroups'
+import { useWorkGroupOrder } from './useWorkGroupOrder'
 import { useBoardList } from './useBoardList'
 import { useBoardLanes } from './useBoardLanes'
 import { useBoardSelection } from './useBoardSelection'
@@ -72,6 +73,8 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
   }, 'No se pudo eliminar la publicación')
   const changeBoardPostStatus = (post: Post, status: Post['status']) => runWithErrorReporting(() => save({ ...post, status }), 'No se pudo cambiar la etapa')
   const scopedWorkGroups = activeSpace ? workGroups.filter(group => group.space === activeSpace) : workGroups
+  const { orderedGroups, moveGroup } = useWorkGroupOrder()
+  const orderedScopedWorkGroups = orderedGroups(scopedWorkGroups)
   const selectedWorkGroup = scopedWorkGroups.find(group => group.id === selectedWorkGroupId) || null
   const workGroupControls = useBoardWorkGroups({ allPosts, workGroups: scopedWorkGroups, activeSpace, selectedWorkGroup, selected, clear })
   const {
@@ -141,7 +144,7 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
   const archiveEntryCount = archivedCount + archivedGroups.length
   return <section className={`workspace board-mode-${boardMode}${pickMode ? ' editor-session-pick-mode' : ''}`}><BoardHeader boardMode={boardMode} changeBoardMode={changeBoardMode} visiblePerColumn={visiblePerColumn} loadMore={() => setVisiblePerColumn(current => Math.min(100, current + 30))} detailLevel={boardCardDetailLevel} changeDetailLevel={changeBoardCardDetailLevel} />
     {pickMode && <div className="editor-session-pick-notice" role="status"><strong>Modo añadir pestañas</strong><span>Haz clic en más publicaciones para sumarlas al editor.</span></div>}
-    {boardMode === 'kanban' && <BoardCollectionNav groups={scopedWorkGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={() => openGroupForm()} onDropPosts={dropPostsInCollection} onEditGroup={group => openGroupForm(group)} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />} />}
+    {boardMode === 'kanban' && <BoardCollectionNav groups={orderedScopedWorkGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={() => openGroupForm()} onDropPosts={dropPostsInCollection} onEditGroup={group => openGroupForm(group)} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} reorderGroups={(draggedId, targetId) => moveGroup(orderedScopedWorkGroups, draggedId, targetId)} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />} />}
     {boardMode !== 'kanban' && <BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />}
     {boardMode === 'list' && <BoardListFilters workGroups={scopedWorkGroups} status={listStatus} setStatus={setListStatus} format={listFormat} setFormat={setListFormat} group={listGroup} setGroup={setListGroup} from={listFrom} setFrom={setListFrom} to={listTo} setTo={setListTo} />}
     {mediaCompressionMessage && <p className="work-group-export-message" role="status">{mediaCompressionMessage}</p>}

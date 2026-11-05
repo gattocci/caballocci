@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AppWindow, ImagePlus, Play, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { AppWindow, ImagePlus, Play, Plus, RotateCcw, Square, Trash2 } from 'lucide-react'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import type { OptionalIntegration, OptionalIntegrationStatus } from '../../shared/types'
 
@@ -125,32 +125,37 @@ export function OptionalIntegrations() {
 
   return <section className="settings-section optional-integrations">
     <div className="settings-heading"><div><span>INTEGRACIONES OPCIONALES</span><h2>Accesos rápidos</h2></div><button className="settings-button" disabled={saving} onClick={() => void runWithErrorReporting(chooseFile, 'No se pudo seleccionar el ejecutable')}><Plus size={15} /> Añadir</button></div>
-    <p className="settings-note">Estado de los procesos iniciados desde aquí durante esta sesión de caballocci. El consumo es aproximado y corresponde al proceso directo.</p>
+    <p className="settings-note">El consumo es aproximado y corresponde al proceso directo.</p>
     {integrations.length > 0 && <div className="optional-integration-grid">
       {integrations.map(integration => {
         const status = statuses[integration.id]
         const running = status?.state === 'running'
+        const stopping = status?.state === 'stopping'
+        const active = running || stopping
         const icon = integration.customIconDataUrl || integration.iconDataUrl
-        return <article className={`optional-integration-card${running ? ' is-running' : ''}`} key={integration.id}>
+        return <article className={`optional-integration-card${active ? ' is-running' : ''}`} key={integration.id}>
           <div className="optional-integration-card-top">
             <div className="optional-integration-icon">{icon ? <img src={icon} alt="" /> : <AppWindow size={30} strokeWidth={1.5} />}</div>
             <button className="optional-integration-remove" aria-label={`Quitar ${integration.name}`} disabled={saving} onClick={() => removeIntegration(integration.id)}><Trash2 size={15} /></button>
           </div>
           <h3 title={integration.name}>{integration.name}</h3>
           <p className="optional-integration-note" title={integration.note}>{integration.note || 'Acceso opcional'}</p>
-          <div className={`optional-integration-status ${running ? 'running' : ''}`}><span />{running ? `En ejecución${status.instanceCount > 1 ? ` · ${status.instanceCount} instancias` : ''}` : status?.state === 'stopped' ? 'Finalizado' : 'No iniciado en esta sesión'}</div>
-          {running && status && <div className="optional-integration-metrics">
+          <div className={`optional-integration-status ${active ? 'running' : ''}`}>{stopping ? 'Deteniendo…' : running ? `En ejecución${status.instanceCount > 1 ? ` (${status.instanceCount} instancias)` : ''}` : status?.state === 'failed' ? `Error al ejecutar (código ${status.exitCode ?? 'desconocido'})` : status?.state === 'stopped' ? 'Finalizado' : 'No iniciado en esta sesión'}</div>
+          {active && status && <div className="optional-integration-metrics">
             <span>Activo <b>{formatDuration(clock - (status.startedAt || clock))}</b></span>
             <span>RAM <b>{status.metricsAvailable ? formatMemory(status.memoryBytes) : 'No disponible'}</b></span>
             <span>CPU <b>{status.metricsAvailable && status.cpuPercent !== null ? `${status.cpuPercent.toFixed(1)}%` : '—'}</b></span>
           </div>}
-          {status?.state === 'stopped' && <p className="optional-integration-last-run">Última ejecución: {formatDuration(status.durationMs)}</p>}
+          {(status?.state === 'stopped' || status?.state === 'failed') && <p className="optional-integration-last-run">Última ejecución: {formatDuration(status.durationMs)}</p>}
           <details className="optional-integration-path"><summary>Ver ruta</summary><code>{integration.path}</code></details>
           <div className="optional-integration-card-actions">
-            <button className="settings-button primary" disabled={saving || running} onClick={() => void runWithErrorReporting(
+            {active ? <button className="settings-button integration-stop-button" disabled={saving || stopping} onClick={() => void runWithErrorReporting(
+              () => window.planner.system.stopOptionalIntegration(integration.id),
+              `No se pudo detener ${integration.name}`,
+            )}><Square size={13} /> {stopping ? 'Deteniendo…' : 'Detener'}</button> : <button className="settings-button primary" disabled={saving} onClick={() => void runWithErrorReporting(
               () => window.planner.system.launchOptionalIntegration(integration.id, integration.path),
               `No se pudo abrir ${integration.name}`,
-            )}><Play size={14} /> {running ? 'Ejecutándose' : 'Abrir'}</button>
+            )}><Play size={14} /> Abrir</button>}
             <button className="settings-button" title="Cambiar icono" aria-label={`Cambiar icono de ${integration.name}`} disabled={saving} onClick={() => void runWithErrorReporting(async () => {
               const iconDataUrl = await window.planner.system.chooseOptionalIntegrationIcon()
               if (!iconDataUrl) return
