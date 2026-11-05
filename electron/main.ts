@@ -602,6 +602,7 @@ function mapWorkGroup(row: Record<string, unknown>) {
     id: row.id,
     name: row.name,
     description: row.description,
+    color: row.color || '',
     space: row.space || '',
     archivedAt: row.archived_at || null,
     postIds,

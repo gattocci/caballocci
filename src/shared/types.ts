@@ -36,6 +36,7 @@ export interface WorkGroup {
   id: string
   name: string
   description: string
+  color: string
   /** Espacio propietario; cadena vacía indica una colección general. */
   space: string
   archivedAt: string | null
@@ -45,7 +46,7 @@ export interface WorkGroup {
   updatedAt: string
 }
 
-export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> & { id?: string }
+export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> & { id?: string; color?: string }
 
 export interface MediaAsset {
   id: string

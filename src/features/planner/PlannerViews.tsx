@@ -19,13 +19,13 @@ import { useBoardLanes } from './useBoardLanes'
 import { useBoardSelection } from './useBoardSelection'
 import { runWithErrorReporting } from '../../app/errors'
 import { postMatchesQuery, usePlanner } from '../../app/store'
-import type { Post } from '../../shared/types'
+import type { Post, WorkGroup } from '../../shared/types'
 import './planner.css'
 import { AreaSelectionSurface } from './AreaSelectionSurface'
 
 
 export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPostIds = new Set<string>() }: { onEditSelection(ids: string[]): void; onPickPost?(id: string): boolean; pickMode?: boolean; pickedPostIds?: Set<string> }) {
-  const { posts: allPosts, workGroups, move, movePostsToSpace, customSpaces, select, save, remove, activeSpace, activeWorkGroupId: selectedWorkGroupId, setActiveWorkGroup, query, setQuery } = usePlanner()
+  const { posts: allPosts, workGroups, move, movePostsToSpace, customSpaces, select, save, saveWorkGroup, remove, activeSpace, activeWorkGroupId: selectedWorkGroupId, setActiveWorkGroup, query, setQuery } = usePlanner()
   const [visiblePerColumn, setVisiblePerColumn] = useState(30)
   const [boardMode, setBoardMode] = useState<'kanban' | 'list' | 'calendar'>(() => {
     try { return (localStorage.getItem('caballocci.board-view.all') as 'kanban' | 'list' | 'calendar') || 'kanban' } catch { return 'kanban' }
@@ -62,6 +62,10 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
       if (target) await save({ ...target, color })
     }
   }, 'No se pudo cambiar el color de las tarjetas')
+  const changeCollectionColor = (group: WorkGroup, color: string) => runWithErrorReporting(
+    () => saveWorkGroup({ ...group, color }),
+    'No se pudo cambiar el color de la colección',
+  )
   const duplicateBoardPost = (post: Post) => runWithErrorReporting(() => save({
     ...post,
     id: undefined,
@@ -144,7 +148,7 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
   const archiveEntryCount = archivedCount + archivedGroups.length
   return <section className={`workspace board-mode-${boardMode}${pickMode ? ' editor-session-pick-mode' : ''}`}><BoardHeader boardMode={boardMode} changeBoardMode={changeBoardMode} visiblePerColumn={visiblePerColumn} loadMore={() => setVisiblePerColumn(current => Math.min(100, current + 30))} detailLevel={boardCardDetailLevel} changeDetailLevel={changeBoardCardDetailLevel} />
     {pickMode && <div className="editor-session-pick-notice" role="status"><strong>Modo añadir pestañas</strong><span>Haz clic en más publicaciones para sumarlas al editor.</span></div>}
-    {boardMode === 'kanban' && <BoardCollectionNav groups={orderedScopedWorkGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={() => openGroupForm()} onDropPosts={dropPostsInCollection} onEditGroup={group => openGroupForm(group)} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} reorderGroups={(draggedId, targetId) => moveGroup(orderedScopedWorkGroups, draggedId, targetId)} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />} />}
+    {boardMode === 'kanban' && <BoardCollectionNav groups={orderedScopedWorkGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={() => openGroupForm()} onDropPosts={dropPostsInCollection} onEditGroup={group => openGroupForm(group)} onColor={changeCollectionColor} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} reorderGroups={(draggedId, targetId) => moveGroup(orderedScopedWorkGroups, draggedId, targetId)} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />} />}
     {boardMode !== 'kanban' && <BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />}
     {boardMode === 'list' && <BoardListFilters workGroups={scopedWorkGroups} status={listStatus} setStatus={setListStatus} format={listFormat} setFormat={setListFormat} group={listGroup} setGroup={setListGroup} from={listFrom} setFrom={setListFrom} to={listTo} setTo={setListTo} />}
     {mediaCompressionMessage && <p className="work-group-export-message" role="status">{mediaCompressionMessage}</p>}

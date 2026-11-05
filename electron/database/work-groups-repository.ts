@@ -28,10 +28,10 @@ export class WorkGroupsRepository {
     const archivedAt = typeof existing?.archived_at === 'string' ? existing.archived_at : null
     const createdAt = typeof existing?.created_at === 'string' ? existing.created_at : now
     this.db.run(
-      `INSERT INTO work_groups (id,name,description,space,archived_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET name = excluded.name,description = excluded.description,space = excluded.space,updated_at = excluded.updated_at`,
-      [id, String(input.name).trim(), String(input.description || '').trim(), String(input.space || ''), archivedAt, createdAt, now],
+      `INSERT INTO work_groups (id,name,description,space,color,archived_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name,description = excluded.description,space = excluded.space,color = excluded.color,updated_at = excluded.updated_at`,
+      [id, String(input.name).trim(), String(input.description || '').trim(), String(input.space || ''), String(input.color ?? existing?.color ?? ''), archivedAt, createdAt, now],
     )
     this.persist()
     return this.get(id)!

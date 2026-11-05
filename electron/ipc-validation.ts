@@ -326,6 +326,11 @@ export function validateWorkGroupInput(value: unknown): Record<string, unknown> 
     description: text(group.description ?? '', 'workGroup.description', 2_000).trim(),
     space: text(group.space ?? '', 'workGroup.space', 200).trim(),
   }
+  if (group.color !== undefined) {
+    const color = text(group.color, 'workGroup.color', 7)
+    if (color && !/^#[\da-f]{6}$/i.test(color)) invalid('workGroup.color')
+    validated.color = color
+  }
   const id = optionalId(group.id, 'workGroup.id')
   if (id) validated.id = id
   return validated

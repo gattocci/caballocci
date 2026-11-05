@@ -27,14 +27,17 @@ test('persists many-to-many work group membership and archives independently of 
 
   db.run("INSERT INTO posts (id,title,status,created_at,updated_at) VALUES ('post-a','A','draft','now','now'),('post-b','B','approved','now','now')")
   const repository = new WorkGroupsRepository(db, () => {})
-  const campaign = repository.save({ name: 'Campaña', description: '' })
+  const campaign = repository.save({ name: 'Campaña', description: '', color: '#e76042' })
   const series = repository.save({ name: 'Serie', description: '' })
+  assert.equal(campaign.color, '#e76042')
+  assert.equal(series.color, '')
 
   repository.setPosts(String(campaign.id), ['post-a', 'post-b'])
   repository.setPosts(String(series.id), ['post-a'])
   const archived = repository.setArchived(String(campaign.id), true)
 
   assert.deepEqual(archived.post_ids, ['post-a', 'post-b'])
+  assert.equal(archived.color, '#e76042')
   assert.ok(archived.archived_at)
   assert.deepEqual(repository.list().find(group => group.id === series.id)?.post_ids, ['post-a'])
   assert.deepEqual(db.exec('SELECT id,status FROM posts ORDER BY id')[0].values, [['post-a', 'draft'], ['post-b', 'approved']])

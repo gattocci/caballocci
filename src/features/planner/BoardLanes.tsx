@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BoardCardColorPicker, MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
+import { MobileCardStatus, type BoardCardDetailLevel, type MobilePublicationState } from './BoardCardDecorations'
 import { BoardContextMenu, BoardContextSelectionActions } from './BoardContextMenu'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -51,6 +51,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
 }) {
   const [context, setContext] = useState<{ post: Post; x: number; y: number } | null>(null)
   const [showStatuses, setShowStatuses] = useState(false)
+  const [showColors, setShowColors] = useState(false)
   const [openCells, setOpenCells] = useState<Set<string>>(new Set())
   const [duplicatedPostId, setDuplicatedPostId] = useState<string | null>(null)
   const duplicateFeedbackTimer = useRef<number | null>(null)
@@ -76,7 +77,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
 
   useEffect(() => {
     if (!context) return
-    const dismiss = () => { setContext(null); setShowStatuses(false) }
+    const dismiss = () => { setContext(null); setShowStatuses(false); setShowColors(false) }
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismiss() }
     document.addEventListener('pointerdown', dismiss)
     document.addEventListener('keydown', onKeyDown)
@@ -99,6 +100,7 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
     event.preventDefault()
     event.stopPropagation()
     setShowStatuses(false)
+    setShowColors(false)
     setContext({ post, x: event.clientX, y: event.clientY })
   }
 
@@ -191,7 +193,6 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
                     {otherMemberships.length > 0 && <span className="board-duplicate-marker" role="img" title={`La misma publicación también está en: ${otherMemberships.join(', ')}`} aria-label={`También en ${otherMemberships.join(', ')}`}><Layers3 size={12} /><span>{otherMemberships.length + 1}</span></span>}
                     <span className="board-content-type" title={contentLabels[post.contentType]}><ContentIcon size={12} /><span>{contentLabels[post.contentType].slice(0, 5)}</span></span>
                     <div className="board-card-mobile-slot"><MobileCardStatus state={mobilePublicationState} postId={post.id} detailLevel={boardCardDetailLevel} /></div>
-                    {selected.has(post.id) && <BoardCardColorPicker post={post} onColor={color => onColor(post, color)} />}
                   </div>
                   <h3>{post.title || 'Publicación sin título'}</h3>
                   <div className="board-card-meta">
@@ -234,6 +235,11 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
       <button type="button" role="menuitem" disabled={!context.post.caption.trim()} onClick={() => { void runWithErrorReporting(() => window.planner.clipboard.write(context.post.caption), 'No se pudo copiar el texto'); close() }}><ClipboardCopy size={14} />Copiar texto</button>
       <button type="button" role="menuitem" aria-expanded={showStatuses} onClick={() => setShowStatuses(value => !value)}><MoreHorizontal size={14} />Cambiar etapa…</button>
       {showStatuses && <div className="board-context-statuses" role="group" aria-label="Cambiar etapa">{stages.filter(status => status !== context.post.status && (status !== 'scheduled' || Boolean(context.post.scheduledAt))).map(status => <button type="button" key={status} onClick={() => { onStatus(context.post, status); close(); setShowStatuses(false) }}>{statusMeta[status].label}</button>)}</div>}
+      <button type="button" role="menuitem" aria-expanded={showColors} onClick={() => setShowColors(value => !value)}><span className="board-context-color-icon" style={{ backgroundColor: context.post.color }} />Cambiar color…</button>
+      {showColors && <div className="board-context-color-options" role="group" aria-label="Colores de tarjeta">
+        {postColors.map(color => <button type="button" key={color.value} aria-label={color.label} title={color.label} aria-pressed={context.post.color === color.value} style={{ backgroundColor: color.value }} onClick={() => { onColor(context.post, color.value); close() }} />)}
+        <button type="button" className="board-context-color-reset" aria-pressed={context.post.color === postColors[0].value} onClick={() => { onColor(context.post, postColors[0].value); close() }}>Predeterminado</button>
+      </div>}
     </BoardContextMenu>
   })()}</>
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState, type DragEvent, type ReactNode } from 'react'
-import { Archive, ArchiveRestore, FolderOpen, Inbox, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Eraser, FolderOpen, Inbox, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Post, WorkGroup } from '../../shared/types'
+import { postColors } from '../../shared/postColors'
 import { BoardContextMenu } from './BoardContextMenu'
 
 const workGroupDragType = 'application/x-caballocci-work-group-id'
 
-export function BoardCollectionNav({ groups, posts, selectedWorkGroup, setActiveWorkGroup, openGroupForm, onDropPosts, onEditGroup, onGroupAction, reorderGroups, groupUncompressedMediaCount, setPendingMediaCompression, restoreGroupMedia, trailing }: {
+export function BoardCollectionNav({ groups, posts, selectedWorkGroup, setActiveWorkGroup, openGroupForm, onDropPosts, onEditGroup, onColor, onGroupAction, reorderGroups, groupUncompressedMediaCount, setPendingMediaCompression, restoreGroupMedia, trailing }: {
   groups: WorkGroup[]
   posts: Post[]
   selectedWorkGroup: WorkGroup | null
@@ -13,6 +14,7 @@ export function BoardCollectionNav({ groups, posts, selectedWorkGroup, setActive
   openGroupForm(): void
   onDropPosts(groupId: string, ids: string[]): void
   onEditGroup(group: WorkGroup): void
+  onColor(group: WorkGroup, color: string): void
   onGroupAction(type: 'archive' | 'restore' | 'delete', group: WorkGroup): void
   reorderGroups(draggedId: string, targetId: string): void
   groupUncompressedMediaCount: number
@@ -74,7 +76,7 @@ export function BoardCollectionNav({ groups, posts, selectedWorkGroup, setActive
       {activeGroups.map(group => {
         const items = groupPosts(group)
         return <div className="board-collection-item" key={group.id} {...dropProps(group)}>
-          <button type="button" draggable className="board-collection-tab" aria-current={selectedWorkGroup?.id === group.id ? 'page' : undefined} onClick={() => setActiveWorkGroup(group.id)} onDragStart={event => event.dataTransfer.setData(workGroupDragType, group.id)}>
+          <button type="button" draggable className={`board-collection-tab${group.color ? ' has-custom-color' : ''}`} aria-current={selectedWorkGroup?.id === group.id ? 'page' : undefined} onClick={() => setActiveWorkGroup(group.id)} onDragStart={event => event.dataTransfer.setData(workGroupDragType, group.id)} style={{ '--collection-color': group.color } as React.CSSProperties}>
             <FolderOpen size={14} /><span className="board-collection-tab-name">{group.name}</span><em>{items.length}</em>
           </button>
           <button type="button" className="board-collection-item-menu" aria-label={`Opciones de ${group.name}`} onClick={event => {
@@ -100,6 +102,13 @@ export function BoardCollectionNav({ groups, posts, selectedWorkGroup, setActive
     </div>
     {collectionMenu && <BoardContextMenu x={collectionMenu.x} y={collectionMenu.y} label={`Opciones de ${collectionMenu.group.name}`}>
       <button type="button" role="menuitem" onClick={() => { setCollectionMenu(null); onEditGroup(collectionMenu.group) }}><Pencil size={14} />Editar colección</button>
+      <div className="board-collection-color-options" role="group" aria-label="Color de colección">
+        <span>Color de colección</span>
+        <div>
+          <button type="button" className="no-color" aria-label="Sin color" title="Sin color" aria-pressed={!collectionMenu.group.color} onClick={() => { onColor(collectionMenu.group, ''); setCollectionMenu(null) }}><Eraser size={13} /></button>
+          {postColors.map(color => <button type="button" key={color.value} aria-label={color.label} title={color.label} aria-pressed={collectionMenu.group.color === color.value} style={{ backgroundColor: color.value }} onClick={() => { onColor(collectionMenu.group, color.value); setCollectionMenu(null) }} />)}
+        </div>
+      </div>
       <button type="button" role="menuitem" onClick={() => { setCollectionMenu(null); onGroupAction('archive', collectionMenu.group) }}><Archive size={14} />Archivar colección</button>
       <button type="button" role="menuitem" className="danger-menu-item" onClick={() => { setCollectionMenu(null); onGroupAction('delete', collectionMenu.group) }}><Trash2 size={14} />Borrar colección…</button>
     </BoardContextMenu>}
