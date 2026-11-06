@@ -26,6 +26,91 @@
   height: 32px;
 }
 
+.idea-blocks > header .idea-blocks-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.idea-selection-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #89958d;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.idea-selection-toggle:hover:not(:disabled),
+.idea-selection-toggle.active {
+  border-color: #3b4940;
+  background: #1d2520;
+  color: #c7d5ca;
+}
+
+.idea-selection-toggle:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.idea-selection-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px 12px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid #303b33;
+  background: #151b17;
+}
+
+.idea-selection-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.idea-selection-toolbar > div:first-child > span {
+  margin-right: 3px;
+  color: #96a399;
+  font: 9px 'DM Mono', monospace;
+}
+
+.idea-selection-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 7px;
+  border: 1px solid #354139;
+  background: #1b231d;
+  color: #b7c5ba;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.idea-selection-toolbar button:hover:not(:disabled) {
+  border-color: #68796d;
+  color: #fff;
+}
+
+.idea-selection-toolbar button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.idea-selection-feedback {
+  color: #9ec9a9;
+  font-size: 9px;
+}
+
 .empty-ideas {
   min-height: 180px;
   border: 1px dashed #424c45;
@@ -54,6 +139,11 @@
   padding: 12px;
   display: grid;
   gap: 11px;
+}
+
+.idea-block.selected {
+  border-color: #586d5e;
+  background: #1a221c;
 }
 
 .idea-block > header {
@@ -91,6 +181,19 @@
 .idea-block > header button:disabled {
   opacity: .28;
   cursor: default;
+}
+
+.idea-selection-checkbox {
+  width: 14px !important;
+  height: 14px !important;
+  margin: 0 3px 0 0;
+  padding: 0 !important;
+  accent-color: var(--accent);
+}
+
+.idea-selection-checkbox:focus-visible {
+  outline: 2px solid #8bc99d;
+  outline-offset: 2px;
 }
 
 .idea-block textarea {
@@ -134,4 +237,3 @@
   gap: 5px;
   padding: 0 24px 8px;
 }
-

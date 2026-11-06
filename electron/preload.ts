@@ -162,6 +162,7 @@ contextBridge.exposeInMainWorld('planner', {
   },
   updates: {
     getState: () => ipcRenderer.invoke('updates:get-state'),
+    preview: () => ipcRenderer.invoke('updates:preview'),
     check: () => ipcRenderer.invoke('updates:check'),
     download: () => ipcRenderer.invoke('updates:download'),
     install: () => ipcRenderer.invoke('updates:install'),

@@ -87,8 +87,10 @@ export function AboutUpdates() {
           <strong>Novedades de la versión {update.availableVersion}</strong>
           <p>{update.releaseNotes || 'El lanzamiento no incluye notas detalladas. Puedes consultar la publicación en GitHub.'}</p>
         </div>}
-        {update?.status === 'downloaded' && <p className="settings-note success">La actualización se aplicará en segundo plano y caballocci volverá a abrirse.</p>}
+        {update?.status === 'downloaded' && <p className="settings-note success">{update.preview ? 'La actualización simulada está lista para continuar.' : 'La actualización se aplicará en segundo plano y caballocci volverá a abrirse.'}</p>}
+        {update?.status === 'updated' && <p className="settings-note success">{update.message}</p>}
         {!info?.packaged && <p className="settings-note">La comprobación de actualizaciones está deshabilitada durante el desarrollo. Se activa en el instalador empaquetado.</p>}
+        {!info?.packaged && <div className="settings-actions"><button className="settings-button" onClick={() => void runWithErrorReporting(async () => setUpdate(await window.planner.updates.preview()), 'No se pudo iniciar la vista previa de la actualización')}>Previsualizar actualización</button></div>}
       </section>
       <section className="settings-section">
         <div className="settings-heading"><div><span>DATOS LOCALES</span><h2>Workspace</h2></div></div>

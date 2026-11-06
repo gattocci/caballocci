@@ -991,11 +991,12 @@ app.whenReady().then(async () => {
   }))
   handle('system:create-backup', withoutArguments(() => database.createBackup('manual')))
   handle('updates:get-state', withoutArguments(() => updater.getState()))
+  handle('updates:preview', withoutArguments(() => updater.preview()))
   handle('updates:check', withoutArguments(() => updater.check()))
   handle('updates:download', withoutArguments(() => updater.download()))
   handle('updates:install', withoutArguments(async () => {
     const started = await updater.install()
-    if (started) allowMainWindowClose = true
+    if (started && app.isPackaged) allowMainWindowClose = true
     return started
   }))
   handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))
