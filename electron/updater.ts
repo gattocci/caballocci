@@ -108,6 +108,7 @@ export class UpdateManager {
     try {
       await this.waitForIdle()
       this.beforeInstall()
+      this.setState({ status: 'installing', message: 'Abriendo el instalador de Windows...' })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       this.resumeOperations()
@@ -122,7 +123,7 @@ export class UpdateManager {
       try {
         // Let the renderer paint the blocking progress screen before Electron
         // starts closing windows and launching the NSIS installer.
-        setTimeout(() => autoUpdater.quitAndInstall(true, true), 900)
+        setTimeout(() => autoUpdater.quitAndInstall(false, true), 1_800)
         this.installFallbackTimer = setTimeout(() => {
           if (this.quittingForInstall) return
           this.setState({ status: 'downloaded', message: 'La aplicaciÃ³n no se cerrÃ³ para instalar. Puedes volver a intentarlo.' })

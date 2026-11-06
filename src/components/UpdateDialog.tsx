@@ -47,7 +47,8 @@ export function UpdateDialog() {
       {!busy && <button className="update-dialog-close" type="button" aria-label="Cerrar" onClick={() => setDismissedVersion(version || null)}><X size={17} /></button>}
       <span className="update-dialog-eyebrow">{title}</span>
       <h2 id="update-dialog-title">{installing ? 'Preparando el instalador' : `caballocci ${version}`}</h2>
-      <p className="update-dialog-message">{installing ? 'La aplicación se cerrará para instalar la actualización. Windows puede mostrar una solicitud de permiso; al terminar, caballocci volverá a abrirse.' : update.message}</p>
+      <p className="update-dialog-message">{update.message}</p>
+      {installing && <p className="update-dialog-guidance">caballocci se cerrará y se abrirá el instalador de Windows con el progreso visible. Si Windows solicita permiso, confírmalo. Al terminar, caballocci volverá a abrirse automáticamente.</p>}
       {!installing && <div className="update-dialog-notes"><strong>Novedades</strong><p>{update.releaseNotes || 'No se publicaron notas para esta versión. Puedes consultar la publicación en GitHub.'}</p></div>}
       {update.status === 'downloading' && <div className="update-dialog-progress"><progress max="100" value={update.percent || 0} /><span>{Math.round(update.percent || 0)}%</span></div>}
       {installing && <div className="update-install-progress" role="progressbar" aria-label="Preparando la instalación"><span /></div>}
