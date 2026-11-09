@@ -4,6 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { PlannerDatabase } from './database'
 import { validateArgumentCount, validateId, validateMediaMode, validateProject } from './ipc-validation'
+import { detectCsvBatchLayout, getCsvBatchIndexes } from './integrations/media-batch-layout'
 
 type MediaIpcDependencies = {
   database: PlannerDatabase
@@ -47,10 +48,16 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
     if (!records.length) throw new Error('El CSV no contiene filas de publicaciones.')
     const headerKeys = parsedCsv.headers.map(key => key.trim().toLocaleLowerCase())
     if (new Set(headerKeys).size !== headerKeys.length) throw new Error('El CSV tiene encabezados duplicados; no es seguro identificar sus columnas.')
-    const idColumn = Object.keys(records[0]!).find(key => key.trim().toLocaleLowerCase() === 'post.id' || key.trim().toLocaleLowerCase() === 'id de publicación')
-    if (!idColumn) throw new Error('Falta la columna "ID de publicación". Agrégala al perfil y vuelve a exportar el CSV.')
     const posts = database.list().map(row => mapPost(row))
     const postsById = new Map(posts.map(post => [String(post.id), post]))
+    const normalizeHeader = (header: string) => header.trim().toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    const namedIdColumn = parsedCsv.headers.find(header => ['post.id', 'id de publicacion'].includes(normalizeHeader(header)))
+    const matchingIdColumns = namedIdColumn ? [] : parsedCsv.headers.filter(header => records.every(record => postsById.has(String(record[header] || '').trim())))
+    const idColumn = namedIdColumn || (matchingIdColumns.length === 1 ? matchingIdColumns[0] : undefined)
+    if (!idColumn) {
+      const headers = parsedCsv.headers.slice(0, 10).join(', ')
+      throw new Error(`No se pudo identificar el ID de publicación en el CSV. Encabezados detectados: ${headers || '(ninguno)'}. Agrega el campo "ID de publicación" al perfil, guarda los cambios y descarga el CSV de nuevo.`)
+    }
     const rowIds = new Set<string>()
     for (const record of records) {
       const id = String(record[idColumn] || '').trim()
@@ -58,10 +65,18 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
       if (rowIds.has(id)) throw new Error(`El ID de publicación ${id} aparece más de una vez en el CSV.`)
       rowIds.add(id)
     }
+    const files = fs.readdirSync(folderPick.filePaths[0], { withFileTypes: true }).filter(entry => entry.isFile() && path.extname(entry.name).toLowerCase() === '.png')
+    const codes = files.flatMap(file => {
+      const codeMatches = [...file.name.matchAll(/R(\d{2,})-C(\d{2,})/gi)]
+      if (codeMatches.length !== 1) return []
+      const row = Number(codeMatches[0]![1])
+      const column = Number(codeMatches[0]![2])
+      return Number.isSafeInteger(row) && row >= 1 && Number.isSafeInteger(column) && column >= 1 ? [{ row, column }] : []
+    })
+    const layout = detectCsvBatchLayout(codes, records.length, parsedCsv.headers.length)
     const assignments: Array<{ sourcePath: string; postId: string; project: string; code: string; name: string; title: string; columnHeader: string; referenceText: string }> = []
     const unmatched: string[] = []
     const seenCodes = new Set<string>()
-    const files = fs.readdirSync(folderPick.filePaths[0], { withFileTypes: true }).filter(entry => entry.isFile() && path.extname(entry.name).toLowerCase() === '.png')
     for (const file of files) {
       const filePath = path.join(folderPick.filePaths[0], file.name)
       if (!hasPngSignature(filePath)) { unmatched.push(`${file.name}: el archivo no contiene una imagen PNG válida`); continue }
@@ -74,21 +89,32 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
       const rowNumber = Number(codeMatch[1])
       const columnNumber = Number(codeMatch[2])
       if (!Number.isSafeInteger(rowNumber) || rowNumber < 1 || !Number.isSafeInteger(columnNumber) || columnNumber < 1) { unmatched.push(`${file.name}: el código contiene una fila o columna no válida`); continue }
-      const record = records[rowNumber - 1]
-      if (!record) { unmatched.push(`${file.name}: la fila ${codeMatch[1]} no existe en el CSV`); continue }
+      const { recordIndex, headerIndex } = getCsvBatchIndexes({ row: rowNumber, column: columnNumber }, layout)
+      const record = records[recordIndex]
+      if (!record) {
+        unmatched.push(layout === 'posts-in-columns'
+          ? `${file.name}: la publicación C${codeMatch[2]} no existe en el CSV`
+          : `${file.name}: la fila ${codeMatch[1]} no existe en el CSV`)
+        continue
+      }
       const postId = String(record[idColumn] || '').trim()
       const post = postsById.get(postId)
       if (!post) { unmatched.push(`${file.name}: ID de publicación ausente o desconocido (${postId || 'vacío'})`); continue }
       if (post.status !== 'review') { unmatched.push(`${file.name}: ${post.title || post.id} ya no está “En revisión”`); continue }
-      const columnHeader = parsedCsv.headers[columnNumber - 1]
-      if (!columnHeader) { unmatched.push(`${file.name}: la columna ${codeMatch[2]} no existe en el CSV`); continue }
+      const columnHeader = parsedCsv.headers[headerIndex]
+      if (!columnHeader) {
+        unmatched.push(layout === 'posts-in-columns'
+          ? `${file.name}: el campo R${codeMatch[1]} no existe en el CSV`
+          : `${file.name}: la columna ${codeMatch[2]} no existe en el CSV`)
+        continue
+      }
       const destination = path.join(ensurePostMediaFolder(String(post.project || ''), postId), file.name)
       if (fs.existsSync(destination)) { unmatched.push(`${file.name}: ya existe un archivo con ese nombre en la carpeta de destino`); continue }
       assignments.push({ sourcePath: filePath, postId, project: String(post.project || ''), code, name: file.name, title: String(post.title || 'Publicación sin título'), columnHeader, referenceText: String(record[columnHeader] || '') })
     }
     const token = crypto.randomUUID()
     pendingCsvImports.set(token, assignments)
-    return { token, csvName: path.basename(csvPath), folderName: path.basename(folderPick.filePaths[0]), matches: assignments.map(({ sourcePath, ...item }) => item), unmatched }
+    return { token, csvName: path.basename(csvPath), folderName: path.basename(folderPick.filePaths[0]), layout, matches: assignments.map(({ sourcePath, ...item }) => item), unmatched }
   })
   handle('media:apply-csv-batch', args => {
     if (args.length !== 1 || typeof args[0] !== 'string') throw new TypeError('Argumento IPC no valido: media.applyCsvBatch')
@@ -327,5 +353,3 @@ function hasPngSignature(filePath: string) {
   } catch { return false }
   finally { if (descriptor !== undefined) fs.closeSync(descriptor) }
 }
-
-

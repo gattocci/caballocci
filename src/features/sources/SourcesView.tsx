@@ -33,6 +33,7 @@ export function SourcesView() {
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [profileName, setProfileName] = useState('Export CSV')
   const [profileColumnsText, setProfileColumnsText] = useState(() => JSON.stringify(blockRecipeColumns(true, true, 8), null, 2))
+  const [profileColumnsExpanded, setProfileColumnsExpanded] = useState(false)
   const [selectedExportField, setSelectedExportField] = useState('post.caption')
   const [deltaOnly, setDeltaOnly] = useState(true)
   const [exportScope, setExportScope] = useState<'all' | 'source'>('all')
@@ -49,6 +50,9 @@ export function SourcesView() {
   const [busy, setBusy] = useState(false)
   const [batchPreview, setBatchPreview] = useState<Awaited<ReturnType<typeof window.planner.media.previewCsvBatch>>>(null)
   const selected = sources.find(source => source.id === selectedId) || null
+  const selectedProfile = profiles.find(profile => profile.id === selectedProfileId)
+  const postIdColumnStatus = getPostIdColumnStatus(profileColumnsText)
+  const savedPostIdColumn = selectedProfile?.columns.some(column => column.source === 'post.id') ?? false
 
   const loadSources = async () => setSources(await window.planner.sources.list())
   const loadConfiguration = async () => {
@@ -162,24 +166,49 @@ export function SourcesView() {
       const columns = JSON.parse(profileColumnsText) as unknown
       if (!Array.isArray(columns)) throw new Error('Las columnas deben ser un array JSON')
       const saved = await window.planner.exportProfiles.save({ id: selectedProfileId || undefined, name: profileName, appliesToContentType: 'all', columns: columns as ExportProfile['columns'] })
-      setProfiles(current => [...current.filter(item => item.id !== saved.id), saved]); setSelectedProfileId(saved.id); setMessage('Perfil de exportacion guardado')
+      setProfiles(current => [...current.filter(item => item.id !== saved.id), saved]); setSelectedProfileId(saved.id)
+      setMessage(saved.columns.some(column => column.source === 'post.id')
+        ? 'Perfil guardado con ID de publicación. Descarga un CSV nuevo para aplicar el cambio.'
+        : 'Perfil de exportación guardado')
     } catch (error) { reportAppError(error, 'No se pudo guardar el perfil'); setMessage(error instanceof Error ? error.message : 'No se pudo guardar el perfil') }
   }
   const applyBlockRecipe = () => {
     const count = Math.max(0, Math.min(30, Math.trunc(ideaColumns) || 0))
     if (!includeTitle && !includeIntro && count === 0) { setMessage('Elige al menos un campo para exportar'); return }
     setIdeaColumns(count)
-    setProfileColumnsText(JSON.stringify(blockRecipeColumns(includeTitle, includeIntro, count), null, 2))
-    setMessage('Receta aplicada. Guarda el perfil para reutilizarla.')
+    try {
+      const currentColumns = JSON.parse(profileColumnsText) as unknown
+      if (!Array.isArray(currentColumns)) throw new Error('Las columnas deben ser un array JSON')
+      const idColumn = currentColumns.find(column => typeof column === 'object' && column !== null && (column as { source?: unknown }).source === 'post.id') as ExportProfile['columns'][number] | undefined
+      const recipe = blockRecipeColumns(includeTitle, includeIntro, count)
+      const next = idColumn
+        ? [...recipe, { ...idColumn, header: 'ID de publicación', order: recipe.length }]
+        : recipe
+      setProfileColumnsText(JSON.stringify(next, null, 2))
+      setMessage('Receta aplicada. El ID de publicación se conserva; guarda el perfil y descarga un CSV nuevo.')
+    } catch (error) { reportAppError(error, 'No se pudo aplicar la receta'); setMessage(error instanceof Error ? error.message : 'No se pudo aplicar la receta') }
   }
   const addExportField = () => {
     try {
       const columns = JSON.parse(profileColumnsText) as unknown
       if (!Array.isArray(columns)) throw new Error('Las columnas deben ser un array JSON')
       const option = exportFieldOptions.find(([, source]) => source === selectedExportField)
-      if (!option || columns.some(column => typeof column === 'object' && column !== null && (column as { source?: unknown }).source === option[1])) return
+      if (!option) return
+      const existingIndex = columns.findIndex(column => typeof column === 'object' && column !== null && (column as { source?: unknown }).source === option[1])
+      if (existingIndex >= 0) {
+        if (option[1] === 'post.id') {
+          const existing = columns[existingIndex] as Record<string, unknown>
+          columns[existingIndex] = { ...existing, header: option[0] }
+          setProfileColumnsText(JSON.stringify(columns, null, 2))
+          setProfileColumnsExpanded(true)
+          setMessage('El campo ID de publicación ya estaba agregado; se restauró su encabezado estándar. Guarda el perfil y descarga un CSV nuevo.')
+        }
+        return
+      }
       const nextOrder = columns.length
       setProfileColumnsText(JSON.stringify([...columns, { header: option[0], source: option[1], order: nextOrder }], null, 2))
+      setProfileColumnsExpanded(true)
+      if (option[1] === 'post.id') setMessage('ID de publicación agregado al borrador. Guarda el perfil y descarga un CSV nuevo.')
     } catch (error) { reportAppError(error, 'No se pudo agregar el campo de exportación'); setMessage(error instanceof Error ? error.message : 'No se pudo agregar el campo') }
   }
   const downloadCsv = async () => {
@@ -216,9 +245,21 @@ export function SourcesView() {
         {preview && <SourceImportPreview preview={preview} busy={busy} onConfirm={() => void confirmImport()} />}
         {contentRecords.length > 0 && <ImportedSourceRecords records={contentRecords} templates={templates} onSaveEnriched={saveEnriched} />}
         <section className="source-panel configuration-panel"><header><div><span>PLANTILLAS</span><h2>Campos de enriquecimiento</h2></div></header><div className="source-grid"><label>Tipo de contenido<input value={templateType} onChange={event => setTemplateType(event.target.value)} placeholder="post" /></label><label>Campos JSON<textarea value={templateFieldsText} onChange={event => setTemplateFieldsText(event.target.value)} /></label></div><div className="source-actions"><button className="save-button" onClick={() => void saveTemplate()}><Save size={15} /> Guardar plantilla</button></div></section>
-        <SourceExportPanel profiles={profiles} selectedProfileId={selectedProfileId} onProfileChange={setSelectedProfileId} includeTitle={includeTitle} onIncludeTitleChange={setIncludeTitle} includeIntro={includeIntro} onIncludeIntroChange={setIncludeIntro} ideaColumns={ideaColumns} onIdeaColumnsChange={setIdeaColumns} onApplyRecipe={applyBlockRecipe} profileName={profileName} onProfileNameChange={setProfileName} selectedExportField={selectedExportField} onExportFieldChange={setSelectedExportField} profileColumnsText={profileColumnsText} onProfileColumnsChange={setProfileColumnsText} onAddField={addExportField} onSaveProfile={() => void saveProfile()} exportScope={exportScope} onExportScopeChange={setExportScope} hasSelectedSource={Boolean(selectedId)} exportProject={exportProject} onExportProjectChange={setExportProject} exportStatus={exportStatus} onExportStatusChange={setExportStatus} deltaOnly={deltaOnly} onDeltaOnlyChange={setDeltaOnly} onDownload={() => void downloadCsv()} onVerifyBatch={() => void previewCsvBatch()} />
-        {batchPreview && <section className="source-panel configuration-panel"><header><div><span>VERIFICACIÓN DEL LOTE</span><h2>{batchPreview.csvName}</h2></div></header><p className="export-copy">Carpeta: {batchPreview.folderName}. Coincidencias: {batchPreview.matches.length}; incidencias: {batchPreview.unmatched.length}. R## elige la fila de datos y C## la columna del CSV.</p><div className="batch-preview-list">{batchPreview.matches.map(item => <div key={item.name}><strong>{item.code} · {item.name}</strong><span>{item.title} · {item.columnHeader}: {item.referenceText || '(celda vacía)'}</span></div>)}</div>{batchPreview.unmatched.length > 0 && <details open><summary>Archivos que requieren atención ({batchPreview.unmatched.length})</summary><ul>{batchPreview.unmatched.map(item => <li key={item}>{item}</li>)}</ul></details>}<div className="source-actions"><button type="button" className="save-button" disabled={busy || batchPreview.matches.length === 0 || batchPreview.unmatched.length > 0} onClick={() => void applyCsvBatch()}>Copiar PNG coincidentes a publicaciones</button><button type="button" className="settings-button" onClick={() => { void window.planner.media.cancelCsvBatch(batchPreview.token); setBatchPreview(null) }}>Cancelar</button></div></section>}
+        <SourceExportPanel profiles={profiles} selectedProfileId={selectedProfileId} onProfileChange={setSelectedProfileId} includeTitle={includeTitle} onIncludeTitleChange={setIncludeTitle} includeIntro={includeIntro} onIncludeIntroChange={setIncludeIntro} ideaColumns={ideaColumns} onIdeaColumnsChange={setIdeaColumns} onApplyRecipe={applyBlockRecipe} profileName={profileName} onProfileNameChange={setProfileName} selectedExportField={selectedExportField} onExportFieldChange={setSelectedExportField} profileColumnsText={profileColumnsText} onProfileColumnsChange={setProfileColumnsText} onAddField={addExportField} onSaveProfile={() => void saveProfile()} postIdColumnStatus={postIdColumnStatus} savedPostIdColumn={savedPostIdColumn} profileColumnsExpanded={profileColumnsExpanded} onProfileColumnsExpandedChange={setProfileColumnsExpanded} exportScope={exportScope} onExportScopeChange={setExportScope} hasSelectedSource={Boolean(selectedId)} exportProject={exportProject} onExportProjectChange={setExportProject} exportStatus={exportStatus} onExportStatusChange={setExportStatus} deltaOnly={deltaOnly} onDeltaOnlyChange={setDeltaOnly} onDownload={() => void downloadCsv()} onVerifyBatch={() => void previewCsvBatch()} />
+        {batchPreview && <section className="source-panel configuration-panel"><header><div><span>VERIFICACIÓN DEL LOTE</span><h2>{batchPreview.csvName}</h2></div></header><p className="export-copy">Carpeta: {batchPreview.folderName}. Coincidencias: {batchPreview.matches.length}; incidencias: {batchPreview.unmatched.length}. {batchPreview.layout === 'posts-in-columns' ? 'Formato detectado: R02 corresponde al primer campo del CSV y C01 a la primera publicación.' : 'Formato detectado: R01 corresponde a la primera publicación y C01 al primer campo del CSV.'}</p><div className="batch-preview-list">{batchPreview.matches.map(item => <div key={item.name}><strong>{item.code} · {item.name}</strong><span>{item.title} · {item.columnHeader}: {item.referenceText || '(celda vacía)'}</span></div>)}</div>{batchPreview.unmatched.length > 0 && <details open><summary>Archivos que requieren atención ({batchPreview.unmatched.length})</summary><ul>{batchPreview.unmatched.map(item => <li key={item}>{item}</li>)}</ul></details>}<div className="source-actions"><button type="button" className="save-button" disabled={busy || batchPreview.matches.length === 0 || batchPreview.unmatched.length > 0} onClick={() => void applyCsvBatch()}>Copiar PNG coincidentes a publicaciones</button><button type="button" className="settings-button" onClick={() => { void window.planner.media.cancelCsvBatch(batchPreview.token); setBatchPreview(null) }}>Cancelar</button></div></section>}
       </div>
     </div>
   </section>
+}
+
+function getPostIdColumnStatus(columnsText: string): 'included' | 'missing' | 'invalid' {
+  try {
+    const columns = JSON.parse(columnsText) as unknown
+    if (!Array.isArray(columns)) return 'invalid'
+    return columns.some(column => typeof column === 'object' && column !== null && (column as { source?: unknown }).source === 'post.id')
+      ? 'included'
+      : 'missing'
+  } catch {
+    return 'invalid'
+  }
 }
