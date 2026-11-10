@@ -23,6 +23,12 @@ export class MediaRepository {
     this.persist()
   }
 
+  remove(id: string) {
+    this.db.run('DELETE FROM compressed_media_assets WHERE asset_id = ?', [id])
+    this.db.run('DELETE FROM media_assets WHERE id = ?', [id])
+    this.persist()
+  }
+
   getFile(id: string): { path: string; kind: string; mode: string; archivePath?: string; entryName?: string } | undefined {
     const statement = this.db.prepare(`SELECT m.path,m.kind,m.mode,a.archive_path,c.entry_name
       FROM media_assets m

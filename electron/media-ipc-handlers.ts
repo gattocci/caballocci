@@ -370,6 +370,68 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
       throw error
     }
   })
+  handle('media:duplicate-post-asset', args => {
+    validateArgumentCount(args, 3)
+    const postId = validateId(args[0], 'post.id')
+    const project = validateProject(args[1], 'project')
+    const assetId = validateId(args[2], 'media.id')
+    if (!database.getPost(postId)) throw new Error('No se encontró la publicación.')
+
+    const postFolder = path.resolve(ensurePostMediaFolder(project, postId))
+    const sourcePath = database.getMediaPath(assetId)
+    if (!sourcePath || !fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) throw new Error('La imagen ya no está disponible.')
+    const absoluteSource = path.resolve(sourcePath)
+    const relative = path.relative(postFolder, absoluteSource)
+    if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('Solo se pueden duplicar imágenes de la carpeta de esta publicación.')
+    }
+
+    const originalName = path.basename(absoluteSource)
+    const extension = path.extname(originalName)
+    const baseName = path.basename(originalName, extension)
+    let destination = path.join(path.dirname(absoluteSource), `${baseName} (copia)${extension}`)
+    for (let suffix = 2; fs.existsSync(destination); suffix += 1) {
+      destination = path.join(path.dirname(absoluteSource), `${baseName} (copia ${suffix})${extension}`)
+      if (suffix === 10000) throw new Error('No se pudo encontrar un nombre disponible para la copia.')
+    }
+
+    fs.copyFileSync(absoluteSource, destination, fs.constants.COPYFILE_EXCL)
+    try {
+      const stat = fs.statSync(destination)
+      const asset = {
+        id: crypto.randomUUID(),
+        name: path.basename(destination),
+        path: destination,
+        kind: 'image',
+        size: stat.size,
+        mode: 'reference',
+      }
+      database.saveMedia([asset])
+      return { id: asset.id, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode }
+    } catch (error) {
+      fs.unlinkSync(destination)
+      throw error
+    }
+  })
+  handle('media:delete-post-asset', args => {
+    validateArgumentCount(args, 3)
+    const postId = validateId(args[0], 'post.id')
+    const project = validateProject(args[1], 'project')
+    const assetId = validateId(args[2], 'media.id')
+    if (!database.getPost(postId)) throw new Error('No se encontró la publicación.')
+
+    const postFolder = path.resolve(ensurePostMediaFolder(project, postId))
+    const media = database.getMediaFile(assetId)
+    if (!media || !fs.existsSync(media.path) || !fs.statSync(media.path).isFile()) throw new Error('La imagen ya no está disponible.')
+    const absoluteMediaPath = path.resolve(media.path)
+    const relative = path.relative(postFolder, absoluteMediaPath)
+    if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('Solo se pueden eliminar imágenes de la carpeta de esta publicación.')
+    }
+
+    fs.unlinkSync(absoluteMediaPath)
+    database.removeMedia(assetId)
+  })
   handle('media:scan-post-folder', args => {
     if (args.length < 1 || args.length > 2) throw new TypeError('Argumento IPC no valido: media.scanPostFolder')
     const postId = validateId(args[0], 'post.id')

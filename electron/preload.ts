@@ -129,6 +129,8 @@ contextBridge.exposeInMainWorld('planner', {
     list: () => ipcRenderer.invoke('media:list'),
     listForPosts: (targets: Array<{ id: string; project: string }>) => ipcRenderer.invoke('media:list-for-posts', targets),
     copyToPost: (postId: string, project: string, assetIds: string[]) => ipcRenderer.invoke('media:copy-to-post', postId, project, assetIds),
+    duplicatePostAsset: (postId: string, project: string, assetId: string) => ipcRenderer.invoke('media:duplicate-post-asset', postId, project, assetId),
+    deletePostAsset: (postId: string, project: string, assetId: string) => ipcRenderer.invoke('media:delete-post-asset', postId, project, assetId),
     choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
     scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),
     organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),

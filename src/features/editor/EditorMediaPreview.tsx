@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Copy, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
@@ -19,6 +20,69 @@ export function Preview({ draft, onMediaChange, onError }: { draft: PostInput; o
   const [groupDialog, setGroupDialog] = useState<{ currentName?: string; name: string } | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [assetMenu, setAssetMenu] = useState<{ x: number; y: number; assetId: string } | null>(null)
+  const [assetActionBusy, setAssetActionBusy] = useState(false)
+  const assetMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!assetMenu) return
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!assetMenuRef.current?.contains(event.target as Node)) setAssetMenu(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAssetMenu(null)
+    }
+    document.addEventListener('pointerdown', closeOnPointerDown)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [assetMenu])
+  const openAssetMenu = (event: ReactMouseEvent<HTMLElement>, asset: MediaAsset) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setSelectedId(asset.id)
+    setAssetMenu({ x: event.clientX, y: event.clientY, assetId: asset.id })
+  }
+  const manageAsset = async (action: 'duplicate' | 'delete' | 'reveal') => {
+    if (!assetMenu || assetActionBusy) return
+    const asset = images.find(item => item.id === assetMenu.assetId)
+    if (!asset) { setAssetMenu(null); return }
+    if (action === 'delete' && !window.confirm(`¿Eliminar "${asset.name}" de la carpeta de medios y de esta publicación? Esta acción no se puede deshacer.`)) {
+      setAssetMenu(null)
+      return
+    }
+    setAssetMenu(null)
+    setAssetActionBusy(true)
+    try {
+      if (action === 'reveal') {
+        await window.planner.media.reveal(asset.id)
+      } else if (action === 'duplicate') {
+        const duplicate = await window.planner.media.duplicatePostAsset(draft.id || '', draft.project || '', asset.id)
+        const role = roleOf(asset)
+        const attached = {
+          ...duplicate,
+          presentationRole: role,
+          sequence: role === 'slide'
+            ? Math.max(0, ...presentation.map(item => visualSequence(item) || 0)) + 1
+            : visualSequence(asset),
+        }
+        setFolderAssets(current => [...current, attached])
+        onMediaChange([...draft.media || [], attached])
+        setSelectedId(attached.id)
+      } else {
+        await window.planner.media.deletePostAsset(draft.id || '', draft.project || '', asset.id)
+        setFolderAssets(current => current.filter(item => item.id !== asset.id))
+        onMediaChange((draft.media || []).filter(item => item.id !== asset.id))
+        setSelectedId(current => current === asset.id ? null : current)
+      }
+    } catch (error) {
+      reportAppError(error, action === 'duplicate' ? 'No se pudo duplicar la imagen' : action === 'delete' ? 'No se pudo eliminar la imagen' : 'No se pudo abrir la ubicación del archivo')
+      onError(errorMessage(error))
+    } finally {
+      setAssetActionBusy(false)
+    }
+  }
   const refreshFolder = async () => {
     setFolderBusy(true)
     try {
@@ -130,7 +194,7 @@ export function Preview({ draft, onMediaChange, onError }: { draft: PostInput; o
       <small className="visual-folder-hint">Selecciona varias imágenes para agruparlas en una carpeta; el orden se ajusta aquí sin renombrar archivos.</small>
       {images.length > 0 && <div className="visual-sequence-overview" aria-label={`Orden visual: ${presentation.length ? presentation.map(asset => visualSequence(asset) ?? 'sin número').join(', ') : 'sin diapositivas'}`}>
         <header><span>ORDEN VISUAL</span><strong>{presentation.length ? presentation.map(asset => visualSequence(asset) ?? '—').join(', ') : 'Sin diapositivas'}</strong></header>
-        <div className="visual-sequence-items">{presentation.map((asset, index) => <div key={asset.id} title={asset.name}><img src={window.planner.media.imageUrl(asset.id)} alt="" /><span>{visualSequence(asset) ?? index + 1}</span></div>)}
+        <div className="visual-sequence-items">{presentation.map((asset, index) => <div key={asset.id} title={asset.name} onContextMenu={event => openAssetMenu(event, asset)}><img src={window.planner.media.imageUrl(asset.id)} alt="" /><span>{visualSequence(asset) ?? index + 1}</span></div>)}
           <div className={'visual-sequence-drop-end' + (dragOverId === 'sequence-end' ? ' drop-target' : '')} onDragOver={event => { if (draggingId) { event.preventDefault(); setDragOverId('sequence-end') } }} onDragLeave={() => setDragOverId(current => current === 'sequence-end' ? null : current)} onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData('text/plain') || draggingId; if (sourceId) moveVisualToEnd(sourceId); setDraggingId(null); setDragOverId(null) }}><span>+</span><small>{presentation.length ? 'Al final' : 'Primera'}</small></div>
         </div>
         {presentation.length > 0 && <div className={'visual-sequence-exclude' + (dragOverId === 'sequence-exclude' ? ' drop-target' : '')} onDragOver={event => { if (draggingId) { event.preventDefault(); setDragOverId('sequence-exclude') } }} onDragLeave={() => setDragOverId(current => current === 'sequence-exclude' ? null : current)} onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData('text/plain') || draggingId; if (sourceId) excludeVisual(sourceId); setDraggingId(null); setDragOverId(null) }}>Arrastra aquí para sacar una imagen de la secuencia</div>}
@@ -150,7 +214,7 @@ export function Preview({ draft, onMediaChange, onError }: { draft: PostInput; o
           onDrop={event => { event.preventDefault(); const sourceId = event.dataTransfer.getData('text/plain') || draggingId; if (sourceId && isDraggable) moveVisualBefore(sourceId, asset.id); setDraggingId(null); setDragOverId(null) }}
         >
           <input type="checkbox" className="visual-asset-check" aria-label={`Seleccionar ${asset.name} para agrupar`} checked={selectedAssets.includes(asset.id)} onChange={event => setSelectedAssets(current => event.target.checked ? [...current, asset.id] : current.filter(id => id !== asset.id))} />
-          <button type="button" className="visual-asset-thumb" onClick={() => setSelectedId(asset.id)} draggable onDragStart={event => { event.dataTransfer.setData('text/plain', asset.id); event.dataTransfer.effectAllowed = 'move'; setDraggingId(asset.id) }} onDragEnd={() => { setDraggingId(null); setDragOverId(null) }} title={isDraggable ? `Arrastrar para reordenar · Orden ${order ?? 'sin número'}` : `Arrastrar para incluir en la secuencia · ${asset.name}`}>
+          <button type="button" className="visual-asset-thumb" onClick={() => setSelectedId(asset.id)} onContextMenu={event => openAssetMenu(event, asset)} draggable onDragStart={event => { event.dataTransfer.setData('text/plain', asset.id); event.dataTransfer.effectAllowed = 'move'; setDraggingId(asset.id) }} onDragEnd={() => { setDraggingId(null); setDragOverId(null) }} title={isDraggable ? `Arrastrar para reordenar · Orden ${order ?? 'sin número'}` : `Arrastrar para incluir en la secuencia · ${asset.name}`}>
             <img src={window.planner.media.imageUrl(asset.id)} alt="" />
             {isDraggable && <><span className="visual-asset-order">{order ?? position + 1}</span><span className="visual-asset-grip" aria-hidden="true"><GripVertical size={13} /></span></>}
           </button>
@@ -164,7 +228,7 @@ export function Preview({ draft, onMediaChange, onError }: { draft: PostInput; o
       <header><div className="preview-avatar" aria-label="Caballocci"><i /><i /><i /></div><div><strong>tu_cuenta</strong><span><i className="preview-local-dot" style={{ backgroundColor: statusColor, boxShadow: `0 0 0 2px ${statusColor}33` }} /> Vista previa local · {getPlatformMeta(platform).label} · {statusMeta[draft.status].label}</span></div><MoreHorizontal size={17} /></header>
       <div className="preview-media">
         {image
-          ? <img src={window.planner.media.imageUrl(image.id)} alt={image.name} />
+          ? <img src={window.planner.media.imageUrl(image.id)} alt={image.name} onContextMenu={event => openAssetMenu(event, image)} />
           : <div className="preview-placeholder"><Instagram size={38} />{firstIdea ? <><strong>{firstIdea.title || 'Idea 1'}</strong><p>{firstIdea.text || 'Texto pendiente'}</p></> : <span>{contentLabels[draft.contentType]}</span>}</div>}
         <span className="preview-dimensions">{image ? `${roleOf(image) === 'representative' ? 'Imagen representativa' : roleOf(image) === 'cover' ? 'Portada' : roleOf(image) === 'closing' ? 'Cierre' : 'Diapositiva'}${image.sequence ? ` · ${image.sequence}` : ''}` : 'Sin recurso visual'}</span>
       </div>
@@ -174,6 +238,10 @@ export function Preview({ draft, onMediaChange, onError }: { draft: PostInput; o
     </div>
     <button className="copy-helper" onClick={() => window.planner.clipboard.write(text)}><Clipboard size={16} /> Copiar texto para publicar</button>
     {groupDialog && <div className="space-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setGroupDialog(null) }}><form className="space-dialog" onSubmit={event => { event.preventDefault(); void saveGroup() }}><header><div><span>{groupDialog.currentName ? 'RENOMBRAR CARPETA' : 'NUEVA CARPETA'}</span><h2>Carpeta de diapositivas</h2></div><button type="button" className="icon-button" aria-label="Cerrar" onClick={() => setGroupDialog(null)}><X size={18} /></button></header><label>Nombre<input autoFocus maxLength={120} value={groupDialog.name} onChange={event => setGroupDialog(current => current ? { ...current, name: event.target.value } : current)} /></label><footer><button type="button" className="ghost-button" onClick={() => setGroupDialog(null)}>Cancelar</button><button className="save-button" disabled={!groupDialog.name.trim() || groupDialog.name.trim() === groupDialog.currentName}>Guardar carpeta</button></footer></form></div>}
+    {assetMenu && createPortal(<div ref={assetMenuRef} className="media-asset-context-menu" role="menu" aria-label="Acciones de imagen" style={{ left: Math.max(8, Math.min(assetMenu.x, window.innerWidth - 196)), top: Math.max(8, Math.min(assetMenu.y, window.innerHeight - 116)) }} onPointerDown={event => event.stopPropagation()}>
+      <button type="button" role="menuitem" disabled={assetActionBusy} onClick={() => void manageAsset('duplicate')}><Copy size={14} />Duplicar en esta publicación</button>
+      <button type="button" role="menuitem" disabled={assetActionBusy} onClick={() => void manageAsset('reveal')}><FolderOpen size={14} />Abrir ubicación</button>
+      <button type="button" role="menuitem" className="danger-menu-item" disabled={assetActionBusy} onClick={() => void manageAsset('delete')}><Trash2 size={14} />Eliminar de publicación y carpeta</button>
+    </div>, document.body)}
   </div>
 }
-
