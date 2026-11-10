@@ -2,7 +2,7 @@ import { app, dialog, shell, type BrowserWindow, type IpcMainInvokeEvent } from 
 import fs from 'node:fs'
 import path from 'node:path'
 import type { PlannerDatabase } from './database'
-import { importMobileUsageFiles } from './mobile-sync'
+import { importMobileUsageFiles, summarizeMobilePublicationProgress } from './mobile-sync'
 import type { createMobileSyncService } from './mobile-sync-service'
 import { validateArgumentCount, validateId, validateNoArguments } from './ipc-validation'
 
@@ -53,18 +53,32 @@ export function registerMobileSyncIpcHandlers({ database, getMainWindow, mobileS
   handle('mobile-sync:publication-state', args => {
     validateNoArguments(args)
     const root = mobileSync.mobileSyncRoot()
-    if (!root) return { configured: false, currentPostIds: [], previouslyExportedPostIds: [] }
+    if (!root) return { configured: false, currentPostIds: [], previouslyExportedPostIds: [], progressByPostId: {} }
     const outbox = path.join(root, 'pc-outbox')
     const currentPostIds = new Set<string>()
+    const progressByPostId: Record<string, { destinations: number; awaitingConfirmation: number; used: number; retirementPending: number }> = {}
     const catalogPath = path.join(outbox, 'catalog.json')
     if (fs.existsSync(catalogPath)) {
       const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8')) as { schema?: unknown; version?: unknown; publications?: unknown }
       if (catalog.schema !== 'caballocci.mobile-sync.catalog' || catalog.version !== 1 || !Array.isArray(catalog.publications)) {
         throw new TypeError('El catÃ¡logo mÃ³vil no tiene un formato compatible; no se pudo consultar su estado.')
       }
-      for (const publication of catalog.publications as Array<{ postId?: unknown }>) {
+      const publications = catalog.publications as Array<{ postId?: unknown; targetId?: unknown; used?: unknown }>
+      for (const publication of publications) {
         if (typeof publication.postId === 'string' && publication.postId) currentPostIds.add(publication.postId)
       }
+      const progress = summarizeMobilePublicationProgress(publications, database.listMobileUsage().map(event => ({
+        postId: String(event.post_id),
+        targetId: String(event.target_id),
+        action: String(event.action),
+        usedAt: String(event.used_at),
+      })))
+      Object.assign(progressByPostId, Object.fromEntries(progress.map(item => [item.postId, {
+        destinations: item.destinations,
+        awaitingConfirmation: item.awaitingConfirmation,
+        used: item.used,
+        retirementPending: item.retirementPending,
+      }])))
     }
     const exportedPostIds = new Set(currentPostIds)
     const batchHistoryPath = path.join(outbox, 'batch-history.json')
@@ -79,6 +93,7 @@ export function registerMobileSyncIpcHandlers({ database, getMainWindow, mobileS
       configured: true,
       currentPostIds: [...currentPostIds],
       previouslyExportedPostIds: [...exportedPostIds].filter(postId => !currentPostIds.has(postId)),
+      progressByPostId,
     }
   })
   handle('mobile-sync:reconcile', args => {

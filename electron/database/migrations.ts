@@ -396,4 +396,9 @@ export const migrations: Migration[] = [
       CREATE INDEX concept_map_links_to_idx ON concept_map_links(to_node_id);
     `,
   },
+  {
+    version: 32,
+    name: 'work_group_colors',
+    up: `ALTER TABLE work_groups ADD COLUMN color TEXT NOT NULL DEFAULT '';`,
+  },
 ]

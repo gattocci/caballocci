@@ -100,13 +100,19 @@
 .board-mobile-state { display: inline-flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; margin-top: 7px; padding: 3px 6px; border: 1px solid #354039; border-radius: 4px; background: #1a201c; color: #9da9a1; font-size: 8px; line-height: 1; }
 .board-mobile-state svg { flex: none; }
 .board-mobile-state.current { border-color: #34513d; background: #19251d; color: #9bd1a7; }
-.board-mobile-state.previous { border-color: #53472f; background: #211e17; color: #d4b975; }
+.board-mobile-state.awaiting { border-color: #665533; background: #211e17; color: #d4b975; }
+.board-mobile-state.retirement-pending { border-color: #714a38; background: #281e19; color: #e0a37c; }
+.board-mobile-state.previous { border-color: #2f3a52; background: #161b26; color: #8fa0c7; }
 .board-mobile-state.discreet { justify-content: center; width: 21px; height: 19px; margin-top: 7px; padding: 0; border-radius: 4px; background: transparent; font-size: 0; }
 .board-mobile-state.current.discreet { color: #779c81; }
-.board-mobile-state.previous.discreet { color: #a18b5d; }
+.board-mobile-state.awaiting.discreet { color: #d4b975; }
+.board-mobile-state.retirement-pending.discreet { color: #e0a37c; }
+.board-mobile-state.previous.discreet { color: #8fa0c7; }
 .board-mobile-state.never.discreet { color: #68736b; opacity: .55; }
 .board-mobile-state.current.discreet { border-color: #45634c; background: #19231c; }
-.board-mobile-state.previous.discreet { border-color: #665533; background: #211e17; }
+.board-mobile-state.awaiting.discreet { border-color: #665533; background: #211e17; }
+.board-mobile-state.retirement-pending.discreet { border-color: #714a38; background: #281e19; }
+.board-mobile-state.previous.discreet { border-color: #2f3a52; background: #161b26; }
 .board-mobile-state.never.discreet { border-color: #414a44; background: #191e1a; }
 .board-mobile-state.discreet svg { width: 11px; height: 11px; }
 .board-more-hint { display: block; padding: 8px; color: #88948c; font-size: 9px; }

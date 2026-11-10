@@ -2,16 +2,31 @@
 .board-collection-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: -6px 0 14px; padding-bottom: 8px; border-bottom: 1px solid #222b25; }
 .board-collection-tabs { display: flex; flex: 1 1 320px; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .board-collection-tabs::-webkit-scrollbar { display: none; }
-.board-collection-tab { position: relative; display: inline-flex; flex: none; align-items: center; gap: 7px; max-width: 220px; height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #9aa69e; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .14s ease, color .14s ease, border-color .14s ease; }
-.board-collection-tab:hover { background: #1b231e; color: #e8eee9; }
-.board-collection-tab[aria-current="page"] { border-color: #3f4b42; background: #202722; color: #f1f5f2; cursor: default; }
+.board-collection-item { position: relative; display: flex; flex: none; align-items: center; }
+.board-collection-tab { position: relative; display: inline-flex; flex: none; align-items: center; gap: 7px; max-width: 220px; height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #9aa69e; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .14s ease, color .14s ease; }
+.board-collection-tab:hover { border-color: transparent; background: #1b231e; color: #e8eee9; }
+.board-collection-tab[aria-current="page"] { border-color: transparent; background: #202722; color: #f1f5f2; cursor: default; }
+.board-collection-tab[aria-current="page"]:hover { background: #252e28; color: #fff; }
+.board-collection-tab.has-custom-color { background: color-mix(in srgb, var(--collection-color) 13%, #171d19); }
+.board-collection-tab.has-custom-color:hover { background: color-mix(in srgb, var(--collection-color) 19%, #1b231e); }
+.board-collection-tab.has-custom-color[aria-current="page"] { background: color-mix(in srgb, var(--collection-color) 24%, #202722); }
+.board-collection-tab.has-custom-color[aria-current="page"]:hover { background: color-mix(in srgb, var(--collection-color) 29%, #252e28); }
+.board-collection-tab.has-custom-color svg { color: var(--collection-color); opacity: 1; }
+.board-collection-tab.has-custom-color em { color: color-mix(in srgb, var(--collection-color) 70%, #dce5de); }
 .board-collection-tab.drag-over { border-color: #d0a64b; background: #282419; box-shadow: 0 0 0 2px #d0a64b38; color: #f1f5f2; }
+.board-collection-item.drag-over .board-collection-tab { border-color: #d0a64b; background: #282419; box-shadow: 0 0 0 2px #d0a64b38; color: #f1f5f2; }
 .board-collection-tab svg { flex: none; opacity: .8; }
 .board-collection-tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .board-collection-tab em { flex: none; color: #78847c; font: 10px 'DM Mono', monospace; font-style: normal; }
 .board-collection-tab[aria-current="page"] em { color: #b9c5bc; }
 .board-collection-tab b { flex: none; color: #d0a64b; font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .board-collection-tab.archived { color: #77837a; }
+.board-collection-item-menu { display: grid; position: relative; flex: none; width: 22px; height: 24px; margin-left: -5px; place-items: center; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #9aa69e; cursor: pointer; opacity: 0; transition: background .14s ease, color .14s ease, opacity .14s ease; }
+.board-collection-item:hover .board-collection-item-menu, .board-collection-item:focus-within .board-collection-item-menu { opacity: 1; }
+.board-collection-item-menu:hover { background: #252e28; color: #e8eee9; }
+.board-collection-item-menu:focus-visible { opacity: 1; }
+.board-collection-drop-guidance { flex: none; padding: 5px 8px; border: 1px solid #554929; border-radius: 5px; background: #211f19; color: #d2c2a1; font-size: 10px; }
+.board-collection-item.post-drag-over .board-collection-tab { border-color: #d0a64b; background: #282419; box-shadow: 0 0 0 2px #d0a64b38; color: #f1f5f2; }
 .board-collection-divider { flex: none; width: 1px; height: 18px; margin: 0 6px; background: #2d3730; }
 .board-collection-add { display: grid; flex: none; width: 36px; height: 36px; margin-left: 2px; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #7f8b83; cursor: pointer; transition: background .14s ease, color .14s ease; }
 .board-collection-add:hover { background: #1b231e; color: #d0a64b; }
@@ -28,6 +43,15 @@
 .board-collection-menu > div button:hover { background: #252e28; color: #f0f4f1; }
 .board-collection-menu > div button.danger-menu-item { color: #e99a8d; }
 .board-collection-menu > div button.danger-menu-item:hover { background: #30201e; }
+.board-context-menu > button.danger-menu-item { color: #e99a8d; }
+.board-context-menu > button.danger-menu-item:hover { background: #30201e; }
+.board-collection-color-options { display: grid; gap: 7px; margin: 3px 4px 5px; padding: 8px; border-top: 1px solid #303a33; border-bottom: 1px solid #303a33; }
+.board-collection-color-options > span { color: #9ba69e; font-size: 10px; font-weight: 650; }
+.board-collection-color-options > div { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.board-collection-color-options button { display: grid; width: 23px; height: 23px; place-items: center; padding: 0; border: 2px solid transparent; border-radius: 50%; cursor: pointer; }
+.board-collection-color-options button:hover,.board-collection-color-options button[aria-pressed="true"] { border-color: #edf2ee; box-shadow: 0 0 0 1px #111713; }
+.board-collection-color-options button.no-color { border-color: #59645c; background: linear-gradient(135deg, transparent 46%, #d59a8f 47% 53%, transparent 54%); color: #aeb8b1; }
+.board-collection-color-options button.no-color:hover,.board-collection-color-options button.no-color[aria-pressed="true"] { border-color: #edf2ee; color: #fff; }
 .work-group-picker { display: flex; align-items: center; gap: 8px; }
 .work-group-picker label { color: #9aa69e; font-size: 10px; font-weight: 700; }
 .work-group-picker select { min-width: 220px; height: 32px; padding: 0 8px; border: 1px solid #354139; border-radius: 4px; background: #1a201c; color: #e0e7e2; font-size: 10px; }
@@ -66,6 +90,9 @@
 .work-group-delete-post-list { display: grid; gap: 2px; max-height: 180px; overflow-y: auto; margin-left: 20px; padding: 5px 8px; border-left: 2px solid #69413d; }
 .work-group-delete-post-list label { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; color: #c9d2cc; font-size: 10px; line-height: 1.4; cursor: pointer; }
 .work-group-delete-post-list input { flex: 0 0 auto; width: 13px; height: 13px; margin: 0; accent-color: #bd6558; }
+@media (max-width: 700px) {
+  .board-collection-item-menu { opacity: 1; }
+}
 .work-group-delete-post-list span { overflow-wrap: anywhere; }
 .work-group-form footer .work-group-danger-button { min-height: 34px; height: 34px; padding: 0 14px; border: 1px solid #8f453b; border-radius: 5px; background: #6f302a; color: #fff; font-size: 10px; font-weight: 700; cursor: pointer; }
 .work-group-form footer .work-group-danger-button:hover { background: #8b3a32; }
@@ -80,6 +107,7 @@
 .board-archived-post-list { display: grid; border-top: 1px solid #29332c; }
 .board-archived-post-list article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; border-bottom: 1px solid #252d28; }
 .board-archived-post-list article:last-child { border-bottom: 0; }
+.board-archived-post-list .board-archived-collection { display: block; padding: 0; }
 .board-archived-post-title { display: grid; gap: 3px; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .board-archived-post-title strong { color: #dce4de; font-size: 10px; }
 .board-archived-post-title span { color: #87938b; font-size: 9px; }
@@ -92,7 +120,7 @@
 .board-archived-collection-open:hover strong { color: #d0a64b; }
 .board-archived-collection > header span { flex: none; color: #87938b; font-size: 9px; }
 .board-archived-collection > header .settings-button { min-height: 28px; height: 28px; display: inline-flex; align-items: center; gap: 4px; font-size: 9px; }
-.board-archived-collection-posts { display: grid; padding: 4px 10px 4px 30px; }
+.board-archived-post-list .board-archived-collection-posts { display: grid; gap: 0; padding: 4px 10px 4px 30px; }
 .board-archived-collection-post { display: flex; align-items: center; min-width: 0; padding: 7px 0; border: 0; border-bottom: 1px solid #202722; background: transparent; color: #dce4de; text-align: left; cursor: pointer; }
 .board-archived-collection-post:last-child { border-bottom: 0; }
 .board-archived-collection-post strong { overflow-wrap: anywhere; font-size: 10px; font-weight: 500; }

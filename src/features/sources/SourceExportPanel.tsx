@@ -25,6 +25,10 @@ type SourceExportPanelProps = {
   onExportFieldChange(value: string): void
   profileColumnsText: string
   onProfileColumnsChange(value: string): void
+  postIdColumnStatus: 'included' | 'missing' | 'invalid'
+  savedPostIdColumn: boolean
+  profileColumnsExpanded: boolean
+  onProfileColumnsExpandedChange(value: boolean): void
   onAddField(): void
   onSaveProfile(): void
   exportScope: 'all' | 'source'
@@ -41,14 +45,20 @@ type SourceExportPanelProps = {
 }
 
 export function SourceExportPanel(props: SourceExportPanelProps) {
-  const { profiles, selectedProfileId, onProfileChange, includeTitle, onIncludeTitleChange, includeIntro, onIncludeIntroChange, ideaColumns, onIdeaColumnsChange, onApplyRecipe, profileName, onProfileNameChange, selectedExportField, onExportFieldChange, profileColumnsText, onProfileColumnsChange, onAddField, onSaveProfile, exportScope, onExportScopeChange, hasSelectedSource, exportProject, onExportProjectChange, exportStatus, onExportStatusChange, deltaOnly, onDeltaOnlyChange, onDownload, onVerifyBatch } = props
+  const { profiles, selectedProfileId, onProfileChange, includeTitle, onIncludeTitleChange, includeIntro, onIncludeIntroChange, ideaColumns, onIdeaColumnsChange, onApplyRecipe, profileName, onProfileNameChange, selectedExportField, onExportFieldChange, profileColumnsText, onProfileColumnsChange, postIdColumnStatus, savedPostIdColumn, profileColumnsExpanded, onProfileColumnsExpandedChange, onAddField, onSaveProfile, exportScope, onExportScopeChange, hasSelectedSource, exportProject, onExportProjectChange, exportStatus, onExportStatusChange, deltaOnly, onDeltaOnlyChange, onDownload, onVerifyBatch } = props
+  const postIdStatusText = postIdColumnStatus === 'invalid'
+    ? 'revisa el JSON de columnas'
+    : postIdColumnStatus === 'included'
+      ? `incluido${savedPostIdColumn ? ' y guardado' : ' (pendiente de guardar)'}`
+      : savedPostIdColumn ? 'incluido en el perfil guardado, pero quitado en los cambios sin guardar' : 'no incluido en el perfil guardado'
 
   return <section className="source-panel configuration-panel">
     <header><div><span>EXPORTACIÓN CSV</span><h2>Guion por bloques</h2></div>{profiles.length > 0 && <select value={selectedProfileId} onChange={event => onProfileChange(event.target.value)}>{profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}</header>
     <p className="export-copy">Una fila por publicación: título, texto inicial y los textos de sus ideas agrupadas en el orden del editor.</p>
     <div className="export-recipe"><label className="export-check"><input type="checkbox" checked={includeTitle} onChange={event => onIncludeTitleChange(event.target.checked)} /> Título</label><label className="export-check"><input type="checkbox" checked={includeIntro} onChange={event => onIncludeIntroChange(event.target.checked)} /> Texto inicial</label><label>Columnas de ideas<input type="number" min="0" max="30" value={ideaColumns} onChange={event => onIdeaColumnsChange(Number(event.target.value))} /></label><button type="button" className="settings-button" onClick={onApplyRecipe}><RefreshCw size={14} /> Aplicar receta</button></div>
     <div className="source-grid"><label>Nombre del perfil<input value={profileName} onChange={event => onProfileNameChange(event.target.value)} /></label><label>Agregar campo adicional<select value={selectedExportField} onChange={event => onExportFieldChange(event.target.value)}>{exportFieldOptions.map(([label, source]) => <option value={source} key={source}>{label}</option>)}</select><button type="button" className="settings-button" onClick={onAddField}><Plus size={14} /> Agregar campo</button></label></div>
-    <details className="export-advanced"><summary>Columnas avanzadas</summary><textarea value={profileColumnsText} onChange={event => onProfileColumnsChange(event.target.value)} /></details>
+    <p className="export-copy">ID de publicación: {postIdStatusText}. Después de guardar cambios, descarga un CSV nuevo antes de verificarlo.</p>
+    <details className="export-advanced" open={profileColumnsExpanded} onToggle={event => onProfileColumnsExpandedChange(event.currentTarget.open)}><summary>Columnas avanzadas</summary><textarea value={profileColumnsText} onChange={event => onProfileColumnsChange(event.target.value)} /></details>
     <div className="source-actions"><button className="save-button" onClick={onSaveProfile}><Save size={15} /> Guardar perfil</button><label className="export-mode"><span>Alcance</span><select value={exportScope} onChange={event => onExportScopeChange(event.target.value as 'all' | 'source')}><option value="all">Todo el planner</option><option value="source" disabled={!hasSelectedSource}>Fuente actual</option></select></label><label className="export-mode"><span>Proyecto / espacio</span><input value={exportProject} onChange={event => onExportProjectChange(event.target.value)} placeholder="Todos" /></label><label className="export-mode"><span>Estado</span><select value={exportStatus} onChange={event => onExportStatusChange(event.target.value as ExportStatus)}><option value="all">Todos</option><option value="idea">Ideas</option><option value="draft">Borradores</option><option value="review">En revisión</option><option value="approved">Aprobados</option><option value="scheduled">Programados</option><option value="published">Publicados</option><option value="archived">Archivados</option></select></label><label className="export-mode"><input type="checkbox" checked={deltaOnly} onChange={event => onDeltaOnlyChange(event.target.checked)} /> Solo nuevos o modificados</label><button className="settings-button" disabled={!selectedProfileId} onClick={onDownload}><Download size={15} /> Descargar CSV</button></div>
     <div className="source-actions"><button type="button" className="settings-button" onClick={onVerifyBatch}>Verificar y organizar PNG con CSV</button><small>Agrega “ID de publicación” al perfil antes de exportar. Solo se organizarán coincidencias en publicaciones “En revisión”.</small></div>
   </section>

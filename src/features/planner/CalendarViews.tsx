@@ -13,6 +13,7 @@ import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { postMatchesQuery, usePlanner } from '../../app/store'
 import { useSelection } from '../../app/useSelection'
 import type { MediaAsset, Post, WorkGroup } from '../../shared/types'
+import { EditorMediaPicker } from '../editor/EditorMediaPicker'
 
 export function CalendarView({ onPickPost, pickMode = false, pickedPostIds = new Set<string>() }: { onPickPost?(id: string): boolean; pickMode?: boolean; pickedPostIds?: Set<string> }) {
   const { posts: allPosts, select, save, activeSpace, query, setQuery, selectedId } = usePlanner()
@@ -141,7 +142,7 @@ export function CalendarView({ onPickPost, pickMode = false, pickedPostIds = new
   </section>
 }
 
-export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>() }: { onPickPost?(id: string): boolean; pickedPostIds?: Set<string> }) {
+export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>(), onAttachMedia }: { onPickPost?(id: string): boolean; pickedPostIds?: Set<string>; onAttachMedia(postId: string, assets: MediaAsset[]): void }) {
   const { posts: allPosts, selectedId, select, activeSpace, query } = usePlanner()
   const selectedPost = allPosts.find(post => post.id === selectedId)
   const [expanded, setExpanded] = useState(false)
@@ -154,8 +155,10 @@ export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>()
       .sort((first, second) => new Date(first.scheduledAt || '').getTime() - new Date(second.scheduledAt || '').getTime())
     : []
 
+  useEffect(() => { setExpanded(false) }, [selectedPost?.id, selectedPost?.scheduledAt])
+
   useLayoutEffect(() => {
-    if (!selectedPost?.scheduledAt) {
+    if (!selectedPost) {
       setPosition(null)
       return
     }
@@ -169,7 +172,7 @@ export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>()
       const editorRect = editor.getBoundingClientRect()
       const width = expanded ? Math.min(320, window.innerWidth - 24, Math.max(200, editorRect.left - 24)) : 42
       const estimatedExpandedHeight = Math.min(420, 52 + dayPosts.length * 38 + 12)
-      const height = expanded ? panel?.getBoundingClientRect().height || estimatedExpandedHeight : 42
+      const height = expanded ? panel?.getBoundingClientRect().height || estimatedExpandedHeight : selectedPost.scheduledAt ? 92 : 42
       setPosition({
         top: Math.max(12, Math.min(editorRect.top + 12, window.innerHeight - height - 12)),
         left: Math.max(12, editorRect.left - width - 12),
@@ -177,9 +180,25 @@ export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>()
       })
     }
     updatePosition()
+    let editorResizeObserver: ResizeObserver | null = null
+    const observeEditor = () => {
+      const editor = document.querySelector('.editor')
+      if (!editor) return false
+      editorResizeObserver?.disconnect()
+      editorResizeObserver = new ResizeObserver(updatePosition)
+      editorResizeObserver.observe(editor)
+      requestAnimationFrame(updatePosition)
+      return true
+    }
+    const editorMutationObserver = new MutationObserver(() => {
+      if (observeEditor()) editorMutationObserver.disconnect()
+    })
+    if (!observeEditor()) editorMutationObserver.observe(document.body, { childList: true, subtree: true })
     window.addEventListener('resize', updatePosition)
     window.addEventListener('scroll', updatePosition, true)
     return () => {
+      editorMutationObserver.disconnect()
+      editorResizeObserver?.disconnect()
       window.removeEventListener('resize', updatePosition)
       window.removeEventListener('scroll', updatePosition, true)
     }
@@ -190,6 +209,7 @@ export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>()
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target
       if (target instanceof Element && target.closest('.editor-backdrop')) return
+      if (target instanceof Element && target.closest('.media-picker-backdrop')) return
       if (target instanceof Node && panelRef.current?.contains(target)) return
       setExpanded(false)
     }
@@ -204,15 +224,20 @@ export function BoardDaySwitcher({ onPickPost, pickedPostIds = new Set<string>()
     }
   }, [expanded])
 
-  if (!selectedPost?.scheduledAt || !scheduledDay || !position) return null
-  return createPortal(<div ref={panelRef} className={`calendar-day-popover board-day-switcher${expanded ? ' expanded' : ' minimized'}`} role={expanded ? 'dialog' : undefined} aria-label={expanded ? `Publicaciones del ${format(scheduledDay, 'd MMMM yyyy', { locale: es })}` : undefined} style={{ top: position.top, left: position.left, width: position.width }}>
-    {expanded ? <>
+  if (!selectedPost || !position) return null
+  return createPortal(<div className="board-day-switcher-stack" style={{ top: position.top, left: position.left, width: position.width }}>
+    {expanded && scheduledDay ? <div ref={panelRef} className="calendar-day-popover board-day-switcher expanded" role="dialog" aria-label={`Publicaciones del ${format(scheduledDay, 'd MMMM yyyy', { locale: es })}`}>
       <header><strong>{format(scheduledDay, 'EEEE d MMMM', { locale: es })}</strong><button type="button" aria-label="Minimizar publicaciones del día" onClick={() => setExpanded(false)}><Minimize2 size={13} /></button></header>
       <div className="calendar-day-popover-list">{dayPosts.map(post => <button type="button" className={pickedPostIds.has(post.id) ? 'session-picked' : ''} key={post.id} style={{ '--post-color': post.color } as React.CSSProperties} aria-current={selectedId === post.id ? 'true' : undefined} onClick={() => { if (!onPickPost?.(post.id)) select(post.id) }} title={post.title}>
         <time>{post.scheduledAt && format(parseISO(post.scheduledAt), 'HH:mm')}</time><span>{post.title || 'Publicación sin título'}</span>
       </button>)}</div>
-    </> : <button type="button" className="board-day-switcher-trigger" aria-label={`Ver publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} title={`Publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} onClick={() => setExpanded(true)}>
-      <CalendarDays size={17} /><span>{format(scheduledDay, 'd')}</span>
-    </button>}
+    </div> : <div className="board-day-switcher-minimized">
+      {scheduledDay && <div className="calendar-day-popover board-day-switcher minimized">
+        <button type="button" className="board-day-switcher-trigger" aria-label={`Ver publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} title={`Publicaciones del ${format(scheduledDay, 'd MMMM', { locale: es })}`} onClick={() => setExpanded(true)}>
+          <CalendarDays size={17} /><span>{format(scheduledDay, 'd')}</span>
+        </button>
+      </div>}
+      <EditorMediaPicker media={selectedPost.media || []} postId={selectedPost.id} project={selectedPost.project} onAttach={assets => onAttachMedia(selectedPost.id, assets)} />
+    </div>}
   </div>, document.body)
 }

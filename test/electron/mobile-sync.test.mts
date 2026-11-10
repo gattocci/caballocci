@@ -20,8 +20,12 @@ const { MobileSyncRepository } = require('../../dist-electron/database/mobile-sy
 const { migrations } = require('../../dist-electron/database/migrations.js') as {
   migrations: Array<{ version: number; up: string }>
 }
-const { cleanUnreferencedMobileAlbums, importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMobileSpaceOrder, parseMobileUsageEvent, pruneMobilePublications, recordMobileBatch, summarizeMobileUsage, writeMobileCatalog } = require('../../dist-electron/mobile-sync.js') as {
+const { cleanUnreferencedMobileAlbums, importMobileUsageFiles, mergeMobilePublications, nextMobileBatch, nextMobileSpaceOrder, parseMobileUsageEvent, pruneMobilePublications, recordMobileBatch, summarizeMobilePublicationProgress, summarizeMobileUsage, writeMobileCatalog } = require('../../dist-electron/mobile-sync.js') as {
   summarizeMobileUsage(events: Array<{ postId: string; targetId: string; action: string; usedAt: string }>): { used: Set<string>; removed: Set<string> }
+  summarizeMobilePublicationProgress(
+    publications: Array<{ postId?: unknown; targetId?: unknown; used?: unknown }>,
+    events: Array<{ postId: string; targetId: string; action: string; usedAt: string }>,
+  ): Array<{ postId: string; destinations: number; awaitingConfirmation: number; used: number; retirementPending: number }>
   pruneMobilePublications<T extends { postId: string; targetId: string }>(publications: T[], options: { postIsActive: (postId: string) => boolean; removed: Set<string> }): { kept: T[]; dropped: T[] }
   cleanUnreferencedMobileAlbums(root: string, publications: Array<{ manifestPath: string }>): { removed: string[]; failed: string[] }
   nextMobileBatch(root: string): string
@@ -221,6 +225,24 @@ test('summarizes usage so that only the latest removal hides a destination', () 
   ])
   assert.deepEqual([...summary.used].sort(), ['a\u0000ig', 'b\u0000ig'])
   assert.deepEqual([...summary.removed], ['a\u0000ig'])
+})
+
+test('summarizes mobile export confirmation progress by destination', () => {
+  const progress = summarizeMobilePublicationProgress([
+    { postId: 'mixed', targetId: 'instagram', used: false },
+    { postId: 'mixed', targetId: 'facebook', used: false },
+    { postId: 'waiting', targetId: 'instagram', used: false },
+    { postId: 'confirmed', targetId: 'instagram', used: true },
+  ], [
+    { postId: 'mixed', targetId: 'instagram', action: 'used', usedAt: '2026-10-24T05:00:00.000Z' },
+    { postId: 'mixed', targetId: 'facebook', action: 'removed', usedAt: '2026-10-24T06:00:00.000Z' },
+  ])
+
+  assert.deepEqual(progress, [
+    { postId: 'mixed', destinations: 2, awaitingConfirmation: 0, used: 1, retirementPending: 1 },
+    { postId: 'waiting', destinations: 1, awaitingConfirmation: 1, used: 0, retirementPending: 0 },
+    { postId: 'confirmed', destinations: 1, awaitingConfirmation: 0, used: 1, retirementPending: 0 },
+  ])
 })
 
 test('prunes deleted posts and removed destinations from the catalog and deletes orphan albums', t => {

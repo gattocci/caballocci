@@ -47,6 +47,7 @@ function mediaAsset(value: unknown, index: number) {
   if (typeof size !== 'number' || !Number.isFinite(size) || size < 0 || size > Number.MAX_SAFE_INTEGER) invalid(`media[${index}].size`)
   return {
     id: text(asset.id, `media[${index}].id`, 128, false),
+    ...(asset.sourceId === undefined ? {} : { sourceId: text(asset.sourceId, `media[${index}].sourceId`, 128, false) }),
     name: text(asset.name, `media[${index}].name`, 512, false),
     kind: enumValue(asset.kind, `media[${index}].kind`, mediaKinds),
     size,
@@ -325,6 +326,11 @@ export function validateWorkGroupInput(value: unknown): Record<string, unknown> 
     name: text(group.name, 'workGroup.name', 120, false).trim(),
     description: text(group.description ?? '', 'workGroup.description', 2_000).trim(),
     space: text(group.space ?? '', 'workGroup.space', 200).trim(),
+  }
+  if (group.color !== undefined) {
+    const color = text(group.color, 'workGroup.color', 7)
+    if (color && !/^#[\da-f]{6}$/i.test(color)) invalid('workGroup.color')
+    validated.color = color
   }
   const id = optionalId(group.id, 'workGroup.id')
   if (id) validated.id = id

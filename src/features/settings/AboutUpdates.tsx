@@ -72,7 +72,7 @@ export function AboutUpdates() {
       </section>
       <section className="settings-section">
         <div className="settings-heading"><div><span>APLICACIÓN</span><h2>caballocci</h2></div><strong>v{info?.version || update?.installedVersion || '...'}</strong></div>
-        <div className={`update-state ${update?.status || 'idle'}`}><span /><div><strong>{update?.message || 'Consultando estado...'}</strong>{update?.availableVersion && <small>Versión disponible: {update.availableVersion}</small>}</div></div>
+        <div className={`update-state ${update?.status || 'idle'}`}><div><strong>{update?.message || 'Consultando estado...'}</strong>{update?.availableVersion && <small>Versión disponible: {update.availableVersion}</small>}</div></div>
         {update?.status === 'downloading' && <div className="download-progress"><div><span>Descarga</span><b>{Math.round(update.percent || 0)}%</b></div><progress max="100" value={update.percent || 0} /><small>{formatBytes(update.transferred)} de {formatBytes(update.total)}</small></div>}
         <div className="settings-actions">
           <button className="settings-button" disabled={busy || update?.status === 'unavailable' || update?.status === 'downloaded'} onClick={() => void runWithErrorReporting(() => window.planner.updates.check(), 'No se pudieron buscar actualizaciones')}><RefreshCw size={16} /> Buscar actualizaciones</button>
@@ -87,8 +87,10 @@ export function AboutUpdates() {
           <strong>Novedades de la versión {update.availableVersion}</strong>
           <p>{update.releaseNotes || 'El lanzamiento no incluye notas detalladas. Puedes consultar la publicación en GitHub.'}</p>
         </div>}
-        {update?.status === 'downloaded' && <p className="settings-note success">La actualización se aplicará en segundo plano y caballocci volverá a abrirse.</p>}
+        {update?.status === 'downloaded' && <p className="settings-note success">{update.preview ? 'La actualización simulada está lista para continuar.' : 'La actualización se aplicará en segundo plano y caballocci volverá a abrirse.'}</p>}
+        {update?.status === 'updated' && <p className="settings-note success">{update.message}</p>}
         {!info?.packaged && <p className="settings-note">La comprobación de actualizaciones está deshabilitada durante el desarrollo. Se activa en el instalador empaquetado.</p>}
+        {!info?.packaged && <div className="settings-actions"><button className="settings-button" onClick={() => void runWithErrorReporting(async () => setUpdate(await window.planner.updates.preview()), 'No se pudo iniciar la vista previa de la actualización')}>Previsualizar actualización</button></div>}
       </section>
       <section className="settings-section">
         <div className="settings-heading"><div><span>DATOS LOCALES</span><h2>Workspace</h2></div></div>
@@ -101,7 +103,7 @@ export function AboutUpdates() {
         {backupMessage && <p className="settings-note success">{backupMessage}</p>}
       </section>
       <section className="settings-section app-information">
-        <div className="settings-heading"><div><span>ACERCA DE CABALLOCCI</span><h2>Esta instalación</h2></div><strong>v{info?.version || '...'}</strong></div>
+        <div className="settings-heading"><div><span>DATOS LOCALES</span><h2>Esta instalación</h2></div><strong>v{info?.version || '...'}</strong></div>
         <p className="settings-note">Información técnica y resumen de los datos guardados localmente. No se envía a ningún servicio.</p>
         <dl className="app-information-grid">
           <div><dt>Entorno</dt><dd>{info ? info.packaged ? 'Aplicación instalada' : 'Desarrollo' : '...'}</dd></div>

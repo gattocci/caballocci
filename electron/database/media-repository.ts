@@ -5,7 +5,7 @@ import type { Row } from './types'
 export class MediaRepository {
   constructor(private readonly db: Database, private readonly persist: () => void) {}
 
-  list(): Row[] { return rows(this.db, 'SELECT id,name,kind,size,mode FROM media_assets ORDER BY created_at DESC') }
+  list(): Row[] { return rows(this.db, 'SELECT id,name,kind,size,mode FROM media_assets ORDER BY created_at DESC, rowid DESC') }
 
   getPath(id: string): string | undefined { return this.getFile(id)?.path }
 
@@ -20,6 +20,12 @@ export class MediaRepository {
 
   updatePath(id: string, filePath: string) {
     this.db.run('UPDATE media_assets SET path = ?, name = ? WHERE id = ?', [filePath, filePath.split(/[\\/]/).at(-1) || '', id])
+    this.persist()
+  }
+
+  remove(id: string) {
+    this.db.run('DELETE FROM compressed_media_assets WHERE asset_id = ?', [id])
+    this.db.run('DELETE FROM media_assets WHERE id = ?', [id])
     this.persist()
   }
 

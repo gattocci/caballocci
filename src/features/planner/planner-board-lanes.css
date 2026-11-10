@@ -9,7 +9,7 @@
 .board-lanes { display: grid; grid-template-columns: repeat(6, minmax(180px, 1fr)); gap: 0 8px; min-width: 1120px; align-items: start; }
 /* Cabeceras de estado (sticky) */
 .board-status-heading { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; min-height: 40px; padding: 0 10px; border-top: 0; border-radius: 6px 6px 0 0; background: var(--status-color); }
-.board-status-heading.status-published label, .board-status-heading.status-published em { color: #111713; }
+.board-status-heading.status-published label, .board-status-heading.status-published em { color: #f1f5f2; }
 .board-status-heading label { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; color: #111713; font-size: 11px; font-weight: 700; cursor: pointer; }
 .board-status-heading input { flex: none; width: 13px; height: 13px; margin: 0; appearance: none; border: 1px solid #68736b; border-radius: 3px; background: #171d19; opacity: 0; cursor: pointer; transition: opacity .12s ease, background .12s ease, border-color .12s ease; }
 .board-status-heading:hover input, .board-status-heading:focus-within input { opacity: 1; }
@@ -100,8 +100,19 @@
   .board-lane-cell .board-card-meta > small b { padding: 1px 3px; font-size: 7px; }
 }
 .workspace.board-mode-kanban .board-bulk-actions { position: static; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin: 0 0 8px; padding: 7px 9px; border: 1px solid #4c4130; background: #252018; }
-.workspace.board-mode-kanban .board-bulk-actions strong { margin-right: 4px; }
+.workspace.board-mode-kanban .board-bulk-actions strong { margin-right: 4px; color: #f0e2ca; font-size: 11px; white-space: nowrap; }
 .workspace.board-mode-kanban .board-bulk-actions select { max-width: 220px; height: 28px; padding: 0 6px; border: 1px solid #6b5840; border-radius: 3px; background: #1b1a17; color: #e8d2b6; font-size: 9px; }
+.workspace.board-mode-kanban .board-bulk-actions > button,
+.workspace.board-mode-kanban .board-bulk-more[open] > div > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; padding: 0 9px; border: 1px solid #6b5840; border-radius: 3px; background: #30291f; color: #ead9bd; font-size: 9px; font-weight: 600; cursor: pointer; }
+.workspace.board-mode-kanban .board-bulk-actions > button:hover:not(:disabled),
+.workspace.board-mode-kanban .board-bulk-more[open] > div > button:hover:not(:disabled) { border-color: #a48a61; background: #3a3023; color: #fff4df; }
+.workspace.board-mode-kanban .board-bulk-actions > button:disabled,
+.workspace.board-mode-kanban .board-bulk-more[open] > div > button:disabled { opacity: .45; cursor: not-allowed; }
+.workspace.board-mode-kanban .board-bulk-actions > select + button { border-color: #52775d; background: #365a44; color: #eef6f0; }
+.workspace.board-mode-kanban .board-bulk-actions > select + button:hover:not(:disabled) { border-color: #79a788; background: #426d51; }
+.workspace.board-mode-kanban .board-bulk-actions > button:focus-visible,
+.workspace.board-mode-kanban .board-bulk-more summary:focus-visible,
+.workspace.board-mode-kanban .board-bulk-more[open] > div > button:focus-visible { outline: 2px solid #ef765b; outline-offset: 2px; }
 .bulk-space-control { display: inline-flex; align-items: center; gap: 6px; color: #b9aa8a; font-size: 9px; }
 .board-context-selection-note { padding: 5px 9px 7px; border-bottom: 1px solid #303a33; color: #9fac9f; font-size: 9px; }
 .board-bulk-more { position: relative; }
@@ -109,6 +120,10 @@
 .board-bulk-more summary::-webkit-details-marker { display: none; }
 .board-bulk-more summary::after { margin-left: 6px; content: '▾'; }
 .board-bulk-more[open] > div { position: absolute; top: calc(100% + 4px); right: 0; z-index: 8; display: flex; flex-wrap: wrap; gap: 6px; width: max-content; max-width: min(620px, 88vw); padding: 8px; border: 1px solid #4c4130; border-radius: 5px; background: #1c1a15; box-shadow: 0 8px 24px #0009; }
+.board-bulk-more[open] > div > button { white-space: nowrap; }
+.board-bulk-media { display: inline-flex; align-items: center; gap: 7px; padding: 0 3px; border-left: 1px solid #494033; color: #b8aa94; font-size: 9px; white-space: nowrap; }
+.board-bulk-media .media-library-button { width: 28px; height: 28px; border-color: #514735; background: #27231c; color: #cabb9f; }
+.board-bulk-media .media-library-button:hover,.board-bulk-media .media-library-button:focus-visible { border-color: #8c7654; background: #332c21; color: #fff1d4; }
 @media (hover: none) {
   .board-lane-cell .board-select-hit, .board-lane-cell .board-grip, .board-status-heading input { opacity: 1; pointer-events: auto; }
 }

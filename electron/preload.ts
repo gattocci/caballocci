@@ -4,9 +4,10 @@ import type { IdeaAnalysisProgress } from './database/types'
 let clusterRequestSequence = 0
 type OptionalIntegrationStatus = {
   integrationId: string
-  state: 'running' | 'stopped' | 'not-started'
+  state: 'running' | 'stopping' | 'stopped' | 'failed' | 'not-started'
   startedAt: number | null
   durationMs: number
+  exitCode?: number | null
   instanceCount: number
   cpuPercent: number | null
   memoryBytes: number | null
@@ -123,9 +124,13 @@ contextBridge.exposeInMainWorld('planner', {
   },
   media: {
     previewCsvBatch: () => ipcRenderer.invoke('media:preview-csv-batch'),
-    applyCsvBatch: (token: string) => ipcRenderer.invoke('media:apply-csv-batch', token),
+    applyCsvBatch: (token: string, confirmCovers: boolean) => ipcRenderer.invoke('media:apply-csv-batch', token, confirmCovers),
     cancelCsvBatch: (token: string) => ipcRenderer.invoke('media:cancel-csv-batch', token),
     list: () => ipcRenderer.invoke('media:list'),
+    listForPosts: (targets: Array<{ id: string; project: string }>) => ipcRenderer.invoke('media:list-for-posts', targets),
+    copyToPost: (postId: string, project: string, assetIds: string[]) => ipcRenderer.invoke('media:copy-to-post', postId, project, assetIds),
+    duplicatePostAsset: (postId: string, project: string, assetId: string) => ipcRenderer.invoke('media:duplicate-post-asset', postId, project, assetId),
+    deletePostAsset: (postId: string, project: string, assetId: string) => ipcRenderer.invoke('media:delete-post-asset', postId, project, assetId),
     choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
     scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),
     organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),
@@ -144,6 +149,7 @@ contextBridge.exposeInMainWorld('planner', {
     chooseOptionalIntegration: () => ipcRenderer.invoke('system:choose-optional-integration'),
     chooseOptionalIntegrationIcon: () => ipcRenderer.invoke('system:choose-optional-integration-icon'),
     launchOptionalIntegration: (integrationId: string, filePath: string) => ipcRenderer.invoke('system:launch-optional-integration', integrationId, filePath),
+    stopOptionalIntegration: (integrationId: string) => ipcRenderer.invoke('system:stop-optional-integration', integrationId),
     getOptionalIntegrationStatuses: () => ipcRenderer.invoke('system:get-optional-integration-statuses'),
     onOptionalIntegrationStatusChange: (listener: (statuses: OptionalIntegrationStatus[]) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, statuses: OptionalIntegrationStatus[]) => listener(statuses)
@@ -160,6 +166,7 @@ contextBridge.exposeInMainWorld('planner', {
   },
   updates: {
     getState: () => ipcRenderer.invoke('updates:get-state'),
+    preview: () => ipcRenderer.invoke('updates:preview'),
     check: () => ipcRenderer.invoke('updates:check'),
     download: () => ipcRenderer.invoke('updates:download'),
     install: () => ipcRenderer.invoke('updates:install'),

@@ -57,20 +57,234 @@ type TrackedOptionalIntegration = {
   integrationId: string
   child: ChildProcess
   startedAt: number
-  cpuTimeSeconds: number | null
-  sampledAt: number
+  stopRequested: boolean
   cpuPercent: number | null
   memoryBytes: number | null
   metricsAvailable: boolean
 }
 
-type OptionalIntegrationLastRun = { startedAt: number; endedAt: number }
+type OptionalIntegrationLastRun = { startedAt: number; endedAt: number; exitCode: number | null }
+
+// Keep detached Windows descendants in a kill-on-close job with their integration.
+const optionalIntegrationSupervisor = String.raw`$ErrorActionPreference = 'Stop'
+$source = @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class CaballocciIntegrationJob
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BasicLimitInformation
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoCounters
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ExtendedLimitInformation
+    {
+        public BasicLimitInformation BasicLimitInformation;
+        public IoCounters IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BasicAccountingInformation
+    {
+        public long TotalUserTime;
+        public long TotalKernelTime;
+        public long ThisPeriodTotalUserTime;
+        public long ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount;
+        public uint TotalProcesses;
+        public uint ActiveProcesses;
+        public uint TotalTerminatedProcesses;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct StartupInfo
+    {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public uint dwX;
+        public uint dwY;
+        public uint dwXSize;
+        public uint dwYSize;
+        public uint dwXCountChars;
+        public uint dwYCountChars;
+        public uint dwFillAttribute;
+        public uint dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessInformation
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public uint dwProcessId;
+        public uint dwThreadId;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CreateProcess(string application, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory, ref StartupInfo startupInfo, out ProcessInformation processInformation);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length, IntPtr returnLength);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private static void ThrowLastError()
+    {
+        throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public static IntPtr Create()
+    {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) ThrowLastError();
+
+        ExtendedLimitInformation limits = new ExtendedLimitInformation();
+        limits.BasicLimitInformation.LimitFlags = 0x2000;
+        IntPtr buffer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(ExtendedLimitInformation)));
+        try
+        {
+            Marshal.StructureToPtr(limits, buffer, false);
+            if (!SetInformationJobObject(job, 9, buffer, (uint)Marshal.SizeOf(typeof(ExtendedLimitInformation))))
+            {
+                CloseHandle(job);
+                ThrowLastError();
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+        return job;
+    }
+
+    public static void Start(IntPtr job, string application, string commandLine, string workingDirectory)
+    {
+        StartupInfo startupInfo = new StartupInfo();
+        startupInfo.cb = Marshal.SizeOf(typeof(StartupInfo));
+        ProcessInformation processInformation;
+        StringBuilder mutableCommandLine = new StringBuilder(commandLine);
+        if (!CreateProcess(application, mutableCommandLine, IntPtr.Zero, IntPtr.Zero, false, 0x00000004 | 0x00000010, IntPtr.Zero, workingDirectory, ref startupInfo, out processInformation))
+            ThrowLastError();
+
+        try
+        {
+            if (!AssignProcessToJobObject(job, processInformation.hProcess))
+            {
+                TerminateProcess(processInformation.hProcess, 1);
+                ThrowLastError();
+            }
+            if (ResumeThread(processInformation.hThread) == 0xFFFFFFFF)
+            {
+                TerminateProcess(processInformation.hProcess, 1);
+                ThrowLastError();
+            }
+        }
+        finally
+        {
+            CloseHandle(processInformation.hThread);
+            CloseHandle(processInformation.hProcess);
+        }
+    }
+
+    public static bool HasActiveProcesses(IntPtr job)
+    {
+        int size = Marshal.SizeOf(typeof(BasicAccountingInformation));
+        IntPtr buffer = Marshal.AllocHGlobal(size);
+        try
+        {
+            if (!QueryInformationJobObject(job, 1, buffer, (uint)size, IntPtr.Zero)) ThrowLastError();
+            BasicAccountingInformation accounting = (BasicAccountingInformation)Marshal.PtrToStructure(buffer, typeof(BasicAccountingInformation));
+            return accounting.ActiveProcesses > 0;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    public static void Close(IntPtr job)
+    {
+        if (job != IntPtr.Zero) CloseHandle(job);
+    }
+}
+'@
+Add-Type -TypeDefinition $source -Language CSharp
+$job = [CaballocciIntegrationJob]::Create()
+$exitCode = 0
+try {
+    $target = [System.IO.Path]::GetFullPath($env:CABALLOCCI_INTEGRATION_TARGET)
+    $workingDirectory = [System.IO.Path]::GetFullPath($env:CABALLOCCI_INTEGRATION_WORKDIR)
+    if ($env:CABALLOCCI_INTEGRATION_KIND -eq 'script') {
+        $application = $env:ComSpec
+        $commandLine = '"' + $application + '" /d /s /k call "' + $target + '"'
+    } else {
+        $application = $target
+        $commandLine = '"' + $target + '"'
+    }
+    [CaballocciIntegrationJob]::Start($job, $application, $commandLine, $workingDirectory)
+    [Console]::Out.WriteLine('READY')
+    [Console]::Out.Flush()
+    while ([CaballocciIntegrationJob]::HasActiveProcesses($job)) {
+        Start-Sleep -Milliseconds 500
+    }
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    $exitCode = 1
+} finally {
+    [CaballocciIntegrationJob]::Close($job)
+}
+if ($exitCode -ne 0) {
+    exit $exitCode
+}`
 
 const trackedOptionalIntegrations = new Map<number, TrackedOptionalIntegration>()
 const optionalIntegrationLastRuns = new Map<string, OptionalIntegrationLastRun>()
 let optionalIntegrationMonitor: NodeJS.Timeout | undefined
-let optionalIntegrationPollActive = false
-let optionalIntegrationMetricsErrorLogged = false
 
 function optionalIntegrationStatuses() {
   const integrationIds = new Set([...optionalIntegrationLastRuns.keys(), ...[...trackedOptionalIntegrations.values()].map(item => item.integrationId)])
@@ -80,7 +294,7 @@ function optionalIntegrationStatuses() {
       const startedAt = Math.min(...instances.map(item => item.startedAt))
       return {
         integrationId,
-        state: 'running' as const,
+        state: instances.some(item => item.stopRequested) ? 'stopping' as const : 'running' as const,
         startedAt,
         durationMs: Math.max(0, Date.now() - startedAt),
         instanceCount: instances.length,
@@ -92,9 +306,12 @@ function optionalIntegrationStatuses() {
     const lastRun = optionalIntegrationLastRuns.get(integrationId)
     return {
       integrationId,
-      state: lastRun ? 'stopped' as const : 'not-started' as const,
+      state: lastRun?.exitCode !== null && lastRun?.exitCode !== undefined && lastRun.exitCode !== 0
+        ? 'failed' as const
+        : lastRun ? 'stopped' as const : 'not-started' as const,
       startedAt: lastRun?.startedAt ?? null,
       durationMs: lastRun ? Math.max(0, lastRun.endedAt - lastRun.startedAt) : 0,
+      exitCode: lastRun?.exitCode ?? null,
       instanceCount: 0,
       cpuPercent: null,
       memoryBytes: null,
@@ -117,70 +334,21 @@ function stopOptionalIntegrationMonitorWhenIdle() {
 }
 
 function pollOptionalIntegrationMetrics() {
-  if (optionalIntegrationPollActive || trackedOptionalIntegrations.size === 0) return
-  if (process.platform !== 'win32') {
-    for (const item of trackedOptionalIntegrations.values()) item.metricsAvailable = false
-    notifyOptionalIntegrationStatus()
-    return
+  if (trackedOptionalIntegrations.size === 0) return
+  const metricsByPid = new Map(app.getAppMetrics().map(metric => [metric.pid, metric]))
+  for (const [pid, item] of trackedOptionalIntegrations) {
+    const metric = metricsByPid.get(pid)
+    if (!metric) {
+      item.metricsAvailable = false
+      item.cpuPercent = null
+      item.memoryBytes = null
+      continue
+    }
+    item.cpuPercent = Math.min(100, Math.max(0, metric.cpu.percentCPUUsage))
+    item.memoryBytes = metric.memory.workingSetSize * 1024
+    item.metricsAvailable = true
   }
-
-  optionalIntegrationPollActive = true
-  const ids = [...trackedOptionalIntegrations.keys()].filter(Number.isSafeInteger)
-  const command = `$ids=@(${ids.join(',')}); Get-Process -Id $ids -ErrorAction SilentlyContinue | Select-Object Id,CPU,WorkingSet64 | ConvertTo-Json -Compress`
-  execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: 5_000, maxBuffer: 64 * 1024 }, (error, stdout) => {
-    optionalIntegrationPollActive = false
-    if (error) {
-      for (const item of trackedOptionalIntegrations.values()) item.metricsAvailable = false
-      if (!optionalIntegrationMetricsErrorLogged) {
-        console.error('No se pudo consultar el uso de recursos de las integraciones opcionales:', error.message)
-        optionalIntegrationMetricsErrorLogged = true
-      }
-      notifyOptionalIntegrationStatus()
-      return
-    }
-    try {
-      const parsed: unknown = stdout.trim() ? JSON.parse(stdout) as unknown : []
-      const rows = Array.isArray(parsed) ? parsed : [parsed]
-      const samples = new Map<number, { cpuTimeSeconds: number; memoryBytes: number }>()
-      for (const row of rows) {
-        if (!row || typeof row !== 'object') continue
-        const values = row as Record<string, unknown>
-        const pid = Number(values.Id)
-        const cpuTimeSeconds = values.CPU == null ? Number.NaN : Number(values.CPU)
-        const memoryBytes = values.WorkingSet64 == null ? Number.NaN : Number(values.WorkingSet64)
-        if (Number.isSafeInteger(pid) && Number.isFinite(cpuTimeSeconds) && Number.isFinite(memoryBytes)) {
-          samples.set(pid, { cpuTimeSeconds, memoryBytes })
-        }
-      }
-      const sampledAt = Date.now()
-      for (const [pid, item] of trackedOptionalIntegrations) {
-        const sample = samples.get(pid)
-        if (!sample) {
-          item.metricsAvailable = false
-          item.cpuPercent = null
-          item.memoryBytes = null
-          continue
-        }
-        const elapsedSeconds = (sampledAt - item.sampledAt) / 1_000
-        item.cpuPercent = item.cpuTimeSeconds === null || elapsedSeconds <= 0
-          ? null
-          : Math.min(100, Math.max(0, ((sample.cpuTimeSeconds - item.cpuTimeSeconds) / elapsedSeconds / Math.max(1, os.cpus().length)) * 100))
-        item.cpuTimeSeconds = sample.cpuTimeSeconds
-        item.sampledAt = sampledAt
-        item.memoryBytes = sample.memoryBytes
-        item.metricsAvailable = true
-      }
-      optionalIntegrationMetricsErrorLogged = false
-      notifyOptionalIntegrationStatus()
-    } catch (parseError) {
-      if (!optionalIntegrationMetricsErrorLogged) {
-        console.error('La consulta de recursos de las integraciones opcionales devolvió datos no válidos:', parseError)
-        optionalIntegrationMetricsErrorLogged = true
-      }
-      for (const item of trackedOptionalIntegrations.values()) item.metricsAvailable = false
-      notifyOptionalIntegrationStatus()
-    }
-  })
+  notifyOptionalIntegrationStatus()
 }
 
 function startOptionalIntegrationMonitor() {
@@ -189,6 +357,35 @@ function startOptionalIntegrationMonitor() {
     optionalIntegrationMonitor.unref()
   }
   pollOptionalIntegrationMetrics()
+}
+
+function stopOptionalIntegration(integrationId: string) {
+  const entries = [...trackedOptionalIntegrations.entries()].filter(([, item]) => item.integrationId === integrationId)
+  if (!entries.length) throw new Error('Esta integración no está ejecutándose desde caballocci.')
+  for (const [, tracked] of entries) tracked.stopRequested = true
+  notifyOptionalIntegrationStatus()
+
+  return Promise.all(entries.map(([pid, tracked]) => new Promise<void>((resolve, reject) => {
+    let settled = false
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (error) reject(error)
+      else resolve()
+    }
+    const timeout = setTimeout(() => {
+      finish(new Error('Windows no confirmó que la integración se haya detenido.'))
+    }, 8_000)
+    tracked.child.once('close', () => finish())
+    execFile('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 5_000 }, error => {
+      if (error && trackedOptionalIntegrations.has(pid)) {
+        finish(new Error(`Windows no pudo detener la integración: ${error.message}`))
+      } else if (!trackedOptionalIntegrations.has(pid)) {
+        finish()
+      }
+    })
+  }))).then(() => undefined)
 }
 
 function getOptionalIntegrationIcon(filePath: string) {
@@ -350,7 +547,7 @@ function mapMediaAssets(value: unknown) {
       .map(item => {
         const asset = item as Record<string, unknown>
         const compressed = typeof asset.id === 'string' && Boolean(database?.getMediaCompressionState(asset.id))
-        return { id: asset.id, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode, presentationRole: asset.presentationRole, sequence: asset.sequence, groupName: asset.groupName, compressed }
+        return { id: asset.id, sourceId: asset.sourceId, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode, presentationRole: asset.presentationRole, sequence: asset.sequence, groupName: asset.groupName, compressed }
       })
   } catch {
     return []
@@ -405,6 +602,7 @@ function mapWorkGroup(row: Record<string, unknown>) {
     id: row.id,
     name: row.name,
     description: row.description,
+    color: row.color || '',
     space: row.space || '',
     archivedAt: row.archived_at || null,
     postIds,
@@ -687,6 +885,11 @@ app.whenReady().then(async () => {
     validateArgumentCount(args, 0)
     return optionalIntegrationStatuses()
   })
+  handle('system:stop-optional-integration', args => {
+    validateArgumentCount(args, 1)
+    if (typeof args[0] !== 'string' || !args[0].trim() || args[0].length > 200) throw new TypeError('El identificador de integración no es válido.')
+    return stopOptionalIntegration(args[0])
+  })
   handle('system:launch-optional-integration', async args => {
     validateArgumentCount(args, 2)
     if (typeof args[0] !== 'string' || !args[0].trim() || args[0].length > 200) throw new TypeError('El identificador de integración no es válido.')
@@ -697,44 +900,66 @@ app.whenReady().then(async () => {
     if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error('El archivo seleccionado ya no existe o no es un archivo.')
     if (process.platform !== 'win32') throw new Error('El monitoreo de integraciones opcionales está disponible en Windows.')
     const extension = path.extname(filePath).toLowerCase()
-    const child = extension === '.exe'
-      ? spawn(filePath, [], { stdio: 'ignore', windowsHide: true })
-      : spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${filePath}""`], { stdio: 'ignore', windowsHide: true })
+    const startedAt = Date.now()
+    const child = spawn('powershell.exe', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-EncodedCommand', Buffer.from(optionalIntegrationSupervisor, 'utf16le').toString('base64'),
+    ], {
+      cwd: path.dirname(filePath),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        CABALLOCCI_INTEGRATION_TARGET: filePath,
+        CABALLOCCI_INTEGRATION_WORKDIR: path.dirname(filePath),
+        CABALLOCCI_INTEGRATION_KIND: extension === '.exe' ? 'executable' : 'script',
+      },
+    })
     let trackedRun: TrackedOptionalIntegration | undefined
     await new Promise<void>((resolve, reject) => {
       let launched = false
-      child.once('spawn', () => {
+      let output = ''
+      let errorOutput = ''
+      child.stdout?.setEncoding('utf8')
+      child.stderr?.setEncoding('utf8')
+      child.stdout?.on('data', chunk => {
+        output += chunk
+        if (launched || !/(^|\r?\n)READY(\r?\n|$)/.test(output)) return
         if (!child.pid) {
           reject(new Error('Windows no devolvió un identificador de proceso para la integración.'))
           return
         }
         launched = true
-        const startedAt = Date.now()
         trackedRun = {
           integrationId,
           child,
           startedAt,
-          cpuTimeSeconds: null,
-          sampledAt: startedAt,
+          stopRequested: false,
           cpuPercent: null,
           memoryBytes: null,
-          metricsAvailable: process.platform === 'win32',
+          metricsAvailable: false,
         }
         trackedOptionalIntegrations.set(child.pid, trackedRun)
-        optionalIntegrationLastRuns.set(integrationId, { startedAt, endedAt: startedAt })
+        optionalIntegrationLastRuns.set(integrationId, { startedAt, endedAt: startedAt, exitCode: null })
         startOptionalIntegrationMonitor()
         notifyOptionalIntegrationStatus()
         resolve()
+      })
+      child.stderr?.on('data', chunk => {
+        errorOutput = `${errorOutput}${chunk}`.slice(-8_000)
       })
       child.once('error', error => {
         if (!launched) reject(error)
         else console.error('Falló una integración opcional después de iniciarse:', error)
       })
       child.once('close', code => {
-        if (!launched || !trackedRun) return
+        if (!launched || !trackedRun) {
+          reject(new Error(`No se pudo iniciar la integración${errorOutput.trim() ? `: ${errorOutput.trim()}` : ` (código ${code ?? 'desconocido'})`}`))
+          return
+        }
         const pid = child.pid
         if (pid) trackedOptionalIntegrations.delete(pid)
-        optionalIntegrationLastRuns.set(integrationId, { startedAt: trackedRun.startedAt, endedAt: Date.now() })
+        optionalIntegrationLastRuns.set(integrationId, { startedAt: trackedRun.startedAt, endedAt: Date.now(), exitCode: trackedRun.stopRequested ? 0 : code })
         stopOptionalIntegrationMonitorWhenIdle()
         notifyOptionalIntegrationStatus()
       })
@@ -766,11 +991,12 @@ app.whenReady().then(async () => {
   }))
   handle('system:create-backup', withoutArguments(() => database.createBackup('manual')))
   handle('updates:get-state', withoutArguments(() => updater.getState()))
+  handle('updates:preview', withoutArguments(() => updater.preview()))
   handle('updates:check', withoutArguments(() => updater.check()))
   handle('updates:download', withoutArguments(() => updater.download()))
   handle('updates:install', withoutArguments(async () => {
     const started = await updater.install()
-    if (started) allowMainWindowClose = true
+    if (started && app.isPackaged) allowMainWindowClose = true
     return started
   }))
   handle('updates:open-release-notes', withoutArguments(() => updater.openReleaseNotes()))

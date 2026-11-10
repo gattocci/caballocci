@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { Archive, ChevronLeft, ChevronRight, Copy, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Archive, ChevronLeft, ChevronRight, Copy, Database, Edit3, ExternalLink, FileImage, FolderOpen, FolderPlus, GripVertical, Hash, Instagram, Lightbulb, MessageCircle, MoreHorizontal, Plus, Redo2, Smartphone, Sparkles, StickyNote, Trash2, Undo2, X } from 'lucide-react'
 import { contentLabels, getPlatformMeta, platformMeta, statusMeta } from '../../shared/constants'
 import { PlatformMark } from '../../components/layout/AppShell'
 import { MobileAppDownload } from '../../components/MobileAppDownload'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { useUndoableState, type UndoableChange } from '../../app/useUndoableState'
-import { usePlanner } from '../../app/store'
+import { usePlanner, type QuickWrite } from '../../app/store'
 import type { CatalogSync, ContentRecord, ContentType, MediaAsset, Platform, Post, PostInput, PostStatus } from '../../shared/types'
 import { blankPost, errorMessage, formatTitle, fromLocalDateTimeInput, itemsToNotes, notesToItems, parseMasterSlides, parseTitleCandidates, toLocalDateTimeInput, type NoteItem } from './editor-utils'
 import { EditorIdeaBlocks } from './EditorIdeaBlocks'
@@ -14,19 +14,52 @@ import { EditorAssistantPanel } from './EditorAssistantPanel'
 import { EditorCatalogPanel } from './EditorCatalogPanel'
 import { EditorSchedule, recordScheduleHistory } from './EditorSchedule'
 import { EditorExternalRecordPanel } from './EditorExternalRecordPanel'
+import { EditorMediaPicker } from './EditorMediaPicker'
 import { Preview } from './EditorMediaPreview'
 import './editor.css'
 
-export function Editor({ initial, scheduledAtForNew = null, spaceForNew, sessionPosts = [], onSessionNavigate, onSessionAdd, onSessionClose, onClose, minimized: minimizedProp, onMinimizedChange, boardPick = false }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; sessionPosts?: Post[]; onSessionNavigate?(id: string): void; onSessionAdd?(id: string): void; onSessionClose?(id: string, nextId: string | null): void; onClose(): void; minimized?: boolean; onMinimizedChange?(minimized: boolean): void; boardPick?: boolean }) {
-  const { save, remove, uncombinePost, activeSpace, customSpaces, posts, ideas, selectIdea, setView } = usePlanner()
+export function Editor({ initial, scheduledAtForNew = null, spaceForNew, sessionPosts = [], onSessionNavigate, onSessionAdd, onSessionClose, onClose, minimized: minimizedProp, onMinimizedChange, boardPick = false, mediaAttachment, showMediaPickerInEditor = true }: { initial: Post | null; scheduledAtForNew?: string | null; spaceForNew?: string | null; sessionPosts?: Post[]; onSessionNavigate?(id: string): void; onSessionAdd?(id: string): void; onSessionClose?(id: string, nextId: string | null): void; onClose(): void; minimized?: boolean; onMinimizedChange?(minimized: boolean): void; boardPick?: boolean; mediaAttachment?: { id: string; postId: string; assets: MediaAsset[] } | null; showMediaPickerInEditor?: boolean }) {
+  const { save, remove, uncombinePost, activeSpace, customSpaces, posts, ideas, selectIdea, setView, quickWrites: quickWritesBySpace, spaceKey, saveQuickWrites } = usePlanner()
   const draftKey = `caballocci.draft.${initial?.id || 'new'}`
+  const project = spaceForNew === undefined ? activeSpace || 'Mi contenido' : spaceForNew || 'Mi contenido'
   const initialDraft = useState<PostInput>(() => {
     if (initial) return { ...initial }
-    try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return scheduledAtForNew ? { ...saved, scheduledAt: scheduledAtForNew, status: 'scheduled' } : saved } catch { /* Ignore invalid drafts. */ }
-    const project = spaceForNew === undefined ? activeSpace || 'Mi contenido' : spaceForNew || 'Mi contenido'
+    try { const saved = JSON.parse(localStorage.getItem(draftKey) || '') as PostInput; if (saved && typeof saved === 'object') return { ...saved, project, ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) } } catch { /* Ignore invalid drafts. */ }
     return { ...blankPost(project), ...(scheduledAtForNew ? { scheduledAt: scheduledAtForNew, status: 'scheduled' as const } : {}) }
   })[0]
   const { value: draft, setValue: setDraft, undo, redo, canUndo, canRedo } = useUndoableState<PostInput>(initialDraft)
+  const quickWriteSpace = draft.project || activeSpace || 'Mi contenido'
+  const quickWriteSpaceKey = spaceKey(quickWriteSpace)
+  const quickWrites = quickWritesBySpace[quickWriteSpaceKey] || []
+  const [quickWritesOpen, setQuickWritesOpen] = useState(false)
+  const [selectedQuickWriteId, setSelectedQuickWriteId] = useState('')
+  const [quickWriteName, setQuickWriteName] = useState('')
+  const [quickWriteText, setQuickWriteText] = useState('')
+  const captionTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const pendingCaptionSelection = useRef<number | null>(null)
+  useEffect(() => {
+    setSelectedQuickWriteId('')
+    setQuickWriteName('')
+    setQuickWriteText('')
+  }, [quickWriteSpace])
+  useLayoutEffect(() => {
+    const selection = pendingCaptionSelection.current
+    const textarea = captionTextareaRef.current
+    if (selection === null || !textarea) return
+    pendingCaptionSelection.current = null
+    textarea.focus()
+    textarea.setSelectionRange(selection, selection)
+  }, [draft.caption])
+  const appliedMediaAttachment = useRef<string | null>(null)
+  useEffect(() => {
+    if (!mediaAttachment || mediaAttachment.postId !== draft.id || appliedMediaAttachment.current === mediaAttachment.id) return
+    appliedMediaAttachment.current = mediaAttachment.id
+    setDraft(current => {
+      const attachedIds = new Set((current.media || []).map(asset => asset.id))
+      const newAssets = mediaAttachment.assets.filter(asset => !attachedIds.has(asset.id))
+      return newAssets.length ? { ...current, media: [...current.media || [], ...newAssets] } : current
+    }, { label: 'Adjuntar medios de la biblioteca' })
+  }, [draft.id, mediaAttachment, setDraft])
   const projectOptions = Array.from(new Set([...customSpaces, ...posts.map(post => post.project), draft.project].filter(Boolean)))
   const sessionIndex = sessionPosts.findIndex(post => post.id === initial?.id)
   const lastSavedDraft = useRef(JSON.stringify(initialDraft))
@@ -40,10 +73,12 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
   const [assistantMaster, setAssistantMaster] = useState('')
   const [assistantMessage, setAssistantMessage] = useState('')
   const [noteItems, setNoteItems] = useState<NoteItem[]>(() => notesToItems(initial?.notes || ''))
+  const [convertingCaption, setConvertingCaption] = useState(false)
+  const [captionNoteFeedback, setCaptionNoteFeedback] = useState<{ text: string; error: boolean } | null>(null)
   const [historyNotice, setHistoryNotice] = useState<{ id: string; text: string; direction: 'undo' | 'redo' } | null>(null)
   const showHistoryNotice = (direction: 'undo' | 'redo', label: string) => setHistoryNotice({ id: crypto.randomUUID(), text: `${direction === 'undo' ? 'Deshecho' : 'Rehecho'}: ${label}`, direction })
-  const undoDraft = () => { const previous = undo(); if (previous) { setNoteItems(notesToItems(previous.value.notes || '')); showHistoryNotice('undo', previous.label) } }
-  const redoDraft = () => { const next = redo(); if (next) { setNoteItems(notesToItems(next.value.notes || '')); showHistoryNotice('redo', next.label) } }
+  const undoDraft = () => { const previous = undo(); if (previous) { setNoteItems(notesToItems(previous.value.notes || '')); setCaptionNoteFeedback(null); showHistoryNotice('undo', previous.label) } }
+  const redoDraft = () => { const next = redo(); if (next) { setNoteItems(notesToItems(next.value.notes || '')); setCaptionNoteFeedback(null); showHistoryNotice('redo', next.label) } }
   useEffect(() => {
     if (!historyNotice) return
     const timeout = window.setTimeout(() => setHistoryNotice(null), 1700)
@@ -182,7 +217,76 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
     const labels: Partial<Record<keyof PostInput, string>> = { title: 'Editar título', caption: 'Editar texto', notes: 'Editar notas', hashtags: 'Editar hashtags', project: 'Editar proyecto', scheduledAt: 'Cambiar fecha', status: 'Cambiar estado', contentType: 'Cambiar formato', distribution: 'Cambiar distribución', media: 'Cambiar medios', ideaBlocks: 'Editar diapositivas' }
     setDraft(d => ({ ...d, [key]: value }), change || { label: labels[key] || 'Editar publicación' })
   }
-  const updateNotes = (items: NoteItem[], change: UndoableChange = { label: 'Editar notas' }) => { setNoteItems(items); update('notes', itemsToNotes(items), change) }
+  const startQuickWrite = () => {
+    setSelectedQuickWriteId(crypto.randomUUID())
+    setQuickWriteName('')
+    setQuickWriteText('')
+  }
+  const selectQuickWrite = (id: string) => {
+    const selected = quickWrites.find(item => item.id === id)
+    setSelectedQuickWriteId(id)
+    setQuickWriteName(selected?.name || '')
+    setQuickWriteText(selected?.text || '')
+  }
+  const saveQuickWrite = () => {
+    const name = quickWriteName.trim()
+    if (!name || !quickWriteText.trim()) return
+    const next: QuickWrite = { id: selectedQuickWriteId || crypto.randomUUID(), name, text: quickWriteText }
+    saveQuickWrites(quickWriteSpace, [...quickWrites.filter(item => item.id !== next.id), next])
+    setSelectedQuickWriteId(next.id)
+    setQuickWriteName(next.name)
+  }
+  const deleteQuickWrite = () => {
+    if (!selectedQuickWriteId || !quickWrites.some(item => item.id === selectedQuickWriteId)) return
+    saveQuickWrites(quickWriteSpace, quickWrites.filter(item => item.id !== selectedQuickWriteId))
+    setSelectedQuickWriteId('')
+    setQuickWriteName('')
+    setQuickWriteText('')
+  }
+  const insertQuickWrite = () => {
+    if (!quickWriteText) return
+    const textarea = captionTextareaRef.current
+    const start = textarea?.selectionStart ?? draft.caption.length
+    const end = textarea?.selectionEnd ?? start
+    const caption = `${draft.caption.slice(0, start)}${quickWriteText}${draft.caption.slice(end)}`
+    const cursor = start + quickWriteText.length
+    setCaptionNoteFeedback(null)
+    if (caption === draft.caption) {
+      textarea?.focus()
+      textarea?.setSelectionRange(cursor, cursor)
+      return
+    }
+    pendingCaptionSelection.current = cursor
+    update('caption', caption, { label: 'Insertar texto rápido', groupKey: 'post:caption' })
+  }
+  const updateNotes = (items: NoteItem[], change: UndoableChange = { label: 'Editar notas' }) => { setCaptionNoteFeedback(null); setNoteItems(items); update('notes', itemsToNotes(items), change) }
+  const convertCaptionToNote = async () => {
+    if (!draft.caption.trim() || convertingCaption) return
+    const notes = [...noteItems.filter(note => note.title.trim() || note.text.trim()), { id: crypto.randomUUID(), title: '', text: draft.caption }]
+    const nextDraft = { ...draft, caption: '', notes: itemsToNotes(notes) }
+    setConvertingCaption(true)
+    setCaptionNoteFeedback(null)
+    setNoteItems(notes)
+    setDraft(nextDraft, { label: 'Convertir texto en nota' })
+    try {
+      if (initial) {
+        await save(nextDraft)
+        lastSavedDraft.current = JSON.stringify(nextDraft)
+        setSaveState('saved')
+        recordPersistedSchedule(nextDraft)
+        setCaptionNoteFeedback({ text: 'Convertido en nota y guardado', error: false })
+      } else {
+        localStorage.setItem(draftKey, JSON.stringify(nextDraft))
+        setCaptionNoteFeedback({ text: 'Convertido en nota y guardado en el borrador', error: false })
+      }
+    } catch (error) {
+      setSaveState('error')
+      reportAppError(error, 'No se pudo guardar el texto convertido en nota')
+      setCaptionNoteFeedback({ text: 'No se pudo confirmar el guardado; se reintentará automáticamente', error: true })
+    } finally {
+      setConvertingCaption(false)
+    }
+  }
   const formatPostTitle = (mode: 'upper' | 'lower' | 'title' | 'sentence') => update('title', formatTitle(draft.title, mode), { label: 'Formatear título' })
   const togglePlatform = (platform: Platform) => {
     const enabled = draft.platforms.includes(platform)
@@ -236,7 +340,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
     }
   }
   useEffect(() => {
-    if (!initial) return
+    if (!initial || convertingCaption) return
     const serialized = JSON.stringify(draft)
     if (serialized === lastSavedDraft.current) return
     setSaveState('pending')
@@ -252,7 +356,7 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
       }
     }, 700)
     return () => window.clearTimeout(timer)
-  }, [draft, initial, save])
+  }, [draft, initial, save, convertingCaption])
   const exportToPhone = async (chooseFolder = false) => {
     if (!initial || !draft.id) return
     setPhoneExportBusy(true)
@@ -426,10 +530,35 @@ export function Editor({ initial, scheduledAtForNew = null, spaceForNew, session
         {scheduleWarning && <p className="schedule-warning" role="alert">{scheduleWarning}</p>}
         <label>Destinos de distribución<div className="platform-selector">{platformOptions.map(p => <button type="button" className={draft.platforms.includes(p) ? 'active' : ''} key={p} onClick={() => togglePlatform(p)}><PlatformMark platform={p} />{getPlatformMeta(p).label}</button>)}<button type="button" onClick={() => setAddingPlatform(true)}><Plus size={13} /> Añadir destino</button></div>{addingPlatform && <div className="inline-add-platform"><input autoFocus value={newPlatformName} onChange={event => setNewPlatformName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addPlatform(); if (event.key === 'Escape') setAddingPlatform(false) }} placeholder="Blog, newsletter, Discord..." /><button type="button" className="save-button" onClick={addPlatform}>Añadir</button><button type="button" className="ghost-button" onClick={() => setAddingPlatform(false)}>Cancelar</button></div>}</label>
         <section className="distribution-panel"><header><strong>Estado por destino</strong><small>Marca dónde está publicada cada versión.</small></header>{(draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const }))).map((target, index) => <div className="distribution-row" key={target.id}><span>{target.name}</span><select value={target.status} onChange={event => { const current = draft.distribution || draft.platforms.map(id => ({ id, name: getPlatformMeta(id).label, status: 'pending' as const })); update('distribution', current.map((item, i) => i === index ? { ...item, status: event.target.value as any } : item)) }}><option value="pending">Pendiente</option><option value="preparing">En preparación</option><option value="scheduled">Programado</option><option value="published">Publicado</option><option value="not_applicable">No aplica</option><option value="failed">Requiere atención</option></select></div>)}</section>
-        <label>Texto de la publicación<div className="caption-box"><textarea data-undo-control value={draft.caption} onChange={e => update('caption', e.target.value, { label: 'Editar texto', groupKey: 'post:caption' })} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div></label>
+        <div className="caption-field">
+          <label htmlFor="editor-caption">Texto de la publicación</label>
+          <div className="caption-box"><textarea id="editor-caption" ref={captionTextareaRef} data-undo-control value={draft.caption} onChange={e => { setCaptionNoteFeedback(null); update('caption', e.target.value, { label: 'Editar texto', groupKey: 'post:caption' }) }} placeholder="Escribe pensando en la persona que lo leerá..." /><span>{draft.caption.length} caracteres</span></div>
+          <div className="caption-note-actions">
+            {captionNoteFeedback && <span className={captionNoteFeedback.error ? 'caption-note-feedback error' : 'caption-note-feedback'} role={captionNoteFeedback.error ? 'alert' : 'status'} aria-live="polite">{captionNoteFeedback.text}</span>}
+            <button type="button" className="caption-note-button" aria-expanded={quickWritesOpen} aria-controls="editor-quick-writes" title="Escribir rápido" onClick={() => setQuickWritesOpen(open => !open)}><Edit3 size={13} aria-hidden="true" />Escribir rápido</button>
+            <button type="button" className="caption-note-button" title="Convertir en nota" aria-label="Convertir en nota" disabled={!draft.caption.trim() || convertingCaption} onClick={() => void convertCaptionToNote()}><StickyNote size={13} aria-hidden="true" />{convertingCaption ? 'Guardando…' : 'Convertir en nota'}</button>
+          </div>
+          {quickWritesOpen && <section className="quick-write-panel" id="editor-quick-writes" aria-label={`Textos rápidos de ${quickWriteSpace}`}>
+            <header><strong>Escribir rápido</strong><span>{quickWriteSpace}</span></header>
+            <div className="quick-write-controls">
+              <select aria-label="Seleccionar texto rápido" value={quickWrites.some(item => item.id === selectedQuickWriteId) ? selectedQuickWriteId : ''} onChange={event => selectQuickWrite(event.target.value)}>
+                <option value="">Elige un texto guardado…</option>
+                {quickWrites.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+              </select>
+              <button type="button" className="quick-write-secondary" onClick={startQuickWrite}><Plus size={12} />Nuevo</button>
+            </div>
+            <label>Nombre<input value={quickWriteName} onChange={event => setQuickWriteName(event.target.value)} placeholder="Ej. Llamado a la acción" /></label>
+            <label>Texto<textarea value={quickWriteText} onChange={event => setQuickWriteText(event.target.value)} placeholder="Escribe el texto que quieres reutilizar…" /></label>
+            <div className="quick-write-actions">
+              <button type="button" className="quick-write-secondary" disabled={!quickWriteName.trim() || !quickWriteText.trim()} onClick={saveQuickWrite}>Guardar</button>
+              <button type="button" className="quick-write-insert" disabled={!quickWriteText} onClick={insertQuickWrite}>Insertar en el texto</button>
+              <button type="button" className="quick-write-delete" disabled={!quickWrites.some(item => item.id === selectedQuickWriteId)} onClick={deleteQuickWrite}><Trash2 size={12} />Borrar</button>
+            </div>
+          </section>}
+        </div>
         <label><span className="label-icon"><Hash size={14} /> Hashtags</span><input data-undo-control value={draft.hashtags.join(' ')} onChange={e => update('hashtags', e.target.value.split(/\s+/).filter(Boolean), { label: 'Editar hashtags', groupKey: 'post:hashtags' })} placeholder="#contenido #campaña" /></label>
         <div className="field-row"><EditorSchedule historyKey={draft.id || 'new'} historyVersion={scheduleHistoryVersion} scheduledAt={draft.scheduledAt} onChange={(date, time, label) => setSchedule(date, time, label)} /><label>Proyecto<input data-undo-control list="editor-project-options" value={draft.project} onChange={e => update('project', e.target.value, { label: 'Editar proyecto', groupKey: 'post:project' })} /><datalist id="editor-project-options">{projectOptions.map(project => <option key={project} value={project} />)}</datalist></label></div>
-        <div className="media-actions"><button className="media-drop" onClick={attach}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button><button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
+        <div className="media-actions"><button type="button" className="media-drop" onClick={() => void attach()}><FileImage size={23} /><span><strong>Añadir imágenes o ZIP</strong><small>PNG, JPG, WebP o un ZIP con imágenes en la raíz</small></span><Plus size={18} /></button>{showMediaPickerInEditor && <EditorMediaPicker media={draft.media || []} postId={draft.id} project={draft.project} onAttach={assets => update('media', [...draft.media || [], ...assets], { label: 'Adjuntar medios de la biblioteca' })} />}<button type="button" className="media-folder-button" title="Abrir carpeta de media" onClick={() => void window.planner.media.openFolder(draft.id, draft.project)}><FolderOpen size={17} /> Abrir carpeta</button></div>
         <details className="media-export-section" open>
           <summary><Smartphone size={15} /> Enviar álbumes al celular</summary>
           <div className="media-export-section-content">

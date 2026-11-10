@@ -334,6 +334,10 @@ export class PlannerDatabase {
     this.media.updatePath(id, filePath)
   }
 
+  removeMedia(id: string) {
+    this.media.remove(id)
+  }
+
   getMediaFile(id: string): { path: string; kind: string; mode: string; archivePath?: string; entryName?: string } | undefined {
     return this.media.getFile(id)
   }

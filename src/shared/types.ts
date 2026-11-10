@@ -36,6 +36,7 @@ export interface WorkGroup {
   id: string
   name: string
   description: string
+  color: string
   /** Espacio propietario; cadena vacía indica una colección general. */
   space: string
   archivedAt: string | null
@@ -45,10 +46,11 @@ export interface WorkGroup {
   updatedAt: string
 }
 
-export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> & { id?: string }
+export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> & { id?: string; color?: string }
 
 export interface MediaAsset {
   id: string
+  sourceId?: string
   name: string
   kind: 'image' | 'video' | 'document'
   size: number
@@ -208,7 +210,7 @@ export type ConceptMapFolderInput = Omit<ConceptMapFolder, 'id' | 'createdAt' | 
 
 export interface DashboardStats { total: number; scheduled: number; drafts: number; published: number }
 
-export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error'
+export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'updated' | 'error'
 
 export interface UpdateState {
   status: UpdateStatus
@@ -220,6 +222,7 @@ export interface UpdateState {
   percent: number | null
   transferred: number | null
   total: number | null
+  preview?: boolean
 }
 
 export interface SystemInfo {
@@ -260,9 +263,10 @@ export interface OptionalIntegration {
 
 export interface OptionalIntegrationStatus {
   integrationId: string
-  state: 'running' | 'stopped' | 'not-started'
+  state: 'running' | 'stopping' | 'stopped' | 'failed' | 'not-started'
   startedAt: number | null
   durationMs: number
+  exitCode?: number | null
   instanceCount: number
   cpuPercent: number | null
   memoryBytes: number | null
@@ -344,7 +348,12 @@ export interface ElectronAPI {
     previewReconcile(): Promise<MobileReconcilePreview>
     readCatalog(archiveName?: string): Promise<{ path: string; text: string }>
     listCatalogBackups(): Promise<Array<{ name: string; createdAt: string; publications: number; destinations: number; batches: number }>>
-    publicationState(): Promise<{ configured: boolean; currentPostIds: string[]; previouslyExportedPostIds: string[] }>
+    publicationState(): Promise<{
+      configured: boolean
+      currentPostIds: string[]
+      previouslyExportedPostIds: string[]
+      progressByPostId: Record<string, { destinations: number; awaitingConfirmation: number; used: number; retirementPending: number }>
+    }>
     openCatalogHistory(): Promise<string>
   }
   posts: {
@@ -427,7 +436,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { previewCsvBatch(): Promise<{ token: string; csvName: string; folderName: string; matches: Array<{ postId: string; project: string; code: string; name: string; title: string; columnHeader: string; referenceText: string }>; unmatched: string[] } | null>; applyCsvBatch(token: string): Promise<{ files: number; posts: number }>; cancelCsvBatch(token: string): Promise<void>; list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
+  media: { previewCsvBatch(): Promise<{ token: string; csvName: string; folderName: string; layout: 'posts-in-rows' | 'posts-in-columns'; matches: Array<{ postId: string; project: string; code: string; name: string; targetName: string; isCover: boolean; title: string; columnHeader: string; referenceText: string }>; coverCandidates: Array<{ postId: string; project: string; code: string; name: string; targetName: string; isCover: boolean; title: string; columnHeader: string; referenceText: string }>; unmatched: string[] } | null>; applyCsvBatch(token: string, confirmCovers: boolean): Promise<{ files: number; posts: number }>; cancelCsvBatch(token: string): Promise<void>; list(): Promise<MediaAsset[]>; listForPosts(targets: Array<{ id: string; project: string }>): Promise<{ library: MediaAsset[]; attached: Record<string, MediaAsset[]>; usages: Record<string, Array<{ postId: string; title: string }>> }>; copyToPost(postId: string, project: string, assetIds: string[]): Promise<MediaAsset[]>; duplicatePostAsset(postId: string, project: string, assetId: string): Promise<MediaAsset>; deletePostAsset(postId: string, project: string, assetId: string): Promise<void>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }
@@ -437,6 +446,7 @@ export interface ElectronAPI {
     chooseOptionalIntegration(): Promise<{ path: string; iconDataUrl: string | null } | null>
     chooseOptionalIntegrationIcon(): Promise<string | null>
     launchOptionalIntegration(integrationId: string, filePath: string): Promise<void>
+    stopOptionalIntegration(integrationId: string): Promise<void>
     getOptionalIntegrationStatuses(): Promise<OptionalIntegrationStatus[]>
     onOptionalIntegrationStatusChange(listener: (statuses: OptionalIntegrationStatus[]) => void): () => void
     openWorkspace(): Promise<string>
@@ -449,6 +459,7 @@ export interface ElectronAPI {
   }
   updates: {
     getState(): Promise<UpdateState>
+    preview(): Promise<UpdateState>
     check(): Promise<UpdateState>
     download(): Promise<UpdateState>
     install(): Promise<boolean>

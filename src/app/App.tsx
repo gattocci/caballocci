@@ -1,16 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { Sidebar, Topbar } from '../components/layout/AppShell'
-import { Editor } from '../features/editor/Editor'
-import { ConceptMap } from '../features/concept-map/ConceptMap'
-import { IdeasView } from '../features/ideas/IdeasView'
-import { Board, BoardDaySwitcher, CalendarView, LibraryView, Timeline } from '../features/planner/PlannerViews'
-import { AboutUpdates } from '../features/settings/AboutUpdates'
-import { SourcesView } from '../features/sources/SourcesView'
 import { reportAppError } from './errors'
 import { postMatchesQuery, usePlanner } from './store'
 import { AppErrorBoundary, GlobalErrorCenter } from '../components/layout/GlobalErrorCenter'
 import { UpdateDialog } from '../components/UpdateDialog'
+import type { MediaAsset } from '../shared/types'
+
+const Editor = lazy(() => import('../features/editor/Editor').then(module => ({ default: module.Editor })))
+const ConceptMap = lazy(() => import('../features/concept-map/ConceptMap').then(module => ({ default: module.ConceptMap })))
+const IdeasView = lazy(() => import('../features/ideas/IdeasView').then(module => ({ default: module.IdeasView })))
+const Board = lazy(() => import('../features/planner/PlannerViews').then(module => ({ default: module.Board })))
+const BoardDaySwitcher = lazy(() => import('../features/planner/PlannerViews').then(module => ({ default: module.BoardDaySwitcher })))
+const CalendarView = lazy(() => import('../features/planner/PlannerViews').then(module => ({ default: module.CalendarView })))
+const LibraryView = lazy(() => import('../features/planner/PlannerViews').then(module => ({ default: module.LibraryView })))
+const Timeline = lazy(() => import('../features/planner/PlannerViews').then(module => ({ default: module.Timeline })))
+const AboutUpdates = lazy(() => import('../features/settings/AboutUpdates').then(module => ({ default: module.AboutUpdates })))
+const SourcesView = lazy(() => import('../features/sources/SourcesView').then(module => ({ default: module.SourcesView })))
 
 function AppContent() {
   const { load, loading, loadError, view, posts, selectedId, select, query, activeSpace, setView, undoHistory, redoHistory, undoNotice, undoSavedChange, redoSavedChange, clearUndoNotice } = usePlanner()
@@ -19,6 +25,7 @@ function AppContent() {
   const [newPostSpace, setNewPostSpace] = useState<string | null>(null)
   const [editorSessionIds, setEditorSessionIds] = useState<string[] | null>(null)
   const [editorMinimized, setEditorMinimized] = useState(false)
+  const [mediaAttachment, setMediaAttachment] = useState<{ id: string; postId: string; assets: MediaAsset[] } | null>(null)
   const [closeWarning, setCloseWarning] = useState(false)
   const previousView = useRef(view)
   const previousSpace = useRef(activeSpace)
@@ -43,6 +50,44 @@ function AppContent() {
     void syncPreferences()
     return () => { active = false }
   }, [load])
+  useEffect(() => {
+    if (loading) return
+    let active = true
+    let importing = false
+    let lastIssue = ''
+    let syncFailureReported = false
+    const importMobileSignals = async () => {
+      if (importing) return
+      importing = true
+      try {
+        if (!await window.planner.mobileSync.folder()) {
+          lastIssue = ''
+          syncFailureReported = false
+          return
+        }
+        const report = await window.planner.mobileSync.importEvents()
+        if (!active) return
+        const issues = [
+          ...report.invalid.map(item => `${item.file}: ${item.reason}`),
+          ...report.unknown.map(item => `${item.file}: destino no encontrado (${item.postId}/${item.targetId})`),
+        ].sort()
+        const issueSignature = issues.join('\n')
+        if (issueSignature && issueSignature !== lastIssue) {
+          reportAppError(new Error(issues.slice(0, 10).join('\n')), 'No se pudieron importar todas las señales móviles')
+        }
+        lastIssue = issueSignature
+        syncFailureReported = false
+      } catch (error) {
+        if (active && !syncFailureReported) reportAppError(error, 'No se pudieron importar las señales móviles')
+        syncFailureReported = true
+      } finally {
+        importing = false
+      }
+    }
+    void importMobileSignals()
+    const timer = window.setInterval(() => void importMobileSignals(), 10_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [loading])
   useEffect(() => {
     if (loadError) reportAppError(loadError, 'No se pudo cargar el workspace')
   }, [loadError])
@@ -132,7 +177,47 @@ function AppContent() {
   }
   if (loading) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><p>Preparando tu espacio local...</p></div>
   if (loadError) return <div className="loading"><div className="brand-symbol"><span /><span /><span /></div><strong>No se pudo abrir el workspace</strong><p>{loadError}</p><button className="save-button" onClick={() => void load()}>Reintentar</button></div>
-  return <div className="app">{undoNotice && <div className="global-undo-notice" role="status" aria-live="polite">{undoNotice}</div>}{closeWarning && <div className="global-close-notice" role="status" aria-live="polite">Vuelve a pulsar cerrar en 2 segundos para salir.</div>}<AppErrorBoundary><Sidebar /></AppErrorBoundary><main><AppErrorBoundary><Topbar onNew={() => { setEditorMinimized(false); setEditorSessionIds(null); select(null); setScheduledAtForNew(null); setNewPostSpace(activeSpace); setCreating(true) }} onSearchSubmit={() => openSearchResult()} /></AppErrorBoundary><div className="content"><AppErrorBoundary key={view}>{query && view !== 'about' && view !== 'concept-map' && view !== 'sources' && <div className="search-result"><div className="search-result-summary"><Search size={16} />{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} para "{query}"</div>{filtered.length > 0 && <div className="search-result-list">{filtered.slice(0, 6).map(post => <button key={post.id} onClick={() => openSearchResult(post.id)}><span>{post.title || 'Publicacion sin titulo'}</span><small>{post.project || 'Mi contenido'}</small></button>)}</div>}{filtered.length === 0 && <span className="search-result-empty">No encontramos una publicación con ese texto.</span>}</div>}{view === 'timeline' && <Timeline onNewScheduled={scheduledAt => { select(null); setScheduledAtForNew(scheduledAt); setNewPostSpace(activeSpace); setCreating(true) }} />}{view === 'calendar' && <CalendarView onPickPost={pickEditorSessionPost} pickMode={editorPickMode} pickedPostIds={editorSessionPostIds} />}{view === 'board' && <Board onPickPost={pickEditorSessionPost} pickMode={editorPickMode} pickedPostIds={editorSessionPostIds} onEditSelection={ids => { const validIds = ids.filter(id => posts.some(post => post.id === id)); if (!validIds.length) return; setEditorMinimized(false); setCreating(false); setEditorSessionIds(validIds); select(validIds[0]) }} />}{view === 'ideas' && <IdeasView />}{view === 'concept-map' && <ConceptMap />}{view === 'library' && <LibraryView />}{view === 'sources' && <SourcesView />}{view === 'about' && <AboutUpdates />}</AppErrorBoundary></div></main>{(creating || selected) && <AppErrorBoundary key={selected?.id || 'new'}><Editor initial={selected} scheduledAtForNew={scheduledAtForNew} spaceForNew={newPostSpace} sessionPosts={selected ? (editorSessionIds ? editorSession : [selected]) : undefined} minimized={editorMinimized} onMinimizedChange={setEditorMinimized} boardPick={Boolean(selected)} onSessionNavigate={id => select(id)} onSessionAdd={addEditorSessionPost} onSessionClose={closeEditorSessionPost} onClose={closeEditor} /></AppErrorBoundary>}{(view === 'board' || view === 'calendar') && selected && <AppErrorBoundary key="planner-day-switcher"><BoardDaySwitcher onPickPost={pickEditorSessionPost} pickedPostIds={editorSessionPostIds} /></AppErrorBoundary>}</div>
+  return <div className="app">
+    {undoNotice && <div className="global-undo-notice" role="status" aria-live="polite">{undoNotice}</div>}
+    {closeWarning && <div className="global-close-notice" role="status" aria-live="polite">Vuelve a pulsar cerrar en 2 segundos para salir.</div>}
+    <AppErrorBoundary><Sidebar /></AppErrorBoundary>
+    <main>
+      <AppErrorBoundary><Topbar onNew={() => { setEditorMinimized(false); setEditorSessionIds(null); select(null); setScheduledAtForNew(null); setNewPostSpace(activeSpace); setCreating(true) }} onSearchSubmit={() => openSearchResult()} /></AppErrorBoundary>
+      <div className="content">
+        <AppErrorBoundary key={view}>
+          <Suspense fallback={<div className="loading" role="status"><div className="brand-symbol"><span /><span /><span /></div><p>Cargando vista...</p></div>}>
+            {query && view !== 'about' && view !== 'concept-map' && view !== 'sources' && (
+              <div className="search-result">
+                <div className="search-result-summary">
+                  <Search size={16} />{filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'} para "{query}"
+                </div>
+                {filtered.length > 0 && <div className="search-result-list">{filtered.slice(0, 6).map(post => (
+                  <button key={post.id} onClick={() => openSearchResult(post.id)}>
+                    <span>{post.title || 'Publicacion sin titulo'}</span><small>{post.project || 'Mi contenido'}</small>
+                  </button>
+                ))}</div>}
+                {filtered.length === 0 && <span className="search-result-empty">No encontramos una publicación con ese texto.</span>}
+              </div>
+            )}
+            {view === 'timeline' && <Timeline onNewScheduled={scheduledAt => { select(null); setScheduledAtForNew(scheduledAt); setNewPostSpace(activeSpace); setCreating(true) }} />}
+            {view === 'calendar' && <CalendarView onPickPost={pickEditorSessionPost} pickMode={editorPickMode} pickedPostIds={editorSessionPostIds} />}
+            {view === 'board' && <Board onPickPost={pickEditorSessionPost} pickMode={editorPickMode} pickedPostIds={editorSessionPostIds} onEditSelection={ids => { const validIds = ids.filter(id => posts.some(post => post.id === id)); if (!validIds.length) return; setEditorMinimized(false); setCreating(false); setEditorSessionIds(validIds); select(validIds[0]) }} />}
+            {view === 'ideas' && <IdeasView />}
+            {view === 'concept-map' && <ConceptMap />}
+            {view === 'library' && <LibraryView />}
+            {view === 'sources' && <SourcesView />}
+            {view === 'about' && <AboutUpdates />}
+          </Suspense>
+        </AppErrorBoundary>
+      </div>
+    </main>
+    {(creating || selected) && <AppErrorBoundary key={selected?.id || 'new'}>
+      <Suspense fallback={<div className="loading" role="status"><p>Cargando editor...</p></div>}>
+        <Editor initial={selected} scheduledAtForNew={scheduledAtForNew} spaceForNew={newPostSpace} sessionPosts={selected ? (editorSessionIds ? editorSession : [selected]) : undefined} minimized={editorMinimized} onMinimizedChange={setEditorMinimized} boardPick={Boolean(selected)} mediaAttachment={mediaAttachment} showMediaPickerInEditor={!selected || (view !== 'board' && view !== 'calendar')} onSessionNavigate={id => select(id)} onSessionAdd={addEditorSessionPost} onSessionClose={closeEditorSessionPost} onClose={closeEditor} />
+      </Suspense>
+    </AppErrorBoundary>}
+    {(view === 'board' || view === 'calendar') && selected && <AppErrorBoundary key="planner-day-switcher"><Suspense fallback={null}><BoardDaySwitcher onPickPost={pickEditorSessionPost} pickedPostIds={editorSessionPostIds} onAttachMedia={(postId, assets) => setMediaAttachment({ id: crypto.randomUUID(), postId, assets })} /></Suspense></AppErrorBoundary>}
+  </div>
 }
 
 export default function App() {

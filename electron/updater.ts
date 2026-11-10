@@ -1,7 +1,7 @@
 import { app, shell, type BrowserWindow } from 'electron'
 import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
 
-export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error'
+export type UpdateStatus = 'unavailable' | 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'updated' | 'error'
 
 export interface UpdateState {
   status: UpdateStatus
@@ -13,6 +13,7 @@ export interface UpdateState {
   percent: number | null
   transferred: number | null
   total: number | null
+  preview?: boolean
 }
 
 export class UpdateManager {
@@ -23,6 +24,8 @@ export class UpdateManager {
   private installFallbackTimer: ReturnType<typeof setTimeout> | null = null
   private quittingForInstall = false
   private checkInProgress = false
+  private previewMode = false
+  private previewSequence = 0
 
   constructor(
     private readonly getWindow: () => BrowserWindow | null,
@@ -65,6 +68,23 @@ export class UpdateManager {
 
   getState() { return { ...this.state } }
 
+  preview() {
+    if (app.isPackaged) return this.getState()
+    this.previewMode = true
+    this.setState({
+      status: 'available',
+      message: 'Vista previa: hay una actualización simulada disponible.',
+      availableVersion: `${app.getVersion()}-preview-${++this.previewSequence}`,
+      releaseNotes: 'Esta actualización es solo una simulación para revisar el flujo visual.',
+      releaseUrl: null,
+      percent: null,
+      transferred: null,
+      total: null,
+      preview: true,
+    })
+    return this.getState()
+  }
+
   async check() {
     if (!app.isPackaged) return this.getState()
     if (this.checkInProgress || ['checking', 'downloading', 'downloaded', 'installing'].includes(this.state.status)) return this.getState()
@@ -84,6 +104,22 @@ export class UpdateManager {
   }
 
   async download() {
+    if (!app.isPackaged && this.previewMode && this.state.status === 'available') {
+      const total = 24 * 1024 * 1024
+      this.setState({ status: 'downloading', message: 'Vista previa: descargando actualización...', percent: 0, transferred: 0, total })
+      for (let percent = 10; percent <= 100; percent += 10) {
+        await new Promise(resolve => setTimeout(resolve, 220))
+        this.setState({
+          status: 'downloading',
+          message: 'Vista previa: descargando actualización...',
+          percent,
+          transferred: Math.round(total * percent / 100),
+          total,
+        })
+      }
+      this.setState({ status: 'downloaded', message: 'Vista previa: la actualización está lista para instalar.', percent: 100 })
+      return this.getState()
+    }
     const canDownload = this.state.status === 'available' || (this.state.status === 'error' && this.state.availableVersion !== null)
     if (!app.isPackaged || !canDownload) return this.getState()
     this.setState({ status: 'downloading', message: 'Descargando actualización...', percent: 0, transferred: 0, total: null })
@@ -103,11 +139,22 @@ export class UpdateManager {
   }
 
   async install() {
+    if (!app.isPackaged && this.previewMode && this.state.status === 'downloaded') {
+      this.setState({ status: 'installing', message: 'Vista previa: cerrando caballocci...' })
+      await new Promise(resolve => setTimeout(resolve, 900))
+      this.setState({ status: 'installing', message: 'Vista previa: instalando la nueva versión...' })
+      await new Promise(resolve => setTimeout(resolve, 1_500))
+      this.setState({ status: 'installing', message: 'Vista previa: preparando el reinicio...' })
+      await new Promise(resolve => setTimeout(resolve, 800))
+      this.setState({ status: 'updated', message: 'Vista previa finalizada. No se instaló ni modificó ninguna versión.' })
+      return true
+    }
     if (!app.isPackaged || this.state.status !== 'downloaded') return false
     this.setState({ status: 'installing', message: 'Esperando a que terminen las operaciones en curso...' })
     try {
       await this.waitForIdle()
       this.beforeInstall()
+      this.setState({ status: 'installing', message: 'Abriendo el instalador de Windows...' })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       this.resumeOperations()
@@ -122,7 +169,7 @@ export class UpdateManager {
       try {
         // Let the renderer paint the blocking progress screen before Electron
         // starts closing windows and launching the NSIS installer.
-        setTimeout(() => autoUpdater.quitAndInstall(true, true), 900)
+        setTimeout(() => autoUpdater.quitAndInstall(false, true), 1_800)
         this.installFallbackTimer = setTimeout(() => {
           if (this.quittingForInstall) return
           this.setState({ status: 'downloaded', message: 'La aplicaciÃ³n no se cerrÃ³ para instalar. Puedes volver a intentarlo.' })

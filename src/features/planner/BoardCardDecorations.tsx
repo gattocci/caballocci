@@ -5,7 +5,13 @@ import { postColors } from '../../shared/postColors'
 import type { Post } from '../../shared/types'
 
 export type BoardCardDetailLevel = 'hidden' | 'discreet' | 'full'
-export type MobilePublicationState = { configured: boolean; currentPostIds: string[]; previouslyExportedPostIds: string[] }
+export type MobilePublicationProgress = { destinations: number; awaitingConfirmation: number; used: number; retirementPending: number }
+export type MobilePublicationState = {
+  configured: boolean
+  currentPostIds: string[]
+  previouslyExportedPostIds: string[]
+  progressByPostId: Record<string, MobilePublicationProgress>
+}
 
 export function MobileCardStatus({ state, postId, detailLevel }: { state: MobilePublicationState | null; postId: string; detailLevel: BoardCardDetailLevel }) {
   if (detailLevel === 'hidden') return null
@@ -15,11 +21,38 @@ export function MobileCardStatus({ state, postId, detailLevel }: { state: Mobile
   }
   const current = state.currentPostIds.includes(postId)
   const previous = !current && state.previouslyExportedPostIds.includes(postId)
+  const progress = state.progressByPostId[postId]
   if (!current && !previous && detailLevel === 'discreet') return null
-  const label = current ? 'En catálogo móvil' : previous ? 'Exportada antes' : 'No exportada'
-  const kind = current ? 'current' : previous ? 'previous' : 'never'
-  const title = current
-    ? 'Esta publicación tiene al menos un destino en el catálogo móvil.'
+  const kind = current && progress?.retirementPending
+    ? 'retirement-pending'
+    : current && progress?.awaitingConfirmation
+      ? 'awaiting'
+      : current
+        ? 'current'
+        : previous
+          ? 'previous'
+          : 'never'
+  const label = current
+    ? progress?.retirementPending
+      ? `Retiro pendiente${progress.retirementPending < progress.destinations ? ` ${progress.retirementPending}/${progress.destinations}` : ''}`
+      : progress?.awaitingConfirmation
+        ? progress.used
+          ? `Confirmadas ${progress.used}/${progress.destinations}`
+          : 'Esperando confirmación'
+        : progress
+          ? 'Uso confirmado'
+          : 'En catálogo móvil'
+    : previous ? 'Exportada antes' : 'No exportada'
+  const title = current && progress?.retirementPending
+    ? 'La PC recibió la señal de retiro; falta revisar y confirmar la conciliación del catálogo en Acerca de / Actualizaciones → App Android de caballocci.'
+    : current && progress?.awaitingConfirmation
+      ? progress.used
+        ? `${progress.used} de ${progress.destinations} destinos confirmados como usados; falta confirmar los restantes en el móvil.`
+        : 'Exportación completada; la PC espera una señal de uso o retiro desde el móvil.'
+      : current
+        ? progress
+          ? `El móvil confirmó el uso de ${progress.used || progress.destinations} destino(s). Sigue en el catálogo hasta que se retire.`
+          : 'Esta publicación tiene al menos un destino en el catálogo móvil.'
     : previous
       ? 'Se exportó al celular antes, pero ya no está en el catálogo actual.'
       : 'Esta publicación nunca se ha exportado al celular.'
@@ -68,4 +101,3 @@ export function BoardCardColorPicker({ post, onColor }: { post: Post; onColor(co
     </div>, document.body)}
   </div>
 }
-

@@ -16,7 +16,7 @@ export function UpdateDialog() {
   }, [])
 
   const version = update?.availableVersion
-  const visible = Boolean(update?.status === 'installing' || (version && version !== dismissedVersion && ['available', 'downloading', 'downloaded', 'error'].includes(update?.status || '')))
+  const visible = Boolean(update?.status === 'installing' || (version && version !== dismissedVersion && ['available', 'downloading', 'downloaded', 'updated', 'error'].includes(update?.status || '')))
   const busy = update?.status === 'downloading' || update?.status === 'installing'
   useEffect(() => {
     if (!visible) return
@@ -40,22 +40,26 @@ export function UpdateDialog() {
 
   if (!visible || !update || (!version && update.status !== 'installing')) return null
 
-  const title = update.status === 'downloaded' ? 'ACTUALIZACIÓN LISTA' : update.status === 'installing' ? 'INSTALANDO ACTUALIZACIÓN' : update.status === 'error' ? 'ERROR DE ACTUALIZACIÓN' : update.status === 'downloading' ? 'DESCARGANDO ACTUALIZACIÓN' : 'ACTUALIZACIÓN DISPONIBLE'
+  const title = update.status === 'downloaded' ? 'ACTUALIZACIÓN LISTA' : update.status === 'installing' ? 'INSTALANDO ACTUALIZACIÓN' : update.status === 'updated' ? 'VISTA PREVIA COMPLETADA' : update.status === 'error' ? 'ERROR DE ACTUALIZACIÓN' : update.status === 'downloading' ? 'DESCARGANDO ACTUALIZACIÓN' : 'ACTUALIZACIÓN DISPONIBLE'
   const installing = update.status === 'installing'
+  const updated = update.status === 'updated'
   return <div className="update-dialog-backdrop" role="presentation">
-    <section ref={dialogRef} tabIndex={-1} className={`update-dialog${installing ? ' installing' : ''}`} role="dialog" aria-modal="true" aria-labelledby="update-dialog-title">
+    <section ref={dialogRef} tabIndex={-1} className={`update-dialog${installing ? ' installing' : ''}${updated ? ' updated' : ''}`} role="dialog" aria-modal="true" aria-labelledby="update-dialog-title">
       {!busy && <button className="update-dialog-close" type="button" aria-label="Cerrar" onClick={() => setDismissedVersion(version || null)}><X size={17} /></button>}
       <span className="update-dialog-eyebrow">{title}</span>
-      <h2 id="update-dialog-title">{installing ? 'Preparando el instalador' : `caballocci ${version}`}</h2>
-      <p className="update-dialog-message">{installing ? 'La aplicación se cerrará para instalar la actualización. Windows puede mostrar una solicitud de permiso; al terminar, caballocci volverá a abrirse.' : update.message}</p>
+      <h2 id="update-dialog-title">{installing ? 'Preparando el instalador' : updated ? 'Así termina la actualización' : `caballocci ${version}`}</h2>
+      <p className="update-dialog-message">{update.message}</p>
+      {installing && <p className="update-dialog-guidance">{update.preview ? 'Esta secuencia es una simulación: la aplicación no se cerrará ni se ejecutará ningún instalador.' : 'caballocci se cerrará y se abrirá el instalador de Windows con el progreso visible. Si Windows solicita permiso, confírmalo. Al terminar, caballocci volverá a abrirse automáticamente.'}</p>}
+      {updated && <p className="update-dialog-guidance">En una actualización real, caballocci volvería a abrirse con la nueva versión. Esta vista previa no instaló ningún archivo.</p>}
       {!installing && <div className="update-dialog-notes"><strong>Novedades</strong><p>{update.releaseNotes || 'No se publicaron notas para esta versión. Puedes consultar la publicación en GitHub.'}</p></div>}
       {update.status === 'downloading' && <div className="update-dialog-progress"><progress max="100" value={update.percent || 0} /><span>{Math.round(update.percent || 0)}%</span></div>}
       {installing && <div className="update-install-progress" role="progressbar" aria-label="Preparando la instalación"><span /></div>}
       {!installing && <footer>
-        {!busy && <button type="button" className="settings-button" onClick={() => setDismissedVersion(version || null)}>Más tarde</button>}
-        <button type="button" className="settings-button" onClick={() => void runWithErrorReporting(() => window.planner.updates.openReleaseNotes(), 'No se pudieron abrir las notas de versión')}><ExternalLink size={14} /> GitHub</button>
-        {(update.status === 'available' || (update.status === 'error' && update.availableVersion)) && <button type="button" className="settings-button primary" onClick={() => void runWithErrorReporting(() => window.planner.updates.download(), 'No se pudo descargar la actualización')}><Download size={15} /> {update.status === 'error' ? 'Reintentar descarga' : 'Descargar'}</button>}
-        {update.status === 'downloaded' && <button type="button" className="settings-button primary" onClick={() => void runWithErrorReporting(() => window.planner.updates.install(), 'No se pudo instalar la actualización')}><RotateCw size={15} /> Reiniciar y actualizar</button>}
+        {!busy && !updated && <button type="button" className="settings-button" onClick={() => setDismissedVersion(version || null)}>Más tarde</button>}
+        {!updated && !update.preview && <button type="button" className="settings-button" onClick={() => void runWithErrorReporting(() => window.planner.updates.openReleaseNotes(), 'No se pudieron abrir las notas de versión')}><ExternalLink size={14} /> GitHub</button>}
+        {!updated && (update.status === 'available' || (update.status === 'error' && update.availableVersion)) && <button type="button" className="settings-button primary" onClick={() => void runWithErrorReporting(() => window.planner.updates.download(), 'No se pudo descargar la actualización')}><Download size={15} /> {update.status === 'error' ? 'Reintentar descarga' : 'Descargar'}</button>}
+        {!updated && update.status === 'downloaded' && <button type="button" className="settings-button primary" onClick={() => void runWithErrorReporting(() => window.planner.updates.install(), 'No se pudo instalar la actualización')}><RotateCw size={15} /> Reiniciar y actualizar</button>}
+        {updated && <button type="button" className="settings-button primary" onClick={() => setDismissedVersion(version || null)}>Cerrar vista previa</button>}
       </footer>}
     </section>
   </div>

@@ -23,9 +23,6 @@
 .ideas-import-result li { display: grid; gap: 2px; }
 .ideas-import-result li strong { color: #dfe7e1; font-size: 9px; }
 .ideas-import-result li span { color: #7f8b83; font-size: 8px; }
-.board-bulk-actions { display: flex; align-items: center; gap: 7px; padding: 9px 10px; margin-bottom: 12px; border: 1px solid #4c4130; background: #252018; color: #e4c7a2; font-size: 10px; }
-.board-bulk-actions strong { margin-right: auto; }
-.board-bulk-actions button { border: 1px solid #6b5840; background: transparent; color: #e8d2b6; border-radius: 3px; padding: 5px 8px; font-size: 9px; cursor: pointer; }
 .board-stack article.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .board-select { width: 13px!important; height: 13px!important; margin-right: 6px; accent-color: var(--accent); cursor: pointer; }
 .board-select-hit { display: grid; place-items: center; width: 28px; height: 28px; margin: -6px 2px -6px -8px; cursor: pointer; }
@@ -34,4 +31,3 @@
 .board.selecting .board-select-hit input { opacity: 1; }
 .board-grip { display: inline-flex; align-items: center; cursor: grab; opacity: .4; margin-right: 3px; }
 .board-stack article:hover .board-grip { opacity: 1; }
-.board-bulk-actions { position: sticky; top: 0; z-index: 5; }

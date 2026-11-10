@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import { usePlanner } from '../../app/store'
 import { useSelection } from '../../app/useSelection'
@@ -24,16 +24,23 @@ export function useBoardSelection({ allPosts, query, activeSpace, selectedWorkGr
   const [mobileExportMessage, setMobileExportMessage] = useState('')
   const [mobileExportSkipped, setMobileExportSkipped] = useState<string[]>([])
   const [mobilePublicationState, setMobilePublicationState] = useState<MobilePublicationState | null>(null)
+  const mobileStateErrorReported = useRef(false)
 
   const refreshMobilePublicationState = async () => {
     try {
       setMobilePublicationState(await window.planner.mobileSync.publicationState())
+      mobileStateErrorReported.current = false
     } catch (error) {
-      reportAppError(error, 'No se pudo consultar el estado de envíos al celular')
+      if (!mobileStateErrorReported.current) reportAppError(error, 'No se pudo consultar el estado de envíos al celular')
+      mobileStateErrorReported.current = true
     }
   }
 
-  useEffect(() => { void refreshMobilePublicationState() }, [])
+  useEffect(() => {
+    void refreshMobilePublicationState()
+    const timer = window.setInterval(() => void refreshMobilePublicationState(), 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => { clear() }, [query, activeSpace, selectedWorkGroupId, clear])
   useEffect(() => { setListPage(0); clear() }, [listFilterKey, clear, setListPage])
   useEffect(() => {
