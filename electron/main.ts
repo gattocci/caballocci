@@ -547,7 +547,7 @@ function mapMediaAssets(value: unknown) {
       .map(item => {
         const asset = item as Record<string, unknown>
         const compressed = typeof asset.id === 'string' && Boolean(database?.getMediaCompressionState(asset.id))
-        return { id: asset.id, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode, presentationRole: asset.presentationRole, sequence: asset.sequence, groupName: asset.groupName, compressed }
+        return { id: asset.id, sourceId: asset.sourceId, name: asset.name, kind: asset.kind, size: asset.size, mode: asset.mode, presentationRole: asset.presentationRole, sequence: asset.sequence, groupName: asset.groupName, compressed }
       })
   } catch {
     return []

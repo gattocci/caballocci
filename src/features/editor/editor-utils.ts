@@ -78,9 +78,11 @@ export function itemsToNotes(items: NoteItem[]) {
 export function inferredVisual(asset: NonNullable<PostInput['media']>[number]) {
   const name = asset.name.toLocaleLowerCase()
   const numbered = name.match(/^(\d+)[-_ .]/)
-  if (/representative|representativa|portada/.test(name)) return { role: 'representative' as const, sequence: undefined }
-  if (/cover/.test(name)) return { role: 'cover' as const, sequence: 0 }
+  if (/representative|representativa/.test(name)) return { role: 'representative' as const, sequence: undefined }
+  if (/portada|cover/.test(name)) return { role: 'cover' as const, sequence: 0 }
   if (/cierre|closing|final/.test(name)) return { role: 'closing' as const, sequence: 10000 }
+  const csvCoordinate = name.match(/r(\d+)-c\d+/i)
+  if (csvCoordinate) return { role: 'slide' as const, sequence: Math.max(1, Number(csvCoordinate[1]) - 1) }
   if (numbered) return { role: 'slide' as const, sequence: Number(numbered[1]) }
   return { role: asset.presentationRole || 'other' as const, sequence: asset.sequence }
 }
@@ -94,4 +96,3 @@ export function errorMessage(error: unknown) {
   if (typeof error === 'string') return error
   try { return JSON.stringify(error) } catch { return String(error) }
 }
-

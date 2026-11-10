@@ -5,7 +5,7 @@ import type { Row } from './types'
 export class MediaRepository {
   constructor(private readonly db: Database, private readonly persist: () => void) {}
 
-  list(): Row[] { return rows(this.db, 'SELECT id,name,kind,size,mode FROM media_assets ORDER BY created_at DESC') }
+  list(): Row[] { return rows(this.db, 'SELECT id,name,kind,size,mode FROM media_assets ORDER BY created_at DESC, rowid DESC') }
 
   getPath(id: string): string | undefined { return this.getFile(id)?.path }
 

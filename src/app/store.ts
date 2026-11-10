@@ -3,6 +3,12 @@ import type { Idea, IdeaAnalysisOptions, IdeaAnalysisProgress, IdeaCluster, Idea
 
 export type PlannerView = 'timeline' | 'calendar' | 'board' | 'concept-map' | 'ideas' | 'library' | 'sources' | 'about'
 
+export interface QuickWrite {
+  id: string
+  name: string
+  text: string
+}
+
 type WorkspaceUndoLeaf =
   | { kind: 'post'; id: string; before: Post | null; after: Post | null; label: string }
   | { kind: 'idea'; id: string; before: Idea | null; after: Idea | null; label: string }
@@ -76,14 +82,34 @@ interface PlannerState {
   renameSpace(space: string, nextName: string): Promise<void>
   removeSpace(space: string, movePosts: boolean): Promise<void>
   spaceNotes: Record<string, string>
+  quickWrites: Record<string, QuickWrite[]>
   spaceKeys: Record<string, string>
   spaceKey(space: string): string
   saveSpaceNotes(space: string, notes: string): void
+  saveQuickWrites(space: string, quickWrites: QuickWrite[]): void
 }
 
 function readStoredSpaces() {
   try { return JSON.parse(localStorage.getItem('caballocci.spaces') || '[]') as string[] }
   catch { return [] }
+}
+
+function isQuickWrite(value: unknown): value is QuickWrite {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return typeof item.id === 'string' && typeof item.name === 'string' && typeof item.text === 'string'
+}
+
+function readStoredQuickWrites() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('caballocci.quick-writes') || '{}') as Record<string, unknown>
+    return Object.fromEntries(Object.entries(stored).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value.filter(isQuickWrite) : [],
+    ]))
+  } catch {
+    return {}
+  }
 }
 
 function postChangeLabel(before: Post, after: Post) {
@@ -152,6 +178,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     catch { return [] }
   })(),
   spaceNotes: (() => { try { return JSON.parse(localStorage.getItem('caballocci.space-notes') || '{}') as Record<string, string> } catch { return {} } })(),
+  quickWrites: readStoredQuickWrites(),
   spaceKeys: (() => { try { return JSON.parse(localStorage.getItem('caballocci.space-keys') || '{}') as Record<string, string> } catch { return {} } })(),
   spaceKey: (space) => get().spaceKeys[space] || space,
   load: async () => {
@@ -457,15 +484,19 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const spaceNotes = { ...get().spaceNotes }
     if (spaceNotes[oldKey] !== undefined) spaceNotes[newKey] = spaceNotes[oldKey]
     if (oldKey !== newKey) delete spaceNotes[oldKey]
+    const quickWrites = { ...get().quickWrites }
+    if (quickWrites[oldKey] !== undefined) quickWrites[newKey] = quickWrites[oldKey]
+    if (oldKey !== newKey) delete quickWrites[oldKey]
     const hiddenSpaces = Array.from(new Set([...get().hiddenSpaces.filter(item => item !== name), space]))
     localStorage.setItem('caballocci.spaces', JSON.stringify(customSpaces))
     localStorage.setItem('caballocci.hidden-spaces', JSON.stringify(hiddenSpaces))
     localStorage.setItem('caballocci.space-keys', JSON.stringify(spaceKeys))
     localStorage.setItem('caballocci.space-notes', JSON.stringify(spaceNotes))
+    localStorage.setItem('caballocci.quick-writes', JSON.stringify(quickWrites))
     set({
       posts: get().posts.map(post => post.project === space ? { ...post, project: name } : post),
       ideas: get().ideas.map(idea => idea.space === space ? { ...idea, space: name } : idea),
-      customSpaces, hiddenSpaces, spaceKeys, spaceNotes, activeSpace: get().activeSpace === space ? name : get().activeSpace,
+      customSpaces, hiddenSpaces, spaceKeys, spaceNotes, quickWrites, activeSpace: get().activeSpace === space ? name : get().activeSpace,
     })
   },
   removeSpace: async (space, movePosts) => {
@@ -493,5 +524,14 @@ export const usePlanner = create<PlannerState>((set, get) => ({
     const spaceNotes = { ...get().spaceNotes, [stableKey]: notes }
     localStorage.setItem('caballocci.space-notes', JSON.stringify(spaceNotes))
     set({ spaceNotes })
+  },
+  saveQuickWrites: (space, writes) => {
+    const existingKey = get().spaceKeys[space]
+    const stableKey = existingKey || crypto.randomUUID()
+    const spaceKeys = existingKey ? get().spaceKeys : { ...get().spaceKeys, [space]: stableKey }
+    if (!existingKey) { localStorage.setItem('caballocci.space-keys', JSON.stringify(spaceKeys)); set({ spaceKeys }) }
+    const quickWrites = { ...get().quickWrites, [stableKey]: writes }
+    localStorage.setItem('caballocci.quick-writes', JSON.stringify(quickWrites))
+    set({ quickWrites })
   },
 }))

@@ -121,6 +121,9 @@
 .board-bulk-more summary::after { margin-left: 6px; content: '▾'; }
 .board-bulk-more[open] > div { position: absolute; top: calc(100% + 4px); right: 0; z-index: 8; display: flex; flex-wrap: wrap; gap: 6px; width: max-content; max-width: min(620px, 88vw); padding: 8px; border: 1px solid #4c4130; border-radius: 5px; background: #1c1a15; box-shadow: 0 8px 24px #0009; }
 .board-bulk-more[open] > div > button { white-space: nowrap; }
+.board-bulk-media { display: inline-flex; align-items: center; gap: 7px; padding: 0 3px; border-left: 1px solid #494033; color: #b8aa94; font-size: 9px; white-space: nowrap; }
+.board-bulk-media .media-library-button { width: 28px; height: 28px; border-color: #514735; background: #27231c; color: #cabb9f; }
+.board-bulk-media .media-library-button:hover,.board-bulk-media .media-library-button:focus-visible { border-color: #8c7654; background: #332c21; color: #fff1d4; }
 @media (hover: none) {
   .board-lane-cell .board-select-hit, .board-lane-cell .board-grip, .board-status-heading input { opacity: 1; pointer-events: auto; }
 }

@@ -1,9 +1,12 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { Smartphone } from 'lucide-react'
-import type { Post, WorkGroup } from '../../shared/types'
+import type { MediaAsset, Post, WorkGroup } from '../../shared/types'
+import { EditorMediaPicker } from '../editor/EditorMediaPicker'
 
 type BoardBulkActionsProps = {
   selected: Set<string>
+  selectedPosts: Post[]
+  onAttachMedia(attachments: Array<{ postId: string; assets: MediaAsset[] }>): void | Promise<void>
   workGroups: WorkGroup[]
   selectedWorkGroup: WorkGroup | null
   membershipTargetGroupId: string
@@ -24,7 +27,7 @@ type BoardBulkActionsProps = {
   bulkScheduleWarning: string
 }
 
-export function BoardBulkActions({ selected, workGroups, selectedWorkGroup, membershipTargetGroupId, setMembershipTargetGroupId, updateGroupMembership, openGroupForm, clear, boardMode, mobileExportBusy, exportSelectedToMobile, bulkScheduleAt, setBulkScheduleAt, setBulkScheduleWarning, bulkSchedule, bulkMove, bulkScheduleWarning, spaces, moveToSpace }: BoardBulkActionsProps) {
+export function BoardBulkActions({ selected, selectedPosts, onAttachMedia, workGroups, selectedWorkGroup, membershipTargetGroupId, setMembershipTargetGroupId, updateGroupMembership, openGroupForm, clear, boardMode, mobileExportBusy, exportSelectedToMobile, bulkScheduleAt, setBulkScheduleAt, setBulkScheduleWarning, bulkSchedule, bulkMove, bulkScheduleWarning, spaces, moveToSpace }: BoardBulkActionsProps) {
   if (!selected.size) return null
 
   return <div className="board-bulk-actions">
@@ -36,6 +39,7 @@ export function BoardBulkActions({ selected, workGroups, selectedWorkGroup, memb
     <button type="button" onClick={clear}>Limpiar</button>
     <details className="board-bulk-more"><summary>Más acciones</summary><div>
       <button type="button" disabled={mobileExportBusy} onClick={() => void exportSelectedToMobile()}><Smartphone size={14} /> {mobileExportBusy ? 'Enviando…' : 'Enviar al celular'}</button>
+      {selectedPosts.length > 1 && <div className="board-bulk-media"><span>Adjuntar medio a la selección</span><EditorMediaPicker media={[]} project="" targets={selectedPosts} onAttach={() => undefined} onAttachMany={onAttachMedia} /></div>}
       {boardMode === 'list' && <div className="bulk-schedule-control"><label htmlFor="bulk-schedule-at">Fecha y hora</label><input id="bulk-schedule-at" type="datetime-local" value={bulkScheduleAt} onChange={event => { setBulkScheduleAt(event.target.value); setBulkScheduleWarning('') }} /><button type="button" disabled={!bulkScheduleAt} onClick={bulkSchedule}>Programar</button></div>}
       <button type="button" onClick={() => void bulkMove('draft')}>Borrador</button><button type="button" onClick={() => void bulkMove('review')}>Revisión</button><button type="button" onClick={() => void bulkMove('approved')}>Aprobadas</button><button type="button" onClick={() => void bulkMove('archived')}>Archivar</button>
     </div></details>

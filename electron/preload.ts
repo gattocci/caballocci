@@ -124,9 +124,11 @@ contextBridge.exposeInMainWorld('planner', {
   },
   media: {
     previewCsvBatch: () => ipcRenderer.invoke('media:preview-csv-batch'),
-    applyCsvBatch: (token: string) => ipcRenderer.invoke('media:apply-csv-batch', token),
+    applyCsvBatch: (token: string, confirmCovers: boolean) => ipcRenderer.invoke('media:apply-csv-batch', token, confirmCovers),
     cancelCsvBatch: (token: string) => ipcRenderer.invoke('media:cancel-csv-batch', token),
     list: () => ipcRenderer.invoke('media:list'),
+    listForPosts: (targets: Array<{ id: string; project: string }>) => ipcRenderer.invoke('media:list-for-posts', targets),
+    copyToPost: (postId: string, project: string, assetIds: string[]) => ipcRenderer.invoke('media:copy-to-post', postId, project, assetIds),
     choose: (mode: 'copy' | 'reference', postId?: string, project?: string) => ipcRenderer.invoke('media:choose', mode, postId, project),
     scanPostFolder: (postId: string, project?: string) => ipcRenderer.invoke('media:scan-post-folder', postId, project),
     organizePost: (postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string) => ipcRenderer.invoke('media:organize-post', postId, project, assetIds, groupName, renameFrom),

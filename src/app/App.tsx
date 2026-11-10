@@ -5,6 +5,7 @@ import { reportAppError } from './errors'
 import { postMatchesQuery, usePlanner } from './store'
 import { AppErrorBoundary, GlobalErrorCenter } from '../components/layout/GlobalErrorCenter'
 import { UpdateDialog } from '../components/UpdateDialog'
+import type { MediaAsset } from '../shared/types'
 
 const Editor = lazy(() => import('../features/editor/Editor').then(module => ({ default: module.Editor })))
 const ConceptMap = lazy(() => import('../features/concept-map/ConceptMap').then(module => ({ default: module.ConceptMap })))
@@ -24,6 +25,7 @@ function AppContent() {
   const [newPostSpace, setNewPostSpace] = useState<string | null>(null)
   const [editorSessionIds, setEditorSessionIds] = useState<string[] | null>(null)
   const [editorMinimized, setEditorMinimized] = useState(false)
+  const [mediaAttachment, setMediaAttachment] = useState<{ id: string; postId: string; assets: MediaAsset[] } | null>(null)
   const [closeWarning, setCloseWarning] = useState(false)
   const previousView = useRef(view)
   const previousSpace = useRef(activeSpace)
@@ -48,6 +50,44 @@ function AppContent() {
     void syncPreferences()
     return () => { active = false }
   }, [load])
+  useEffect(() => {
+    if (loading) return
+    let active = true
+    let importing = false
+    let lastIssue = ''
+    let syncFailureReported = false
+    const importMobileSignals = async () => {
+      if (importing) return
+      importing = true
+      try {
+        if (!await window.planner.mobileSync.folder()) {
+          lastIssue = ''
+          syncFailureReported = false
+          return
+        }
+        const report = await window.planner.mobileSync.importEvents()
+        if (!active) return
+        const issues = [
+          ...report.invalid.map(item => `${item.file}: ${item.reason}`),
+          ...report.unknown.map(item => `${item.file}: destino no encontrado (${item.postId}/${item.targetId})`),
+        ].sort()
+        const issueSignature = issues.join('\n')
+        if (issueSignature && issueSignature !== lastIssue) {
+          reportAppError(new Error(issues.slice(0, 10).join('\n')), 'No se pudieron importar todas las señales móviles')
+        }
+        lastIssue = issueSignature
+        syncFailureReported = false
+      } catch (error) {
+        if (active && !syncFailureReported) reportAppError(error, 'No se pudieron importar las señales móviles')
+        syncFailureReported = true
+      } finally {
+        importing = false
+      }
+    }
+    void importMobileSignals()
+    const timer = window.setInterval(() => void importMobileSignals(), 10_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [loading])
   useEffect(() => {
     if (loadError) reportAppError(loadError, 'No se pudo cargar el workspace')
   }, [loadError])
@@ -173,10 +213,10 @@ function AppContent() {
     </main>
     {(creating || selected) && <AppErrorBoundary key={selected?.id || 'new'}>
       <Suspense fallback={<div className="loading" role="status"><p>Cargando editor...</p></div>}>
-        <Editor initial={selected} scheduledAtForNew={scheduledAtForNew} spaceForNew={newPostSpace} sessionPosts={selected ? (editorSessionIds ? editorSession : [selected]) : undefined} minimized={editorMinimized} onMinimizedChange={setEditorMinimized} boardPick={Boolean(selected)} onSessionNavigate={id => select(id)} onSessionAdd={addEditorSessionPost} onSessionClose={closeEditorSessionPost} onClose={closeEditor} />
+        <Editor initial={selected} scheduledAtForNew={scheduledAtForNew} spaceForNew={newPostSpace} sessionPosts={selected ? (editorSessionIds ? editorSession : [selected]) : undefined} minimized={editorMinimized} onMinimizedChange={setEditorMinimized} boardPick={Boolean(selected)} mediaAttachment={mediaAttachment} showMediaPickerInEditor={!selected || (view !== 'board' && view !== 'calendar')} onSessionNavigate={id => select(id)} onSessionAdd={addEditorSessionPost} onSessionClose={closeEditorSessionPost} onClose={closeEditor} />
       </Suspense>
     </AppErrorBoundary>}
-    {(view === 'board' || view === 'calendar') && selected && <AppErrorBoundary key="planner-day-switcher"><Suspense fallback={null}><BoardDaySwitcher onPickPost={pickEditorSessionPost} pickedPostIds={editorSessionPostIds} /></Suspense></AppErrorBoundary>}
+    {(view === 'board' || view === 'calendar') && selected && <AppErrorBoundary key="planner-day-switcher"><Suspense fallback={null}><BoardDaySwitcher onPickPost={pickEditorSessionPost} pickedPostIds={editorSessionPostIds} onAttachMedia={(postId, assets) => setMediaAttachment({ id: crypto.randomUUID(), postId, assets })} /></Suspense></AppErrorBoundary>}
   </div>
 }
 

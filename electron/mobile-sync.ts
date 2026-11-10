@@ -51,6 +51,14 @@ export interface MobileImportReport {
   unknown: Array<{ file: string; postId: string; targetId: string }>
 }
 
+export interface MobilePublicationProgress {
+  postId: string
+  destinations: number
+  awaitingConfirmation: number
+  used: number
+  retirementPending: number
+}
+
 export interface MobileExportReport {
   batch: string
   publications: number
@@ -291,6 +299,31 @@ export function summarizeMobileUsage(events: Array<{ postId: string; targetId: s
   const removed = new Set<string>()
   for (const [key, value] of latest) if (value.action === 'removed') removed.add(key)
   return { used, removed }
+}
+
+export function summarizeMobilePublicationProgress(
+  publications: Array<{ postId?: unknown; targetId?: unknown; used?: unknown }>,
+  events: Array<{ postId: string; targetId: string; action: string; usedAt: string }>,
+): MobilePublicationProgress[] {
+  const usage = summarizeMobileUsage(events)
+  const progress = new Map<string, MobilePublicationProgress>()
+  for (const publication of publications) {
+    if (typeof publication.postId !== 'string' || !publication.postId || typeof publication.targetId !== 'string' || !publication.targetId) continue
+    const item = progress.get(publication.postId) || {
+      postId: publication.postId,
+      destinations: 0,
+      awaitingConfirmation: 0,
+      used: 0,
+      retirementPending: 0,
+    }
+    item.destinations += 1
+    const key = mobileTargetKey(publication.postId, publication.targetId)
+    if (usage.removed.has(key)) item.retirementPending += 1
+    else if (publication.used === true || usage.used.has(key)) item.used += 1
+    else item.awaitingConfirmation += 1
+    progress.set(publication.postId, item)
+  }
+  return [...progress.values()]
 }
 
 /** Quita del catálogo las entradas de publicaciones eliminadas/archivadas y los destinos retirados desde el móvil. */

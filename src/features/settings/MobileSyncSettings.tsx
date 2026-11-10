@@ -31,9 +31,23 @@ export function MobileSyncSettings() {
   }
 
   useEffect(() => {
+    let active = true
+    let historyErrorReported = false
+    const refreshHistory = async () => {
+      try {
+        const history = await window.planner.mobileSync.history()
+        if (active) setMobileHistory(history)
+        historyErrorReported = false
+      } catch (error) {
+        if (active && !historyErrorReported) reportAppError(error, 'No se pudo consultar el historial móvil')
+        historyErrorReported = true
+      }
+    }
     void window.planner.mobileSync.folder().then(setMobileFolder).catch(error => reportAppError(error, 'No se pudo consultar la carpeta de sincronización'))
-    void window.planner.mobileSync.history().then(setMobileHistory).catch(error => reportAppError(error, 'No se pudo consultar el historial móvil'))
+    void refreshHistory()
     void window.planner.mobileSync.status().then(setMobileCatalogStatus).catch(error => reportAppError(error, 'No se pudo revisar el catálogo móvil'))
+    const timer = window.setInterval(() => void refreshHistory(), 10_000)
+    return () => { active = false; window.clearInterval(timer) }
   }, [])
   const chooseMobileFolder = async () => {
     setMobileBusy(true)
@@ -158,7 +172,7 @@ export function MobileSyncSettings() {
             <span className="mobile-sync-summary-action">Ver cómo funciona</span>
           </summary>
           <div className="mobile-sync-content">
-            <p className="mobile-sync-intro">La app complementaria para Android (Capacitor) muestra tus publicaciones y permite confirmar el uso por destino. Syncthing solo transporta archivos: no reemplaza la app ni comparte la base de datos.</p>
+            <p className="mobile-sync-intro">La app complementaria para Android (Capacitor) muestra tus publicaciones y permite confirmar el uso por destino. Mientras caballocci esté abierto, la PC importa automáticamente las señales cada 10 segundos; la conciliación del catálogo siempre requiere revisar y confirmar la vista previa. Syncthing solo transporta archivos: no reemplaza la app ni comparte la base de datos.</p>
             {mobileCatalogStatus?.configured && <section className={`mobile-catalog-integrity${mobileCatalogStatus.missingAlbums.length || mobileCatalogStatus.incompleteAlbums.length || mobileCatalogStatus.unreferencedAlbums.length ? ' warning' : ''}`}>
               <strong>Estado del catálogo frente a la carpeta</strong>
               {!mobileCatalogStatus.catalogExists
@@ -194,7 +208,7 @@ export function MobileSyncSettings() {
                 </ol>}
               </div>}
               <p className="catalog-grouping-note"><strong>Cómo se agrupa:</strong> cada lote identifica publicaciones exportadas juntas y se conserva al actualizar el catálogo. La conciliación retira destinos individualmente; solo borra la carpeta de un álbum cuando ya no queda ninguna referencia a ella.</p>
-              <p>La PC es quien actualiza el catálogo y elimina de la carpeta compartida los álbumes que ya no deben estar allí. Android puede enviar señales y borrar un álbum; importa primero las confirmaciones para incluir esas señales en la vista previa, espera a que Syncthing termine y evita borrar álbumes desde Android mientras concilias.</p>
+              <p>La PC es quien actualiza el catálogo y elimina de la carpeta compartida los álbumes que ya no deben estar allí. Las señales recibidas aparecen en el historial y en las tarjetas del tablero; revisa la vista previa y confirma la conciliación para aplicar los retiros. Espera a que Syncthing termine y evita borrar álbumes desde Android mientras concilias.</p>
               <button className="settings-button" disabled={mobileBusy} onClick={() => void refreshMobileStatus().catch(error => reportAppError(error, 'No se pudo actualizar el estado de carpetas'))}>Actualizar estado de carpetas (solo lectura)</button>
               {mobileStatusMessage && <small className="catalog-status-feedback" role="status">{mobileStatusMessage}</small>}
               <small>{mobileCatalogStatus.archivedCatalogs} copias de catálogo guardadas{mobileCatalogStatus.latestCatalogBackupPath ? ` · última: ${mobileCatalogStatus.latestCatalogBackupPath}` : ''}</small>
@@ -221,7 +235,7 @@ export function MobileSyncSettings() {
             <ol className="mobile-sync-steps">
               <li><b>Inicio — conecta la raíz</b><span>En Syncthing del PC, comparte la carpeta raíz con el teléfono. En Syncthing-Fork, acepta la carpeta y elige su ubicación local. Selecciona la carpeta compartida del PC en caballocci y su ubicación sincronizada en Android; son rutas locales distintas de la misma raíz.</span></li>
               <li><b>En medio — exporta en lote</b><span>Este botón exporta todas las publicaciones no archivadas que tengan medios y al menos un destino cuyo estado no sea Publicado ni No aplica. Crea el catálogo en <code>pc-outbox/catalog.json</code> y organiza los medios bajo <code>pc-outbox/publications/</code>; la app Android las muestra por destino.</span></li>
-              <li><b>Final — devuelve confirmaciones</b><span>Marca un destino como usado en Android. La app crea <code>android-inbox/&lt;dispositivo&gt;/</code>; Syncthing lo replica al PC y puedes pulsar <strong>Importar confirmaciones</strong>.</span></li>
+              <li><b>Final — devuelve confirmaciones</b><span>Marca un destino como usado en Android. La app crea <code>android-inbox/&lt;dispositivo&gt;/</code>; Syncthing lo replica al PC y caballocci importa las señales automáticamente mientras esté abierto. La conciliación sigue siendo manual y pide confirmar una vista previa.</span></li>
             </ol>
             <dl className="path-list"><div><dt>Raíz compartida en este PC</dt><dd>{mobileFolder || 'Sin configurar'}</dd></div></dl>
             <div className="settings-actions">
@@ -253,7 +267,7 @@ export function MobileSyncSettings() {
                   <RefreshCw size={13} className={mobileHistoryBusy ? 'mobile-history-spinning' : ''} /> Actualizar
                 </button>
               </header>
-              {mobileHistory.length === 0 && <p className="mobile-history-empty">Todavía no hay eventos importados. Cuando importes confirmaciones del móvil, aparecerán aquí.</p>}
+              {mobileHistory.length === 0 && <p className="mobile-history-empty">Todavía no hay eventos importados. Las señales recibidas aparecerán aquí automáticamente mientras caballocci esté abierto.</p>}
               {mobileHistory.length > 0 && <ol className="mobile-history-list">
                 {mobileHistory.map(event => {
                   const actionLabel = event.action === 'removed' ? 'Retirada del móvil' : event.action === 'folder_missing' ? 'Carpeta ausente' : 'Marcada como usada'

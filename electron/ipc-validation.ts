@@ -47,6 +47,7 @@ function mediaAsset(value: unknown, index: number) {
   if (typeof size !== 'number' || !Number.isFinite(size) || size < 0 || size > Number.MAX_SAFE_INTEGER) invalid(`media[${index}].size`)
   return {
     id: text(asset.id, `media[${index}].id`, 128, false),
+    ...(asset.sourceId === undefined ? {} : { sourceId: text(asset.sourceId, `media[${index}].sourceId`, 128, false) }),
     name: text(asset.name, `media[${index}].name`, 512, false),
     kind: enumValue(asset.kind, `media[${index}].kind`, mediaKinds),
     size,

@@ -50,6 +50,7 @@ export type WorkGroupInput = Pick<WorkGroup, 'name' | 'description' | 'space'> &
 
 export interface MediaAsset {
   id: string
+  sourceId?: string
   name: string
   kind: 'image' | 'video' | 'document'
   size: number
@@ -347,7 +348,12 @@ export interface ElectronAPI {
     previewReconcile(): Promise<MobileReconcilePreview>
     readCatalog(archiveName?: string): Promise<{ path: string; text: string }>
     listCatalogBackups(): Promise<Array<{ name: string; createdAt: string; publications: number; destinations: number; batches: number }>>
-    publicationState(): Promise<{ configured: boolean; currentPostIds: string[]; previouslyExportedPostIds: string[] }>
+    publicationState(): Promise<{
+      configured: boolean
+      currentPostIds: string[]
+      previouslyExportedPostIds: string[]
+      progressByPostId: Record<string, { destinations: number; awaitingConfirmation: number; used: number; retirementPending: number }>
+    }>
     openCatalogHistory(): Promise<string>
   }
   posts: {
@@ -430,7 +436,7 @@ export interface ElectronAPI {
     saveFolder(folder: ConceptMapFolderInput): Promise<ConceptMapFolder>
     removeFolder(id: string): Promise<{ parentId: string | null }>
   }
-  media: { previewCsvBatch(): Promise<{ token: string; csvName: string; folderName: string; layout: 'posts-in-rows' | 'posts-in-columns'; matches: Array<{ postId: string; project: string; code: string; name: string; title: string; columnHeader: string; referenceText: string }>; unmatched: string[] } | null>; applyCsvBatch(token: string): Promise<{ files: number; posts: number }>; cancelCsvBatch(token: string): Promise<void>; list(): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
+  media: { previewCsvBatch(): Promise<{ token: string; csvName: string; folderName: string; layout: 'posts-in-rows' | 'posts-in-columns'; matches: Array<{ postId: string; project: string; code: string; name: string; targetName: string; isCover: boolean; title: string; columnHeader: string; referenceText: string }>; coverCandidates: Array<{ postId: string; project: string; code: string; name: string; targetName: string; isCover: boolean; title: string; columnHeader: string; referenceText: string }>; unmatched: string[] } | null>; applyCsvBatch(token: string, confirmCovers: boolean): Promise<{ files: number; posts: number }>; cancelCsvBatch(token: string): Promise<void>; list(): Promise<MediaAsset[]>; listForPosts(targets: Array<{ id: string; project: string }>): Promise<{ library: MediaAsset[]; attached: Record<string, MediaAsset[]>; usages: Record<string, Array<{ postId: string; title: string }>> }>; copyToPost(postId: string, project: string, assetIds: string[]): Promise<MediaAsset[]>; choose(mode: 'copy' | 'reference', postId?: string, project?: string): Promise<MediaAsset[]>; scanPostFolder(postId: string, project?: string): Promise<MediaAsset[]>; organizePost(postId: string, project: string, assetIds: string[], groupName: string, renameFrom?: string): Promise<void>; reveal(id: string): Promise<void>; openFolder(postId?: string, project?: string): Promise<void>; phoneExportFolder(): Promise<string | null>; exportToPhone(postId: string, options?: { chooseFolder?: boolean }): Promise<PhoneExportResult | null>; imageUrl(id: string): string }
   clipboard: { write(text: string): Promise<void> }
   preferences: { sync(entries: Record<string, string>): Promise<Record<string, string>>; remove(key: string): Promise<void> }
   files: { readText(): Promise<{ name: string; path: string; text: string } | null> }

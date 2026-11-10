@@ -16,3 +16,9 @@ export function getCsvBatchIndexes(code: CsvBatchCode, layout: CsvBatchLayout) {
     ? { recordIndex: code.column - 1, headerIndex: code.row - 2 }
     : { recordIndex: code.row - 1, headerIndex: code.column - 1 }
 }
+
+export function getCsvBatchTargetName(sourceName: string, hasDestinationConflict: boolean, hasCoverConflict: boolean) {
+  if (!hasDestinationConflict) return { name: sourceName, isCover: false }
+  if (hasCoverConflict) return null
+  return { name: 'portada.png', isCover: true }
+}

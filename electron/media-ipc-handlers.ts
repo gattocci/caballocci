@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import type { PlannerDatabase } from './database'
 import { validateArgumentCount, validateId, validateMediaMode, validateProject } from './ipc-validation'
-import { detectCsvBatchLayout, getCsvBatchIndexes } from './integrations/media-batch-layout'
+import { detectCsvBatchLayout, getCsvBatchIndexes, getCsvBatchTargetName } from './integrations/media-batch-layout'
 
 type MediaIpcDependencies = {
   database: PlannerDatabase
@@ -31,7 +31,8 @@ export function validImageData(extension: string, data: Buffer) {
 }
 
 export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindow, handle, withoutArguments, ensurePostMediaFolder, mapPost }: MediaIpcDependencies) {
-  const pendingCsvImports = new Map<string, Array<{ sourcePath: string; postId: string; project: string; code: string; name: string; title: string; columnHeader: string; referenceText: string }>>()
+  type CsvBatchAssignment = { sourcePath: string; postId: string; project: string; code: string; name: string; targetName: string; isCover: boolean; title: string; columnHeader: string; referenceText: string }
+  const pendingCsvImports = new Map<string, CsvBatchAssignment[]>()
   handle('media:preview-csv-batch', async args => {
     if (args.length) throw new TypeError('Argumento IPC no valido: media.previewCsvBatch')
     const mainWindow = getMainWindow()
@@ -74,9 +75,10 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
       return Number.isSafeInteger(row) && row >= 1 && Number.isSafeInteger(column) && column >= 1 ? [{ row, column }] : []
     })
     const layout = detectCsvBatchLayout(codes, records.length, parsedCsv.headers.length)
-    const assignments: Array<{ sourcePath: string; postId: string; project: string; code: string; name: string; title: string; columnHeader: string; referenceText: string }> = []
+    const assignments: CsvBatchAssignment[] = []
     const unmatched: string[] = []
     const seenCodes = new Set<string>()
+    const plannedTargets = new Set<string>()
     for (const file of files) {
       const filePath = path.join(folderPick.filePaths[0], file.name)
       if (!hasPngSignature(filePath)) { unmatched.push(`${file.name}: el archivo no contiene una imagen PNG válida`); continue }
@@ -108,18 +110,34 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
           : `${file.name}: la columna ${codeMatch[2]} no existe en el CSV`)
         continue
       }
-      const destination = path.join(ensurePostMediaFolder(String(post.project || ''), postId), file.name)
-      if (fs.existsSync(destination)) { unmatched.push(`${file.name}: ya existe un archivo con ese nombre en la carpeta de destino`); continue }
-      assignments.push({ sourcePath: filePath, postId, project: String(post.project || ''), code, name: file.name, title: String(post.title || 'Publicación sin título'), columnHeader, referenceText: String(record[columnHeader] || '') })
+      const project = String(post.project || '')
+      const folder = ensurePostMediaFolder(project, postId)
+      const destination = path.join(folder, file.name)
+      const targetName = getCsvBatchTargetName(file.name, fs.existsSync(destination), fs.existsSync(path.join(folder, 'portada.png')))
+      if (!targetName) { unmatched.push(`${file.name}: ya existe un archivo con ese nombre y también existe portada.png en la carpeta de destino`); continue }
+      const plannedTargetKey = `${postId}:${targetName.name.toLocaleLowerCase()}`
+      if (plannedTargets.has(plannedTargetKey)) { unmatched.push(`${file.name}: más de un archivo se asignaría a ${targetName.name} en la misma publicación`); continue }
+      plannedTargets.add(plannedTargetKey)
+      assignments.push({ sourcePath: filePath, postId, project, code, name: file.name, targetName: targetName.name, isCover: targetName.isCover, title: String(post.title || 'Publicación sin título'), columnHeader, referenceText: String(record[columnHeader] || '') })
     }
     const token = crypto.randomUUID()
     pendingCsvImports.set(token, assignments)
-    return { token, csvName: path.basename(csvPath), folderName: path.basename(folderPick.filePaths[0]), layout, matches: assignments.map(({ sourcePath, ...item }) => item), unmatched }
+    const describe = ({ sourcePath: _sourcePath, ...item }: CsvBatchAssignment) => item
+    return {
+      token,
+      csvName: path.basename(csvPath),
+      folderName: path.basename(folderPick.filePaths[0]),
+      layout,
+      matches: assignments.filter(item => !item.isCover).map(describe),
+      coverCandidates: assignments.filter(item => item.isCover).map(describe),
+      unmatched,
+    }
   })
   handle('media:apply-csv-batch', args => {
-    if (args.length !== 1 || typeof args[0] !== 'string') throw new TypeError('Argumento IPC no valido: media.applyCsvBatch')
+    if (args.length !== 2 || typeof args[0] !== 'string' || typeof args[1] !== 'boolean') throw new TypeError('Argumento IPC no valido: media.applyCsvBatch')
     const assignments = pendingCsvImports.get(args[0])
     if (!assignments) throw new Error('La vista previa caducó. Vuelve a elegir el CSV y la carpeta.')
+    if (assignments.some(item => item.isCover) && !args[1]) throw new Error('Confirma que los archivos en conflicto son portadas antes de aplicar el lote.')
     pendingCsvImports.delete(args[0])
     const copied: string[] = []
     const grouped = new Map<string, Array<{ id: string; name: string; path: string; size: number; mode: string; kind: string }>>()
@@ -130,19 +148,19 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
         const post = database.getPost(item.postId)
         if (!post || String(post.status) !== 'review') throw new Error(`La publicación de ${item.name} ya no está “En revisión”. No se copió ningún archivo.`)
         const folder = ensurePostMediaFolder(item.project, item.postId)
-        const target = path.join(folder, item.name)
-        if (fs.existsSync(target)) throw new Error(`Ya existe ${item.name} en la carpeta de ${item.title}. No se copió ningún archivo.`)
+        const target = path.join(folder, item.targetName)
+        if (fs.existsSync(target)) throw new Error(`Ya existe ${item.targetName} en la carpeta de ${item.title}. No se copió ningún archivo.`)
       }
       for (const item of assignments) {
         const folder = ensurePostMediaFolder(item.project, item.postId)
-        const target = path.join(folder, item.name)
+        const target = path.join(folder, item.targetName)
         const staging = path.join(folder, `.${crypto.randomUUID()}.tmp`)
         copied.push(staging)
         fs.copyFileSync(item.sourcePath, staging, fs.constants.COPYFILE_EXCL)
         fs.renameSync(staging, target)
         copied.push(target)
         const stat = fs.statSync(target)
-        const asset = { id: crypto.randomUUID(), name: item.name, path: target, size: stat.size, mode: 'copy', kind: 'image' }
+        const asset = { id: crypto.randomUUID(), name: item.targetName, path: target, size: stat.size, mode: 'copy', kind: 'image' }
         mediaAssets.push(asset)
         const group = grouped.get(item.postId) || []
         group.push(asset); grouped.set(item.postId, group)
@@ -180,7 +198,178 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
     if (!postId) fs.mkdirSync(folder, { recursive: true })
     return shell.openPath(folder)
   })
-  handle('media:list', withoutArguments(() => database.listMedia()))
+  handle('media:list', withoutArguments(() => database.listMedia().filter(asset => {
+    const file = database.getMediaFile(String(asset.id))
+    return Boolean(file && ((fs.existsSync(file.path) && fs.statSync(file.path).isFile()) || (file.archivePath && fs.existsSync(file.archivePath))))
+  })))
+  handle('media:list-for-posts', args => {
+    if (args.length !== 1 || !Array.isArray(args[0]) || args[0].length > 500) throw new TypeError('Argumento IPC no valido: media.listForPosts')
+    const requested = args[0] as unknown[]
+    const targets = requested.map((value, index) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`Publicación ${index + 1} no válida.`)
+      const target = value as Record<string, unknown>
+      return {
+        id: validateId(target.id, 'post.id'),
+        project: validateProject(target.project, 'project'),
+      }
+    })
+    const attached: Record<string, Array<Record<string, unknown>>> = {}
+    const usages: Record<string, Array<{ postId: string; title: string }>> = {}
+    const postFolders = new Map<string, string>()
+    for (const row of database.list()) {
+      const post = mapPost(row)
+      const postFolder = path.resolve(ensurePostMediaFolder(String(post.project || ''), String(post.id)))
+      const seenNames = new Set<string>()
+      for (const asset of post.media as Array<{ id: string; name: string }>) {
+        const name = String(asset.name || '')
+        if (!name || seenNames.has(name)) continue
+        const file = database.getMediaFile(String(asset.id))
+        if (!file || !((fs.existsSync(file.path) && fs.statSync(file.path).isFile()) || (file.archivePath && fs.existsSync(file.archivePath)))) continue
+        if (!file.archivePath) {
+          const relative = path.relative(postFolder, path.resolve(file.path))
+          if (relative !== '' && (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative))) continue
+        }
+        seenNames.add(name)
+        usages[name] = [...(usages[name] || []), { postId: String(post.id), title: String(post.title || 'Publicación sin título') }]
+      }
+    }
+    for (const target of targets) {
+      const postRow = database.getPost(target.id)
+      if (!postRow) throw new Error(`No se encontró la publicación ${target.id}.`)
+      const postMedia = mapPost(postRow).media as Array<Record<string, unknown>>
+      const folder = ensurePostMediaFolder(target.project, target.id)
+      postFolders.set(target.id, path.resolve(folder))
+      const found: Array<Record<string, unknown>> = []
+      const visit = (directory: string, groupName?: string) => {
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+          if (entry.name.startsWith('.')) continue
+          const filePath = path.join(directory, entry.name)
+          if (entry.isDirectory() && groupName === undefined) { visit(filePath, entry.name); continue }
+          if (!entry.isFile()) continue
+          const extension = path.extname(entry.name).toLowerCase()
+          const kind = ['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(extension) ? 'image'
+            : ['.mp4', '.mov'].includes(extension) ? 'video'
+              : ['.pdf', '.doc', '.docx'].includes(extension) ? 'document' : null
+          if (!kind) continue
+          const stat = fs.statSync(filePath)
+          let asset = database.findMediaByPath(filePath)
+          if (!asset) {
+            asset = { id: crypto.randomUUID(), name: entry.name, path: filePath, kind, size: stat.size, mode: 'reference', groupName }
+            database.saveMedia([asset])
+          }
+          const linkedAsset = postMedia.find(item => item.id === asset!.id)
+          found.push({
+            id: asset.id,
+            name: entry.name,
+            size: stat.size,
+            kind,
+            mode: asset.mode,
+            ...(groupName ? { groupName } : {}),
+            ...(typeof linkedAsset?.sourceId === 'string' ? { sourceId: linkedAsset.sourceId } : {}),
+            ...(linkedAsset?.presentationRole ? { presentationRole: linkedAsset.presentationRole } : {}),
+            ...(linkedAsset?.sequence !== undefined ? { sequence: linkedAsset.sequence } : {}),
+          })
+        }
+      }
+      visit(folder)
+      attached[target.id] = found
+    }
+    const library = database.listMedia().filter(asset => {
+      const file = database.getMediaFile(String(asset.id))
+      if (!file || !((fs.existsSync(file.path) && fs.statSync(file.path).isFile()) || (file.archivePath && fs.existsSync(file.archivePath)))) return false
+      const mediaPath = path.resolve(file.path)
+      return ![...postFolders.values()].some(folder => {
+        const relative = path.relative(folder, mediaPath)
+        return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+      })
+    })
+    return { library, attached, usages }
+  })
+  handle('media:copy-to-post', args => {
+    if (args.length !== 3) throw new TypeError('Argumento IPC no valido: media.copyToPost')
+    const postId = validateId(args[0], 'post.id')
+    const project = validateProject(args[1], 'project')
+    if (!Array.isArray(args[2]) || args[2].length > 500 || args[2].some(id => typeof id !== 'string')) throw new TypeError('Lista de medios no valida')
+    const assetIds = [...new Set((args[2] as string[]).map(id => validateId(id, 'media.id')))]
+    const postFolder = ensurePostMediaFolder(project, postId)
+    const mediaById = new Map(database.listMedia().map(asset => [String(asset.id), asset]))
+    const postRow = database.getPost(postId)
+    if (!postRow) throw new Error('No se encontró la publicación.')
+    const linkedMedia = mapPost(postRow).media as Array<{ id: string; sourceId?: string; name: string; kind: string; size: number }>
+    const attachedAssets: Array<{ id: string; sourceId?: string; name: string; kind: string; size: number }> = database.listMedia().flatMap(asset => {
+      const file = database.getMediaFile(String(asset.id))
+      if (!file || !fs.existsSync(file.path) || !fs.statSync(file.path).isFile()) return []
+      const relative = path.relative(path.resolve(postFolder), path.resolve(file.path))
+      if (relative !== '' && (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative))) return []
+      const linked = linkedMedia.find(item => item.id === asset.id)
+      return [{
+        id: String(asset.id),
+        sourceId: linked?.sourceId,
+        name: String(asset.name),
+        kind: String(asset.kind),
+        size: Number(asset.size),
+      }]
+    })
+    const copies: Array<{ id: string; sourceId?: string; name: string; path: string; kind: string; size: number; mode: string }> = []
+    const newCopies: typeof copies = []
+    const createdFiles: string[] = []
+    try {
+      for (const id of assetIds) {
+        const asset = mediaById.get(id)
+        const source = database.getMediaFile(id)
+        if (!asset || !source) throw new Error('Uno de los medios seleccionados ya no está disponible.')
+        const sourceId = linkedMedia.find(linked => linked.id === id)?.sourceId || id
+        const existingCopy = attachedAssets.some(attached =>
+          attached.id === sourceId ||
+          attached.sourceId === sourceId ||
+          (String(attached.kind) === String(asset.kind) &&
+            Number(attached.size) === Number(asset.size) &&
+            normalizedMediaName(String(attached.name)) === normalizedMediaName(String(asset.name))),
+        )
+        if (existingCopy) continue
+        const relative = path.relative(path.resolve(postFolder), path.resolve(source.path))
+        if (relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))) {
+          copies.push({ id, name: String(asset.name), path: source.path, kind: String(asset.kind), size: Number(asset.size), mode: source.mode })
+          continue
+        }
+
+        const assetName = path.basename(String(asset.name)) || 'medio'
+        const extension = path.extname(assetName)
+        const baseName = path.basename(assetName, extension) || 'medio'
+        let destination = path.join(postFolder, assetName)
+        for (let suffix = 2; fs.existsSync(destination); suffix += 1) {
+          destination = path.join(postFolder, `${baseName} (${suffix})${extension}`)
+          if (suffix === 10000) throw new Error('No se pudo encontrar un nombre disponible para la copia.')
+        }
+        if (source.archivePath && source.entryName) {
+          const contents = new AdmZip(source.archivePath).readFile(source.entryName)
+          if (!contents) throw new Error(`No se pudo leer el medio comprimido ${String(asset.name)}.`)
+          fs.writeFileSync(destination, contents, { flag: 'wx' })
+        } else {
+          if (!fs.existsSync(source.path) || !fs.statSync(source.path).isFile()) throw new Error(`No se encontró el archivo ${String(asset.name)}.`)
+          fs.copyFileSync(source.path, destination, fs.constants.COPYFILE_EXCL)
+        }
+        createdFiles.push(destination)
+        const stat = fs.statSync(destination)
+        const copy = {
+          id: crypto.randomUUID(),
+          sourceId,
+          name: path.basename(destination),
+          path: destination,
+          kind: String(asset.kind),
+          size: stat.size,
+          mode: 'copy',
+        }
+        copies.push(copy)
+        newCopies.push(copy)
+      }
+      if (newCopies.length) database.saveMedia(newCopies)
+      return copies.map(({ id, sourceId, name, size, kind, mode }) => ({ id, sourceId, name, size, kind, mode }))
+    } catch (error) {
+      createdFiles.forEach(file => { try { fs.unlinkSync(file) } catch { /* Partial copy cleanup is best-effort. */ } })
+      throw error
+    }
+  })
   handle('media:scan-post-folder', args => {
     if (args.length < 1 || args.length > 2) throw new TypeError('Argumento IPC no valido: media.scanPostFolder')
     const postId = validateId(args[0], 'post.id')
@@ -320,6 +509,10 @@ export function registerMediaIpcHandlers({ database, dataDirectory, getMainWindo
       fs.rmSync(tempRoot, { recursive: true, force: true })
     }
   })
+}
+
+function normalizedMediaName(name: string) {
+  return name.replace(/ \(\d+\)(?=\.[^.]+$|$)/, '').toLocaleLowerCase()
 }
 
 function parseBatchCsv(text: string): { headers: string[]; records: Array<Record<string, string>> } {
