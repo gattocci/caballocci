@@ -190,6 +190,12 @@ function registerQuickNoteIpcHandlers() {
     assertQuickNoteSender(event)
     quickNoteWindow?.close()
   })
+  ipcMain.handle('quicknote:open', event => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error('Solicitud IPC rechazada')
+    }
+    openQuickNote()
+  })
 }
 
 function setSplashStatus(status: string) {
@@ -1225,6 +1231,21 @@ function startCaballocci() {
         notifyOptionalIntegrationStatus()
       })
     })
+  })
+  handle('system:reveal-optional-integration', args => {
+    validateArgumentCount(args, 1)
+    if (typeof args[0] !== 'string' || !args[0].trim() || args[0].length > 32_000) {
+      throw new TypeError('La ruta del ejecutable no es válida.')
+    }
+    const filePath = path.resolve(args[0].trim())
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+      return { ok: false as const, missing: true as const }
+    }
+    if (!['.exe', '.bat', '.cmd'].includes(path.extname(filePath).toLowerCase())) {
+      throw new TypeError('Solo se pueden revelar archivos .exe, .bat o .cmd.')
+    }
+    shell.showItemInFolder(filePath)
+    return { ok: true as const, missing: false as const }
   })
   handle('system:open-workspace', withoutArguments(() => shell.openPath(dataDirectory)))
   handle('system:open-space-folder', args => {

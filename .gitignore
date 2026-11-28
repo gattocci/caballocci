@@ -23,3 +23,6 @@ companion-apps/mobile-sync/android/.idea/
 
 # TypeScript build cache
 tsconfig.app.tsbuildinfo
+
+# Local agent context
+/out/

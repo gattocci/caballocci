@@ -24,3 +24,35 @@
 .markdown-body th,.markdown-body td{border:1px solid var(--line);padding:6px 10px;text-align:left}
 .markdown-body th{background:#161c19}
 .markdown-body hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+
+/* Shared scrollbars */
+:root {
+  --scrollbar-thumb: #46534a;
+  --scrollbar-track: #171c18;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 82%, white);
+  background-clip: padding-box;
+}

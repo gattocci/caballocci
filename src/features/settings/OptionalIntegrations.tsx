@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AppWindow, ImagePlus, Play, Plus, RotateCcw, Square, Trash2 } from 'lucide-react'
+import { AppWindow, FolderOpen, ImagePlus, Play, Plus, RotateCcw, Square, Trash2 } from 'lucide-react'
 import { reportAppError, runWithErrorReporting } from '../../app/errors'
 import type { OptionalIntegration, OptionalIntegrationStatus } from '../../shared/types'
 import { optionalIntegrationsPreferenceKey } from '../../shared/preference-sync'
@@ -126,6 +126,21 @@ export function OptionalIntegrations() {
     'No se pudo quitar la integración opcional',
   )
 
+  const revealIntegration = async (integration: OptionalIntegration) => {
+    const result = await window.planner.system.revealOptionalIntegration(integration.path)
+    if (result.missing) {
+      const selection = await window.planner.system.chooseOptionalIntegration()
+      if (!selection) {
+        reportAppError(new Error('No se encontró el ejecutable guardado.'), 'No se pudo abrir la ubicación')
+        return
+      }
+      await saveIntegrations(integrations.map(item => item.id === integration.id
+        ? { ...item, path: selection.path, iconDataUrl: selection.iconDataUrl || item.iconDataUrl }
+        : item))
+      await window.planner.system.revealOptionalIntegration(selection.path)
+    }
+  }
+
   return <section className="settings-section optional-integrations">
     <div className="settings-heading"><div><span>INTEGRACIONES OPCIONALES</span><h2>Accesos rápidos</h2></div><button className="settings-button" disabled={saving} onClick={() => void runWithErrorReporting(chooseFile, 'No se pudo seleccionar el ejecutable')}><Plus size={15} /> Añadir</button></div>
     <p className="settings-note">El consumo es aproximado y corresponde al proceso directo.</p>
@@ -172,6 +187,10 @@ export function OptionalIntegrations() {
               })),
               `No se pudo restaurar el icono de ${integration.name}`,
             )}><RotateCcw size={14} /></button>}
+            <button className="settings-button" title="Abrir ubicación" aria-label={`Abrir ubicación de ${integration.name}`} disabled={saving} onClick={() => void runWithErrorReporting(
+              () => revealIntegration(integration),
+              `No se pudo abrir la ubicación de ${integration.name}`,
+            )}><FolderOpen size={15} /></button>
           </div>
         </article>
       })}

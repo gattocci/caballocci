@@ -6,7 +6,7 @@ import { withClipboardPayload } from '../../shared/clipboard-payload'
 import { BoardContextMenu, BoardContextSelectionActions, BoardContextSeparator, BoardContextSubmenu } from './BoardContextMenu'
 import { PostCopyDialog } from './PostCopyDialog'
 import { ApplyFieldsDialog } from './ApplyFieldsDialog'
-import { reorderStackIds, resolveStackDropZone, type StackDropHover } from './stack-drop-zone'
+import { reorderStackIds, resolveStackDropZone, resolveCollapsedCardStackIntent, type StackDropHover } from './stack-drop-zone'
 import { nearestDropCell, type BoardDropCell } from './board-drop-magnet'
 import { PasteFormatHint } from './PasteFormatHint'
 import { availableParsedFields, groupPayloadPosts, isStructuredPostText, parsePostsFromText, readClipboardPayload, type ClipboardPasteSource, type ClipboardPostField, type ParsedPost } from '../../shared/clipboard-payload'
@@ -316,36 +316,33 @@ export function BoardLanes({ lanes, posts, activeGroups, selected, collapsedLane
       `dragover` sí, y ambos recalculan el rect, así que no hace falta un refinador aparte. */
   const collapsedCardDragOver = (event: React.DragEvent<HTMLElement>, post: Post, columnStatus: Post['status']) => {
     if (!carriesPosts(event)) return
-    const zone = resolveStackDropZone({
-      rect: event.currentTarget.getBoundingClientRect(),
-      pointerX: event.clientX, pointerY: event.clientY,
-      draggedIds: dragIds.current, targetId: post.id,
-    })
-    if (zone.kind === 'move') return // el espacio libre de la celda decide
-    if (zone.kind === 'self') {
-      // Arrastrar la tarjeta sobre sí misma no apila ni mueve: el cursor lo dice y no se pinta "Apilar".
+    const rect = event.currentTarget.getBoundingClientRect()
+    const dropRect = { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height }
+    const zone = resolveStackDropZone({ rect: dropRect, pointerX: event.clientX, pointerY: event.clientY, draggedIds: dragIds.current, targetId: post.id })
+    if (zone.kind === 'move' || zone.kind === 'self') {
       event.stopPropagation()
-      event.dataTransfer.dropEffect = 'none'
+      event.dataTransfer.dropEffect = zone.kind === 'self' ? 'none' : 'move'
       focusHover(null)
       return
     }
     if (post.status !== columnStatus) return
+    const intent = resolveCollapsedCardStackIntent(dropRect, event.clientY, { altKey: event.altKey, shiftKey: event.shiftKey })
     event.preventDefault()
     event.stopPropagation()
     event.dataTransfer.dropEffect = 'move'
-    focusHover(zone)
+    if (intent === 'move') focusHover(null)
+    else focusHover(zone)
   }
 
   const collapsedCardDrop = (event: React.DragEvent<HTMLElement>, post: Post, columnStatus: Post['status']) => {
     if (!carriesPosts(event)) return
-    const zone = resolveStackDropZone({
-      rect: event.currentTarget.getBoundingClientRect(),
-      pointerX: event.clientX, pointerY: event.clientY,
-      draggedIds: dragIds.current, targetId: post.id,
-    })
-    if (zone.kind === 'move') return // deja pasar a la celda (mover de columna)
+    const rect = event.currentTarget.getBoundingClientRect()
+    const dropRect = { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height }
+    const zone = resolveStackDropZone({ rect: dropRect, pointerX: event.clientX, pointerY: event.clientY, draggedIds: dragIds.current, targetId: post.id })
+    if (zone.kind === 'move' || zone.kind === 'self') return
+    const intent = resolveCollapsedCardStackIntent(dropRect, event.clientY, { altKey: event.altKey, shiftKey: event.shiftKey })
+    if (intent === 'move') return
     event.stopPropagation()
-    if (zone.kind === 'self') return // sin drop: `dragend` limpia el estado
     const ids = dragIds.current
     if (!ids.length) return
     event.preventDefault()

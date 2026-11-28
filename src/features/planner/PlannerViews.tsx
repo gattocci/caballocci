@@ -48,6 +48,9 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
   const [listSort, setListSort] = useState<'title' | 'status' | 'format' | 'collection' | 'date'>('date')
   const [listSortDirection, setListSortDirection] = useState<'asc' | 'desc'>('asc')
   const [listPage, setListPage] = useState(0)
+  const [includeSubcollections, setIncludeSubcollections] = useState<boolean>(() => {
+    try { return localStorage.getItem('caballocci.include-subcollections') === 'true' } catch { return false }
+  })
   useEffect(() => { setListGroup(''); setListPage(0) }, [activeSpace, selectedWorkGroupId])
   const boardSelection = useBoardSelection({ allPosts, query, activeSpace, selectedWorkGroupId, listFilterKey: [listStatus, listFormat, listGroup, listFrom, listTo].join('|'), setListPage, moveWithStacks })
   const {
@@ -201,13 +204,19 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
     try { localStorage.setItem('caballocci.board-card-details', level) } catch { /* Preferences are optional. */ }
   }
   const selectedSubtreePostIds = selectedWorkGroup ? subtreePostIds(scopedWorkGroups, selectedWorkGroup.id) : null
-  const scopedPosts = (selectedWorkGroup
-    ? (selectedSubtreePostIds ?? []).map(id => allPosts.find(post => post.id === id)).filter((post): post is Post => Boolean(post && (!selectedWorkGroup.space || post.project === selectedWorkGroup.space)))
+  const selectedDirectPostIds = selectedWorkGroup ? selectedWorkGroup.postIds : null
+  const selectedVisiblePostIds = selectedWorkGroup
+    ? includeSubcollections ? selectedSubtreePostIds : selectedDirectPostIds
+    : null
+  const scopedPosts = (selectedVisiblePostIds
+    ? selectedVisiblePostIds.map(id => allPosts.find(post => post.id === id)).filter((post): post is Post => Boolean(post && (!selectedWorkGroup?.space || post.project === selectedWorkGroup.space)))
     : activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
   const posts = selectedWorkGroup ? scopedPosts : scopedPosts.filter(post => !scopedWorkGroups.some(group => !group.archivedAt && group.postIds.includes(post.id)))
   const visibleBoardPosts = posts.filter(post => post.status !== 'archived')
   const collectionNavPosts = (activeSpace ? allPosts.filter(post => post.project === activeSpace) : allPosts).filter(post => postMatchesQuery(post, query))
-  const lanesSelectedWorkGroup = selectedWorkGroup && selectedSubtreePostIds ? { ...selectedWorkGroup, postIds: selectedSubtreePostIds } : selectedWorkGroup
+  const lanesSelectedWorkGroup = selectedWorkGroup
+    ? { ...selectedWorkGroup, postIds: selectedVisiblePostIds ?? [] }
+    : selectedWorkGroup
   const { activeGroups, boardLanes, collapsedLanes, toggleLane, reorderLane } = useBoardLanes({ activeSpace, posts: visibleBoardPosts, workGroups: scopedWorkGroups, selectedWorkGroup: lanesSelectedWorkGroup })
   const { listPosts, listPageCount, visibleListPosts } = useBoardList({ posts, workGroups: scopedWorkGroups, status: listStatus, format: listFormat, group: listGroup, from: listFrom, to: listTo, sort: listSort, direction: listSortDirection, page: listPage })
   const archivedPosts = posts.filter(post => post.status === 'archived')
@@ -286,8 +295,8 @@ export function Board({ onEditSelection, onPickPost, pickMode = false, pickedPos
   const restoreArchivedStack = (ids: string[], status: Post['status']) => { void runWithErrorReporting(() => moveWithStacks(ids, status, { groupLabel: 'Restaurar pila' }), 'No se pudo restaurar la pila') }
   return <section className={`workspace board-mode-${boardMode}${pickMode ? ' editor-session-pick-mode' : ''}`}><BoardHeader boardMode={boardMode} changeBoardMode={changeBoardMode} visiblePerColumn={visiblePerColumn} loadMore={() => setVisiblePerColumn(current => Math.min(100, current + 30))} detailLevel={boardCardDetailLevel} changeDetailLevel={changeBoardCardDetailLevel} />
     {pickMode && <div className="editor-session-pick-notice" role="status"><strong>Modo añadir pestañas</strong><span>Haz clic en más publicaciones para sumarlas al editor.</span></div>}
-    {boardMode === 'kanban' && <BoardCollectionNav groups={orderedScopedWorkGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={openGroupForm} onDropPosts={dropPostsInCollection} onDropPostsUnassigned={dropPostsUnassigned} onEditGroup={group => openGroupForm(group)} onColor={changeCollectionColor} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />} />}
-    {boardMode !== 'kanban' && <BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} />}
+    {boardMode === 'kanban' && <BoardCollectionNav groups={orderedScopedWorkGroups} posts={collectionNavPosts} selectedWorkGroup={selectedWorkGroup} setActiveWorkGroup={setActiveWorkGroup} openGroupForm={openGroupForm} onDropPosts={dropPostsInCollection} onDropPostsUnassigned={dropPostsUnassigned} onEditGroup={group => openGroupForm(group)} onColor={changeCollectionColor} onGroupAction={(type, group) => setPendingGroupAction({ type, group })} groupUncompressedMediaCount={groupUncompressedMediaCount} setPendingMediaCompression={(id, name, mediaCount) => setPendingMediaCompression({ target: 'group', id, name, mediaCount })} restoreGroupMedia={restoreGroupMedia} trailing={<BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} includeSubcollections={includeSubcollections} setIncludeSubcollections={setIncludeSubcollections} />} />}
+    {boardMode !== 'kanban' && <BoardWorkGroupToolbar boardMode={boardMode} selectedWorkGroup={selectedWorkGroup} archivedCount={archiveEntryCount} showArchivedPosts={showArchivedPosts} setShowArchivedPosts={setShowArchivedPosts} openGroupForm={openGroupForm} includeSubcollections={includeSubcollections} setIncludeSubcollections={setIncludeSubcollections} />}
     {boardMode === 'list' && <BoardListFilters workGroups={scopedWorkGroups} status={listStatus} setStatus={setListStatus} format={listFormat} setFormat={setListFormat} group={listGroup} setGroup={setListGroup} from={listFrom} setFrom={setListFrom} to={listTo} setTo={setListTo} />}
     {mediaCompressionMessage && <p className="work-group-export-message" role="status">{mediaCompressionMessage}</p>}
     {boardMode === 'list' && <BoardListView

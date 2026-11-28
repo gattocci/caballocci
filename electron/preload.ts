@@ -190,5 +190,7 @@ contextBridge.exposeInMainWorld('planner', {
       ipcRenderer.on('planner:quick-note-created', handler)
       return () => ipcRenderer.removeListener('planner:quick-note-created', handler)
     },
+    openQuickNote: () => ipcRenderer.invoke('quicknote:open'),
   },
+  revealOptionalIntegration: (filePath: string) => ipcRenderer.invoke('system:reveal-optional-integration', filePath) as Promise<{ ok: true; missing: false } | { ok: false; missing: true }>,
 })

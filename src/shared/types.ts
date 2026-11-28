@@ -463,6 +463,7 @@ export interface ElectronAPI {
     chooseOptionalIntegration(): Promise<{ path: string; iconDataUrl: string | null } | null>
     chooseOptionalIntegrationIcon(): Promise<string | null>
     launchOptionalIntegration(integrationId: string, filePath: string): Promise<void>
+    revealOptionalIntegration(filePath: string): Promise<{ ok: true; missing: false } | { ok: false; missing: true }>
     stopOptionalIntegration(integrationId: string): Promise<void>
     getOptionalIntegrationStatuses(): Promise<OptionalIntegrationStatus[]>
     onOptionalIntegrationStatusChange(listener: (statuses: OptionalIntegrationStatus[]) => void): () => void
@@ -486,6 +487,7 @@ export interface ElectronAPI {
     onStateChange(listener: (state: UpdateState) => void): () => void
   }
   lifecycle: {
+    openQuickNote(): Promise<void>
     onCloseWarning(listener: () => void): () => void
     onQuickNoteCreated(listener: () => void): () => void
   }

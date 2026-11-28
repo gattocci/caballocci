@@ -106,3 +106,12 @@ export function reorderStackIds(memberIds: readonly string[], draggedId: string,
   ordered.splice(before ? target : target + 1, 0, draggedId)
   return ordered
 }
+
+export type StackIntentModifiers = { altKey?: boolean; shiftKey?: boolean }
+
+export function resolveCollapsedCardStackIntent(rect: DropRect, pointerY: number, modifiers: StackIntentModifiers = {}): 'stack' | 'move' {
+  if (modifiers.altKey || modifiers.shiftKey) return 'stack'
+  const band = Math.min(24, rect.height / 4)
+  if (pointerY < rect.top + band || pointerY > rect.bottom - band) return 'move'
+  return 'stack'
+}

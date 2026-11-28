@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveStackDropZone, reorderStackIds, type DropRect } from '../../../src/features/planner/stack-drop-zone.ts'
+import { resolveStackDropZone, resolveCollapsedCardStackIntent, reorderStackIds, type DropRect } from '../../../src/features/planner/stack-drop-zone.ts'
 
 const rect = (top: number, left: number, width: number, height: number): DropRect => ({
   top, left, right: left + width, bottom: top + height, width, height,
@@ -94,4 +94,12 @@ test('reorderStackIds mueve el miembro antes o después del destino', () => {
   // Entradas inválidas dejan el orden original intacto.
   assert.deepEqual(reorderStackIds(['a', 'b', 'c'], 'z', 'a', true), ['a', 'b', 'c'])
   assert.deepEqual(reorderStackIds(['a', 'b', 'c'], 'a', 'z', true), ['a', 'b', 'c'])
+})
+
+test('zonifica tarjetas sueltas entre mover e intención de apilar', () => {
+  const tallCard = rect(100, 200, 200, 160)
+  assert.equal(resolveCollapsedCardStackIntent(tallCard, 110), 'move')
+  assert.equal(resolveCollapsedCardStackIntent(tallCard, 180), 'stack')
+  assert.equal(resolveCollapsedCardStackIntent(tallCard, 180, { altKey: true }), 'stack')
+  assert.equal(resolveCollapsedCardStackIntent(tallCard, 110, { shiftKey: true }), 'stack')
 })
