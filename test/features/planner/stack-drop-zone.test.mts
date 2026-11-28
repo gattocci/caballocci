@@ -99,7 +99,7 @@ test('reorderStackIds mueve el miembro antes o después del destino', () => {
 test('zonifica tarjetas sueltas entre mover e intención de apilar', () => {
   const tallCard = rect(100, 200, 200, 160)
   assert.equal(resolveCollapsedCardStackIntent(tallCard, 110), 'move')
-  assert.equal(resolveCollapsedCardStackIntent(tallCard, 250), 'stack')
-  assert.equal(resolveCollapsedCardStackIntent(tallCard, 250, { altKey: true }), 'stack')
+  assert.equal(resolveCollapsedCardStackIntent(tallCard, 180), 'stack')
+  assert.equal(resolveCollapsedCardStackIntent(tallCard, 180, { altKey: true }), 'stack')
   assert.equal(resolveCollapsedCardStackIntent(tallCard, 110, { shiftKey: true }), 'stack')
 })
